@@ -51,7 +51,7 @@ dependencies = [
 dev = ["black ~= 22.10.0", "flake8 ~= 6.0.0", "flake8-pyproject ~= 1.2.1"]
 
 [project.urls]
-Home = "https://github.com/hafriedlander/gyre"
+Home = "https://github.com/stable-cabal/gyre"
 
 [project.scripts]
 gyre = "gyre.server:main"

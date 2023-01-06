@@ -113,7 +113,7 @@ docker build --target xformers .
 Install Miniconda, then in a Conda console:
 
 ```
-git clone https://github.com/hafriedlander/gyre.git
+git clone https://github.com/stable-cabal/gyre.git
 cd gyre
 conda env create -f environment.yaml
 conda activate sd-grpc-server
@@ -137,7 +137,7 @@ HF_API_TOKEN={your huggingface token} python ./server.py
 
 ### Option 2:
 
-Create a directory and download https://raw.githubusercontent.com/hafriedlander/gyre/main/engines.yaml into it, then
+Create a directory and download https://raw.githubusercontent.com/stable-cabal/gyre/main/engines.yaml into it, then
 
 ```
 set PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu116 
