@@ -5,7 +5,7 @@ if [ -z ${SD_CLOUDFLARE} ]; then
     then
         echo "server is running"
     else 
-        /bin/micromamba -r env -n sd-grpc-server run python ./server.py  
+        /bin/micromamba -r env -n gyre run python ./server.py  
     fi
 else
     SERVICE="python"
@@ -13,7 +13,7 @@ else
     then
             echo "server is running"
     else
-        /bin/micromamba -r env -n sd-grpc-server run python ./server.py  &   
+        /bin/micromamba -r env -n gyre run python ./server.py  &   
     fi
     FILE=./cloudflared-linux-amd64
     if [ ! -f "$FILE" ]; then

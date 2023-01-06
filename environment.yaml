@@ -1,4 +1,4 @@
-name: sd-grpc-server
+name: gyre
 channels:
   - pytorch
   - defaults

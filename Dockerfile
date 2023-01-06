@@ -13,7 +13,7 @@ RUN /bin/micromamba -r /env -y create -f environment.yaml
 
 # Install dependancies
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu116
-RUN /bin/micromamba -r /env -n sd-grpc-server run pip install torch~=1.12.1
+RUN /bin/micromamba -r /env -n gyre run pip install torch~=1.12.1
 
 
 
@@ -28,8 +28,8 @@ ENV FLIT_ROOT_INSTALL=1
 COPY pyproject.toml .
 COPY gyre/__init__.py gyre/
 RUN touch README.md
-RUN /bin/micromamba -r /env -n sd-grpc-server run flit install --pth-file
-RUN /bin/micromamba -r /env -n sd-grpc-server run pip cache purge
+RUN /bin/micromamba -r /env -n gyre run flit install --pth-file
+RUN /bin/micromamba -r /env -n gyre run pip cache purge
 
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
@@ -53,14 +53,14 @@ FROM devbase AS xformersbase
 RUN git clone https://github.com/facebookresearch/xformers.git
 WORKDIR /xformers
 RUN git submodule update --init --recursive
-RUN /bin/micromamba -r /env -n sd-grpc-server run pip install -r requirements.txt
+RUN /bin/micromamba -r /env -n gyre run pip install -r requirements.txt
 
 ENV FORCE_CUDA=1
 ENV TORCH_CUDA_ARCH_LIST="6.0;6.1;6.2;7.0;7.2;7.5;8.0;8.6"
 
-RUN /bin/micromamba -r /env -n sd-grpc-server run pip install .
+RUN /bin/micromamba -r /env -n gyre run pip install .
 
-RUN tar cvjf /xformers.tbz /env/envs/sd-grpc-server/lib/python3.*/site-packages/xformers*
+RUN tar cvjf /xformers.tbz /env/envs/gyre/lib/python3.*/site-packages/xformers*
 
 
 
@@ -99,7 +99,7 @@ ENV HF_API_TOKEN=mustset
 ENV SD_ENGINECFG=/config/engines.yaml
 ENV SD_WEIGHT_ROOT=/weights
 
-CMD [ "/bin/micromamba", "-r", "env", "-n", "sd-grpc-server", "run", "python", "./server.py" ]
+CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
 
 
@@ -107,10 +107,10 @@ CMD [ "/bin/micromamba", "-r", "env", "-n", "sd-grpc-server", "run", "python", "
 FROM main as xformers
 
 COPY --from=xformersbase /xformers/requirements.txt /
-RUN /bin/micromamba -r /env -n sd-grpc-server run pip install -r requirements.txt
+RUN /bin/micromamba -r /env -n gyre run pip install -r requirements.txt
 RUN rm requirements.txt
 COPY --from=xformersbase /xformers.tbz /
 RUN tar xvjf /xformers.tbz
 RUN rm /xformers.tbz
 
-CMD [ "/bin/micromamba", "-r", "env", "-n", "sd-grpc-server", "run", "python", "./server.py" ]
+CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]

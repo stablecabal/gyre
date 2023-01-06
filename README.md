@@ -116,7 +116,7 @@ Install Miniconda, then in a Conda console:
 git clone https://github.com/stablecabal/gyre.git
 cd gyre
 conda env create -f environment.yaml
-conda activate sd-grpc-server
+conda activate gyre
 ```
 
 Then for Windows:
