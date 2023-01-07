@@ -590,14 +590,13 @@ class EngineManager(object):
         if not model_path:
             raise ValueError("No remote model name was provided")
 
-        fp16 = self.mode.fp16 and spec.get("has_fp16", True)
+        prefer_fp16 = self.mode.fp16
+        has_fp16 = None
         subfolder = spec.get("subfolder", None)
         use_auth_token = self._token if spec.get("use_auth_token", False) else False
 
         if use_auth_token:
             extra_kwargs["use_auth_token"] = use_auth_token
-        if fp16:
-            extra_kwargs["revision"] = "fp16"
 
         try:
             # If we're not loading from local_only, do some extra logic to avoid downloading
@@ -605,7 +604,20 @@ class EngineManager(object):
             # the .safetensors version of .ckpt files )
             if not local_only:
                 # Get a list of files, split into path and extension
-                repo_info = huggingface_hub.model_info(model_path, **extra_kwargs)
+                repo_info = None
+                if prefer_fp16:
+                    try:
+                        repo_info = huggingface_hub.model_info(
+                            model_path, revision="fp16", **extra_kwargs
+                        )
+                        has_fp16 = True
+                    except huggingface_hub.utils.RevisionNotFoundError as e:
+                        pass
+
+                if repo_info is None:
+                    repo_info = huggingface_hub.model_info(model_path, **extra_kwargs)
+                    has_fp16 = False
+
                 repo_files = [os.path.splitext(f.rfilename) for f in repo_info.siblings]
                 # Sort by extension (grouping fails if not correctly sorted)
                 repo_files.sort(key=lambda x: x[1])
@@ -621,6 +633,7 @@ class EngineManager(object):
 
                 has_ckpt = ".ckpt" in grouped
                 has_bin = ".bin" in grouped
+                has_pt = ".pt" in grouped
                 has_safe = ".safetensors" in grouped
                 if has_safe and has_ckpt:
                     # If we have ckpt and safetensors files, don't consider matching safetensors
@@ -632,7 +645,7 @@ class EngineManager(object):
                         for f in grouped[".safetensors"] & grouped[".ckpt"]
                     ]
 
-                if not has_bin and not has_safe:
+                if not has_bin and not has_safe and not has_pt:
                     if has_ckpt:
                         raise EnvironmentError(
                             "Repo {model_path} only contains .ckpt files. We can only load Diffusers structured models."
@@ -648,15 +661,37 @@ class EngineManager(object):
                 safe_only = safe_only or spec.get("safe_only", False)
 
                 if safe_only:
-                    ignore_patterns += ["*.bin"]
+                    # Don't download .bin or .pt files if we can use safetensors
+                    ignore_patterns += ["*.bin", "*.pt"]
+                elif has_bin:
+                    # If .bin files exist, assume .pt files aren't needed
+                    ignore_patterns += ["*.pt"]
 
-                # Always exclude .ckpt and .pt files
-                ignore_patterns += ["*.ckpt", "*.pt"]
+                # Always exclude .ckpt files
+                ignore_patterns += ["*.ckpt"]
 
                 if ignore_patterns:
                     extra_kwargs["ignore_patterns"] = ignore_patterns
                 if subfolder:
                     extra_kwargs["allow_patterns"] = [f"{subfolder}*"]
+
+            if prefer_fp16 and has_fp16 is not False:
+                try:
+                    return huggingface_hub.snapshot_download(
+                        model_path,
+                        repo_type="model",
+                        local_files_only=local_only,
+                        revision="fp16",
+                        **extra_kwargs,
+                    )
+                except (
+                    FileNotFoundError,
+                    huggingface_hub.utils.RevisionNotFoundError,
+                ):
+                    if has_fp16 is True:
+                        raise EnvironmentError(
+                            "HuggingFace reported FP16 model is available on query, but failed to provide it on download"
+                        )
 
             return huggingface_hub.snapshot_download(
                 model_path,
@@ -664,6 +699,7 @@ class EngineManager(object):
                 local_files_only=local_only,
                 **extra_kwargs,
             )
+
         except Exception as e:
             if local_only:
                 raise ValueError("Couldn't query local HuggingFace cache." + str(e))
