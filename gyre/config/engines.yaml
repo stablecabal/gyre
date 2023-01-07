@@ -159,22 +159,22 @@
     inpaint_text_encoder:
       model: "@stable-diffusion-v2-inpainting/text_encoder"
 
-# This is the model for MiDaS depth estimation
+# This is the model for MiDaS depth estimation. There are four MiDaS depth estimation
+# models here, mirrored to HuggingFace from https://github.com/isl-org/MiDaS
 - model_id: "midas-beit-large-512"
-  # If you specify a URL, it will be downloaded and cached
-  urls: "https://github.com/isl-org/MiDaS/releases/download/v3_1/dpt_beit_large_512.pt"
+  model: "halffried/midas_v3_1_dpt_beit_large_512"
   type: "midas_depth_estimator"
 
 - model_id: "midas-swin2-large-384"
-  urls: "https://github.com/isl-org/MiDaS/releases/download/v3_1/dpt_swin2_large_384.pt"
+  model: "halffried/midas_v3_1_dpt_swin2_large_384"
   type: "midas_depth_estimator"
 
 - model_id: "midas-nextvit-large-384"
-  urls: "https://github.com/isl-org/MiDaS/releases/download/v3_1/dpt_next_vit_large_384.pt"
+  model: "halffried/midas_v3_1_dpt_next_vit_large_384"
   type: "midas_depth_estimator"
 
 - model_id: "midas-dpt-large-384"
-  urls: "https://github.com/isl-org/MiDaS/releases/download/v3/dpt_large_384.pt"
+  model: "halffried/midas_v3_dpt_large_384"
   type: "midas_depth_estimator"
 
 
@@ -373,7 +373,7 @@
 # That means, instead of generating images based on prompts, it generates depth_maps
 # from images. Generally, we want to keep these engines for internal use only, which
 # is why it's not marked as visible
-- id: "depth-midas-beit"
+- id: "depth-midas-beit-large-512"
   task: "depth"
   enabled: True
   # Default is _per task_, so this sets this engine as the default for "depth" tasks
