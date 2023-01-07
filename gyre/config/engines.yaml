@@ -383,3 +383,13 @@
   model: "!empty"
   overrides:
     midas_depth_estimator: "@midas-beit-large-512"
+
+# Just like generate tasks, depth tasks can have more than one engine (but one default)
+# At the moment, selecting other depth engines 
+- id: "depth-midas-nextvit-large-384"
+  task: "depth"
+  enabled: True
+  class: "MidasDepthPipeline"
+  model: "!empty"
+  overrides:
+    midas_depth_estimator: "@midas-nextvit-large-384"

@@ -357,6 +357,7 @@ class StabilityInference:
         hires_oos_fraction: float | None = None,
         tiling: bool = False,
         lora: list[tuple[str, list[float]]] | None = None,
+        depth_engine: list[str] | None = None,
         as_async=False,
     ) -> Generator[generation.Answer, None, None]:
         """
@@ -487,9 +488,13 @@ class StabilityInference:
                 depth_prompt = ref_to_prompt(
                     init_image_prompt.artifact.uuid, depth=True
                 )
-                depth_prompt.artifact.adjustments.append(
-                    generation.ImageAdjustment(depth=generation.ImageAdjustment_Depth())
+                depth_estimate = generation.ImageAdjustment(
+                    depth=generation.ImageAdjustment_Depth()
                 )
+                if depth_engine:
+                    depth_estimate.depth.depth_engine_hint.extend(depth_engine)
+
+                depth_prompt.artifact.adjustments.append(depth_estimate)
                 prompts += [depth_prompt]
 
         if lora:
@@ -848,6 +853,11 @@ if __name__ == "__main__":
         help="Add a (safetensor format) Lora. Either a path, or path:unet_weight or path:unet_weight:text_encode_weight (i.e. ./lora_weight.safetensors:0.5:0.5)",
     )
     parser.add_argument(
+        "--depth_engine",
+        action="append",
+        help="Add a depth engine hint (you can provide multiple, the first matching will be used)",
+    )
+    parser.add_argument(
         "--list_engines",
         "-L",
         action="store_true",
@@ -926,6 +936,7 @@ if __name__ == "__main__":
         "hires_oos_fraction": args.hires_oos_fraction,
         "tiling": args.tiling,
         "lora": lora,
+        "depth_engine": args.depth_engine,
         "as_async": args.as_async,
     }
 

@@ -202,7 +202,11 @@ class ParameterExtractor:
                 )
 
             elif which == "depth":
-                with self._manager.with_engine(task="depth") as estimator:
+                id = self._manager.find_by_hint(
+                    list(adjustment.depth.depth_engine_hint), task="depth"
+                )
+                print("Selected depth estimation engine", id)
+                with self._manager.with_engine(id=id, task="depth") as estimator:
                     tensor = estimator(tensor)
 
             else:

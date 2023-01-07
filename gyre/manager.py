@@ -936,9 +936,7 @@ class EngineManager(object):
 
             if name == "safety_checker":
                 if self._nsfw == "flag":
-                    fqclass_name = (
-                        "gyre.pipeline.safety_checkers.FlagOnlySafetyChecker"
-                    )
+                    fqclass_name = "gyre.pipeline.safety_checkers.FlagOnlySafetyChecker"
                 elif self._nsfw == "ignore":
                     pipeline[name] = None
                     continue
@@ -1244,6 +1242,29 @@ class EngineManager(object):
     ):
         res = self._find_specs(id=id, model_id=model_id)
         return next(res, None)
+
+    def find_by_hint(self, hints: str | Iterable[str], task: str | None = None):
+        if isinstance(hints, str):
+            hints = (hints,)
+
+        print(hints)
+
+        candidates = [
+            spec
+            for spec in self.engines
+            if "id" in spec
+            and spec.get("enabled")
+            and (task is None or spec.get("task", "generate") == task)
+        ]
+
+        for hint in hints:
+            print(hint)
+            for spec in candidates:
+                print("-", spec["id"])
+                if hint in spec["id"]:
+                    return spec["id"]
+
+        return None
 
     def save_models_as_safetensor(self, patterns):
         specs = self._find_specs(model_id=patterns)
