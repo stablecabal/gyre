@@ -121,6 +121,27 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | b
 
 
 
+
+FROM devbase AS bitsandbytesbase
+
+WORKDIR /
+ARG BANDB_REF=main
+RUN git clone https://github.com/TimDettmers/bitsandbytes.git
+
+WORKDIR /bitsandbytes
+RUN git checkout $BANDB_REF
+
+#COPY docker_support/bitsandbytes.sm89.diff /
+#RUN patch -p1 < /bitsandbytes.sm89.diff 
+
+ENV CUDA_VERSION=118  
+RUN /bin/micromamba -r /env -n gyre run make cuda12x
+RUN /bin/micromamba -r /env -n gyre run python setup.py bdist_wheel
+
+
+
+
+
 FROM devbase AS tritonbase
 
 WORKDIR /
@@ -231,6 +252,64 @@ COPY --from=xformersbase /xformers/requirements.txt /
 RUN /bin/micromamba -r /env -n gyre run pip install -r requirements.txt
 RUN rm requirements.txt
 
+COPY --from=tritonbase /triton.tbz /
+RUN tar xvjf /triton.tbz
+COPY --from=xformersbase /xformers.tbz /
+RUN tar xvjf /xformers.tbz
+
+RUN rm /*.tbz
+
+CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
+
+
+
+
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04 AS main-training
+
+COPY --from=regularbase /bin/micromamba /bin/
+RUN mkdir -p /env/envs
+COPY --from=regularbase /env/envs /env/envs/
+RUN mkdir -p /nvm
+COPY --from=regularbase /nvm /nvm/
+
+# Setup NVM & Node for Localtunnel
+ENV NVM_DIR=/nvm
+ENV NODE_VERSION=16.18.0
+
+ENV NODE_PATH $NVM_DIR/versions/node/v$NODE_VERSION/lib/node_modules
+ENV PATH      $NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
+
+RUN npm install -g localtunnel
+
+# Now we can copy everything we need
+COPY nonfree /nonfree/
+COPY gyre /gyre/
+COPY server.py .
+
+# Set up some config files
+RUN mkdir -p /huggingface
+RUN mkdir -p /weights
+RUN mkdir -p /config
+COPY gyre/config/engines.yaml /config/engines.yaml
+
+# Set up some environment files
+
+ENV HF_HOME=/huggingface
+ENV HF_API_TOKEN=mustset
+ENV SD_ENGINECFG=/config/engines.yaml
+ENV SD_WEIGHT_ROOT=/weights
+
+CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
+
+
+
+
+FROM main-training as xformers-training
+
+COPY --from=xformersbase /xformers/requirements.txt /
+RUN /bin/micromamba -r /env -n gyre run pip install -r requirements.txt
+RUN rm requirements.txt
+
 COPY --from=deepspeedbase /DeepSpeed/requirements/requirements.txt /
 RUN /bin/micromamba -r /env -n gyre run pip install -r requirements.txt
 RUN rm requirements.txt
@@ -244,6 +323,9 @@ RUN tar xvjf /deepspeed.tbz
 
 RUN rm /*.tbz
 
+COPY --from=bitsandbytesbase /bitsandbytes/dist/*.whl /
+RUN /bin/micromamba -r /env -n gyre run pip install /*.whl
+
+RUN rm /*.whl
+
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
-
-
