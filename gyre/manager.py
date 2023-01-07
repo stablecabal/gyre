@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from queue import Queue
 from types import SimpleNamespace as SN
-from typing import Iterable, Optional, Union
+from typing import Any, Iterable, Literal, Optional, Union
 from urllib.parse import urlparse
 
 import generation_pb2
@@ -502,6 +502,96 @@ class ModelSet(SN):
         self.__dict__[key] = value
 
 
+class EngineSpec:
+    def __init__(self, data: dict | None = None):
+        if data is None:
+            data = {}
+
+        self._data = {k.lower(): v for k, v in data.items()}
+
+    @property
+    def human_id(self) -> str:
+        if self.id:
+            return f"Engine {self.id}"
+        else:
+            return f"Model {self.model_id}"
+
+    @property
+    def is_engine(self) -> bool:
+        return "id" in self._data
+
+    @property
+    def is_model(self) -> bool:
+        return "model_id" in self._data
+
+    @property
+    def enabled(self) -> bool:
+        return self._data.get("enabled", True)
+
+    @property
+    def visible(self) -> bool:
+        return self.enabled and self._data.get("visible", True)
+
+    @property
+    def type(self) -> str:
+        return self._data.get("type", "pipeline").lower()
+
+    @property
+    def task(self) -> str | None:
+        if self.type == "pipeline":
+            return self._data.get("task", "generate").lower()
+        else:
+            return None
+
+    @property
+    def class_name(self) -> str | None:
+        default = None
+
+        if self.type == "pipeline":
+            if self.task == "depth":
+                default = "MidasDepthPipeline"
+            else:
+                default = "UnifiedPipeline"
+
+        return self._data.get("class", default)
+
+    @property
+    def fp16(self) -> Literal["auto", "only", "local", "never"]:
+        res = self._data.get("fp16", "auto").lower()
+        assert res in {"auto", "only", "local", "never"}, f"Invalid fp16 value {res}"
+        return res
+
+    @property
+    def model_is_empty(self) -> bool:
+        return self.model and self.model == "@empty"
+
+    @property
+    def model_is_reference(self) -> bool:
+        return self.model and self.model[0] == "@"
+
+    @property
+    def local_model_fp16(self) -> str | None:
+        path = self._data.get("local_model_fp16")
+        if not path:
+            path = self._data.get("local_model")
+            if path:
+                path += "-fp16"
+        return path
+
+    def get(self, __name: str, *args) -> Any:
+        return getattr(self, __name, *args)
+
+    def __getattr__(self, __name: str) -> Any:
+        # Special case, if the attribute is "class", rename to class_name
+        if __name == "class":
+            return self.class_name
+
+        return self._data.get(__name)
+
+    def __contains__(self, __name) -> bool:
+        return __name in self._data
+
+
 @dataclass
 class DeviceQueueSlot:
     device: torch.device
@@ -528,7 +618,7 @@ class EngineManager(object):
         batchMode=BatchMode(),
         ram_monitor=None,
     ):
-        self.engines = engines
+        self.engines = [EngineSpec(engine) for engine in engines]
         self._defaults = {}
 
         # Models that are explictly loaded with a model_id and can be referenced
@@ -564,12 +654,18 @@ class EngineManager(object):
     def batchMode(self):
         return self._batchMode
 
-    def _get_local_path(self, spec, fp16=False):
-        key = "local_model_fp16" if fp16 else "local_model"
-        path = spec.get(key)
+    def _get_local_path(self, spec: EngineSpec, fp16=False):
+        path = None
+
+        # Pick the right path
+        if fp16:
+            path = spec.local_model_fp16
+        else:
+            path = spec.local_model
+
         # Throw error if no such key in spec
         if not path:
-            raise ValueError(f"No local model field `{key}` was provided")
+            raise ValueError(f"No local model field was provided")
         # Add path to weight root if not absolute
         if not os.path.isabs(path):
             path = os.path.join(self._weight_root, path)
@@ -581,19 +677,21 @@ class EngineManager(object):
 
         return path
 
-    def _get_hf_path(self, spec, local_only=True):
+    def _get_hf_path(self, spec: EngineSpec, local_only=True):
         extra_kwargs = {}
 
-        model_path = spec.get("model")
+        model_path = spec.model
 
         # If no model_path is provided, don't try and download
         if not model_path:
             raise ValueError("No remote model name was provided")
 
-        prefer_fp16 = self.mode.fp16
+        require_fp16 = self.mode.fp16 and spec.fp16 == "only"
+        prefer_fp16 = self.mode.fp16 and spec.fp16 == "auto"
         has_fp16 = None
-        subfolder = spec.get("subfolder", None)
-        use_auth_token = self._token if spec.get("use_auth_token", False) else False
+
+        subfolder = spec.subfolder
+        use_auth_token = self._token if spec.use_auth_token else False
 
         if use_auth_token:
             extra_kwargs["use_auth_token"] = use_auth_token
@@ -605,18 +703,22 @@ class EngineManager(object):
             if not local_only:
                 # Get a list of files, split into path and extension
                 repo_info = None
-                if prefer_fp16:
+                if require_fp16 or prefer_fp16:
                     try:
                         repo_info = huggingface_hub.model_info(
                             model_path, revision="fp16", **extra_kwargs
                         )
                         has_fp16 = True
                     except huggingface_hub.utils.RevisionNotFoundError as e:
-                        pass
+                        if require_fp16:
+                            raise huggingface_hub.utils.RevisionNotFoundError(
+                                f"fp16 for {spec.human_id} is set to 'only', but no fp16 available. {e}",
+                                e.response,
+                            )
 
                 if repo_info is None:
                     repo_info = huggingface_hub.model_info(model_path, **extra_kwargs)
-                    has_fp16 = False
+                    has_fp16 = prefer_fp16 = False
 
                 repo_files = [os.path.splitext(f.rfilename) for f in repo_info.siblings]
                 # Sort by extension (grouping fails if not correctly sorted)
@@ -627,8 +729,11 @@ class EngineManager(object):
                     for k, v in itertools.groupby(repo_files, lambda x: x[1])
                 }
 
-                ignore_patterns = spec.get("ignore_patterns", [])
-                if isinstance(ignore_patterns, str):
+                ignore_patterns = spec.ignore_patterns
+
+                if not ignore_patterns:
+                    ignore_patterns = []
+                elif isinstance(ignore_patterns, str):
                     ignore_patterns = [ignore_patterns]
 
                 has_ckpt = ".ckpt" in grouped
@@ -658,7 +763,7 @@ class EngineManager(object):
                 # Only use safetensors if either we have safetensor equivalents for every bin
                 safe_only = has_bin and is_safetensors_compatible(repo_info)
                 # Or if the spec explicitly says to
-                safe_only = safe_only or spec.get("safe_only", False)
+                safe_only = safe_only or spec.safe_only
 
                 if safe_only:
                     # Don't download .bin or .pt files if we can use safetensors
@@ -675,7 +780,7 @@ class EngineManager(object):
                 if subfolder:
                     extra_kwargs["allow_patterns"] = [f"{subfolder}*"]
 
-            if prefer_fp16 and has_fp16 is not False:
+            if require_fp16 or prefer_fp16:
                 try:
                     return huggingface_hub.snapshot_download(
                         model_path,
@@ -689,8 +794,12 @@ class EngineManager(object):
                     huggingface_hub.utils.RevisionNotFoundError,
                 ):
                     if has_fp16 is True:
-                        raise EnvironmentError(
-                            "HuggingFace reported FP16 model is available on query, but failed to provide it on download"
+                        raise RuntimeError(
+                            "HuggingFace reported FP16 model is available on query, but failed to provide it on download."
+                        )
+                    if require_fp16:
+                        raise RuntimeError(
+                            f"fp16 for {spec.human_id} is set to 'only', but no fp16 available."
                         )
 
             return huggingface_hub.snapshot_download(
@@ -706,8 +815,8 @@ class EngineManager(object):
             else:
                 raise ValueError("Downloading from HuggingFace failed." + str(e))
 
-    def _get_hf_forced_path(self, spec):
-        model_path = spec.get("model")
+    def _get_hf_forced_path(self, spec: EngineSpec):
+        model_path = spec.model
 
         # If no model_path is provided, don't try and download
         if not model_path:
@@ -728,8 +837,8 @@ class EngineManager(object):
 
         return self._get_hf_path(spec, local_only=False)
 
-    def _get_url_path(self, spec, local_only=True):
-        urls = spec.get("urls")
+    def _get_url_path(self, spec: EngineSpec, local_only=True):
+        urls = spec.urls
 
         if not urls:
             raise ValueError("No URL was provided")
@@ -779,13 +888,13 @@ class EngineManager(object):
 
         return cache_path
 
-    def _get_weight_path_candidates(self, spec: dict):
+    def _get_weight_path_candidates(self, spec: EngineSpec):
         candidates = []
 
         def add_candidate(callable, *args, **kwargs):
             candidates.append((callable, args, kwargs))
 
-        model_path = spec.get("model")
+        model_path = spec.model
         matches_refresh = (
             self._refresh_models
             and model_path
@@ -805,10 +914,11 @@ class EngineManager(object):
             # Or an explicit URL
             add_candidate(self._get_url_path, local_only=False)
         # 2nd: If we're in fp16 mode, try loading the fp16-specific local model
-        if self.mode.fp16:
+        if self.mode.fp16 and spec.fp16 != "never":
             add_candidate(self._get_local_path, fp16=True)
         # 3rd: Try loading the general local model
-        add_candidate(self._get_local_path, fp16=False)
+        if not (self.mode.fp16 and spec.fp16 == "only"):
+            add_candidate(self._get_local_path, fp16=False)
         # 4th: Try loading from the existing HuggingFace cache
         add_candidate(self._get_hf_path, local_only=True)
         # 5th: Try loading from an already-downloaded explicit URL
@@ -947,19 +1057,17 @@ class EngineManager(object):
 
         return ModelSet(**pipeline)
 
-    def _load_from_weights(self, spec: dict, weight_path: str) -> ModelSet:
-        # Determine if this set of weights is a pipeline, a clip
-        type = spec.get("type", "pipeline")
+    def _load_from_weights(self, spec: EngineSpec, weight_path: str) -> ModelSet:
 
         # A pipeline has a top-level json file that describes a set of models
-        if type == "pipeline":
+        if spec.type == "pipeline":
             models = self._load_modelset_from_weights(
                 weight_path,
-                whitelist=spec.get("whitelist"),
-                blacklist=spec.get("blacklist"),
+                whitelist=spec.whitelist,
+                blacklist=spec.blacklist,
             )
         # `clip` type is a special case that loads the same weights into two different models
-        elif type == "clip":
+        elif spec.type == "clip":
             models = {
                 "clip_model": self._load_model_from_weights(weight_path, "clip_model"),
                 "feature_extractor": self._load_model_from_weights(
@@ -969,14 +1077,14 @@ class EngineManager(object):
         # Otherwise load the individual model
         else:
             models = {
-                type: self._load_model_from_weights(
-                    weight_path, type, spec.get("class")
+                spec.type: self._load_model_from_weights(
+                    weight_path, spec.type, spec.class_name
                 )
             }
 
         return models if isinstance(models, ModelSet) else ModelSet(**models)
 
-    def _load_from_weight_candidates(self, spec: dict) -> tuple[ModelSet, str]:
+    def _load_from_weight_candidates(self, spec: EngineSpec) -> tuple[ModelSet, str]:
         candidates = self._get_weight_path_candidates(spec)
 
         failures = []
@@ -1001,10 +1109,10 @@ class EngineManager(object):
                 else:
                     raise e
 
-        if "id" in spec:
-            name = f"engine {spec['id']}"
+        if spec.is_engine:
+            name = f"engine {spec.id}"
         else:
-            name = f"model {spec['model_id']}"
+            name = f"model {spec.model_id}"
 
         raise EnvironmentError(
             "\n  - ".join([f"Failed to load {name}. Failed attempts:"] + failures)
@@ -1027,41 +1135,37 @@ class EngineManager(object):
 
         else:
             # Otherwise find the specification that matches the model_id reference
-            spec = [
+            specs = [
                 spec
                 for spec in self.engines
-                if spec.get("enabled", True)
-                and "model_id" in spec
-                and spec["model_id"] == modelid
+                if spec.enabled and spec.is_model and spec.model_id == modelid
             ]
 
-            if not spec:
+            if not specs:
                 raise EnvironmentError(f"Model {modelid} referenced does not exist")
 
             # And load it, storing in cache before continuing
-            self._models[modelid] = model = self._load_model(spec[0])
+            self._models[modelid] = model = self._load_model(specs[0])
 
         return getattr(model, submodel) if submodel else model
 
-    def _load_model(self, spec):
-        model = spec.get("model", None)
-
+    def _load_model(self, spec: EngineSpec):
         # Call the correct subroutine based on source to build the model
-        if isinstance(model, str) and model.startswith("@"):
-            model = self._load_from_reference(model[1:])
-        elif isinstance(model, str) and model.startswith("!empty"):
+        if spec.model_is_empty:
             model = ModelSet()
+        elif spec.model_is_reference:
+            model = self._load_from_reference(spec.model[1:])
         else:
             model, _ = self._load_from_weight_candidates(spec)
 
-        overrides = spec.get("overrides", None)
+        overrides = spec.overrides
 
         if overrides:
             for name, override in overrides.items():
                 if isinstance(override, str):
                     override = {"model": override}
 
-                override_spec = {**override, "type": name}
+                override_spec = EngineSpec({**override, "type": name})
                 override_model = self._load_model(override_spec)
 
                 if isinstance(override_model, SN):
@@ -1107,46 +1211,43 @@ class EngineManager(object):
         modules = {**modules, **extra_kwargs}
         return class_obj(**modules)
 
-    def _build_pipeline_for_engine(self, spec):
-        model = self._engine_models.get(spec["id"])
+    def _build_pipeline_for_engine(self, spec: EngineSpec):
+        model = self._engine_models.get(spec.id)
         if not model:
             raise EngineNotReadyError("Not ready yet")
 
         pipeline = self._instantiate_pipeline(spec, model, {})
 
-        pipeline_options = spec.get("options", False)
-
-        if pipeline_options:
+        if spec.options:
             try:
-                pipeline.set_options(pipeline_options)
+                pipeline.set_options(spec.options)
             except Exception:
                 raise ValueError(
-                    f"Engine {spec['id']} has options, but created pipeline rejected them"
+                    f"Engine {spec.id} has options, but created pipeline rejected them"
                 )
 
-        task = spec.get("task", "generate")
-        if task == "generate":
+        if spec.task == "generate":
             wrap_class = GeneratePipelineWrapper
         else:
             wrap_class = PipelineWrapper
 
-        return wrap_class(id=spec["id"], mode=self._mode, pipeline=pipeline)
+        return wrap_class(id=spec.id, mode=self._mode, pipeline=pipeline)
 
     def loadPipelines(self):
 
         print("Loading engines...")
 
         for engine in self.engines:
-            if not engine.get("enabled", True):
+            if not engine.enabled:
                 continue
 
             # If this isn't an engine (but a model, or a depth extractor, skip)
-            if "id" not in engine:
+            if not engine.is_engine:
                 continue
 
-            engineid = engine["id"]
-            if engine.get("default", False):
-                self._defaults[engine.get("task", "generate")] = engineid
+            engineid = engine.id
+            if engine.default:
+                self._defaults[engine.task] = engineid
 
             print(f"  - Engine {engineid}...")
             self._engine_models[engineid] = self._load_model(engine)
@@ -1161,13 +1262,13 @@ class EngineManager(object):
             new_config[key] = value
             model._internal_dict = FrozenDict(new_config)
 
-    def _save_model_as_safetensor(self, spec):
+    def _save_model_as_safetensor(self, spec: EngineSpec):
         # What's the local model attribute in the spec?
         local_model_attr = "local_model_fp16" if self.mode.fp16 else "local_model"
 
-        _id = spec.get("model_id", spec.get("id"))
-        type = spec.get("type", "pipeline")
-        outpath = spec.get(local_model_attr, None)
+        _id = spec.id if spec.id else spec.model_id
+        type = spec.type
+        outpath = spec.get(local_model_attr)
 
         if not outpath:
             raise EnvironmentError(
@@ -1252,17 +1353,13 @@ class EngineManager(object):
         candidates = [
             spec
             for spec in self.engines
-            if "id" in spec
-            and spec.get("enabled")
-            and (task is None or spec.get("task", "generate") == task)
+            if spec.enabled and spec.is_engine and (task is None or spec.task == task)
         ]
 
         for hint in hints:
-            print(hint)
             for spec in candidates:
-                print("-", spec["id"])
-                if hint in spec["id"]:
-                    return spec["id"]
+                if hint in spec.id:
+                    return spec.id
 
         return None
 
@@ -1274,21 +1371,18 @@ class EngineManager(object):
 
         print("Done")
 
-    def _find_referenced_weightspecs(self, spec):
+    def _find_referenced_weightspecs(self, spec: EngineSpec):
         referenced = []
-        model = spec.get("model")
 
-        if model and model[0] == "@":
-            model_id, *_ = model[1:].split("/")
+        if spec.model_is_reference:
+            model_id, *_ = spec.model[1:].split("/")
             model_spec = self._find_spec(model_id=model_id)
             referenced += self._find_referenced_weightspecs(model_spec)
         else:
             referenced.append(spec)
 
-        overrides = spec.get("overrides")
-
-        if overrides:
-            for _, override in overrides.items():
+        if spec.overrides:
+            for _, override in spec.overrides.items():
                 if isinstance(override, str):
                     override = {"model": override}
                 referenced += self._find_referenced_weightspecs(override)
@@ -1304,7 +1398,7 @@ class EngineManager(object):
             involved += self._find_referenced_weightspecs(spec)
 
         unique = {
-            f"e/{spec['id']}" if "id" in spec else f"m/{spec['model_id']}": spec
+            f"e/{spec.id}" if spec.is_engine else f"m/{spec.model_id}": spec
             for spec in involved
         }
 
@@ -1315,9 +1409,9 @@ class EngineManager(object):
 
     def getStatus(self):
         return {
-            engine["id"]: engine["id"] in self._engine_models
+            engine.id: engine.id in self._engine_models
             for engine in self.engines
-            if engine.get("id", False) and engine.get("enabled", False)
+            if engine.enabled and engine.is_engine
         }
 
     def _return_pipeline_to_pool(self, slot):
@@ -1369,13 +1463,11 @@ class EngineManager(object):
 
         # Get the engine spec
         spec = self._find_spec(id=id)
-        if not spec or not spec.get("enabled", False):
+        if not spec or not spec.enabled:
             raise EngineNotFoundError(f"Engine ID {id} doesn't exist or isn't enabled.")
 
-        if task is not None and task != spec.get("task", "generate"):
-            raise ValueError(
-                f"Engine ID {id} is for task '{spec.get('task', 'generate')}' not '{task}'"
-            )
+        if task is not None and task != spec.task:
+            raise ValueError(f"Engine ID {id} is for task '{spec.task}' not '{task}'")
 
         # Get device queue slot
         slot = self._device_queue.get()

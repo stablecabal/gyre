@@ -21,24 +21,18 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
 
         status = self._manager.getStatus()
         for engine in self._manager.engines:
-            if not (
-                engine.get("id")
-                and engine.get("enabled")
-                and engine.get("visible")
-                and engine.get("task", "generate") == "generate"
-            ):
+            if not (engine.is_engine and engine.visible and engine.task == "generate"):
                 continue
 
             info = engines_pb2.EngineInfo()
-            info.id = engine["id"]
-            info.name = engine["name"]
-            info.description = engine["description"]
+            info.id = engine.id
+            info.name = engine.name
+            info.description = engine.description
             info.owner = "gyre"
-            info.ready = status.get(engine["id"], False)
+            info.ready = status.get(engine.id, False)
             info.type = engines_pb2.EngineType.PICTURE
 
-            fqclass_name = engine.get("class", "UnifiedPipeline")
-            class_obj = self._manager._import_class(fqclass_name)
+            class_obj = self._manager._import_class(engine.class_name)
 
             # Calculate samplers
 
@@ -52,7 +46,7 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
 
             init_args = inspect.signature(class_obj.__init__).parameters.keys()
             call_args = inspect.signature(class_obj.__call__).parameters.keys()
-            model: ModelSet = self._manager._engine_models.get(engine["id"])
+            model: ModelSet = self._manager._engine_models.get(engine.id)
 
             if "prompt" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_TEXT)

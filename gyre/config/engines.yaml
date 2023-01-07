@@ -1,7 +1,7 @@
 # ---- Model definitions ----
 
 # You can either specify models inside the engine definition, or specify them first.
-# Putting them first like this allows them to be used multiple times while only loading 
+# Putting them first like this allows them to be used multiple times while only loading
 # them off disk once, reducing RAM usage and speeding up loading engines that share model files
 
 # We start off by defining a single model, in this case the Stability VAE.
@@ -9,10 +9,6 @@
 - model_id: "stability-vae-ema"
   # This is only a vae model, not a pipeline, so we must tell the server that
   type: "vae"
-  # There isn't an fp16 version of the model available, so always load the fp32 version.
-  # If you have fp16 models available, it reduces RAM usage to use them, but the server
-  # will convert the fp32 model if it needs an fp16 model and one doesn't exist.
-  has_fp16: False
   # This is the HuggingFace model ID to load from if the local version isn't found.
   # You can leave it out, but then the model will fail to load if the local files don't exist
   model: "stabilityai/sd-vae-ft-ema"
@@ -24,7 +20,6 @@
 # If you define a model but never use it, it doesn't get loaded, so this won't use any RAM.
 - model_id: "stability-vae-mse"
   type: "vae"
-  has_fp16: False
   model: "stabilityai/sd-vae-ft-mse"
   local_model: "./sd-vae-ft-mse"
 
@@ -43,11 +38,11 @@
   # As above, this is the path to look for a local copy of the fp32 model.
   local_model: "./stable-diffusion-inpainting"
   # Because this model has fp16 weights available, you can also specify where a local
-  # copy of those can be found. You can leave either of these local_model fields out if
-  # you know you won't use that weight.
+  # copy of those can be found. Usually you don't need to - if you don't specify anything,
+  # the value of local_model above + "-fp16" will be tried.
   local_model_fp16: "./stable-diffusion-inpainting-fp16"
 
-# Here we define the base v1.5 Stable Diffusion pipeline model. 
+# Here we define the base v1.5 Stable Diffusion pipeline model.
 - model_id: "stable-diffusion-v1-5-base"
   # We blacklist the vae as we will be replacing it in the overrides, and this saves a little RAM
   blacklist: "vae"
@@ -57,12 +52,10 @@
   use_auth_token: True
   # .. where the local fp32 model is
   local_model: "./stable-diffusion-v1-5"
-  # .. and where the local fp16 model is
-  local_model_fp16: "./stable-diffusion-v1-5-fp16"
   # Now we provide two additional models to load into the pipeline.
   overrides:
     # We load the inpaint_unet here (the pipeline otherwise wouldn't have one and would fall back
-    # to the previous model-independant inpaintint algorithm.)
+    # to the previous model-independant inpainting algorithm.)
     # Because we're using a single model from a whole pipeline, we need to specify to use the unet.
     inpaint_unet: "@stable-diffusion-inpainting/unet"
     # We override the vae with a different (better) one here.
@@ -77,46 +70,39 @@
   # You _could_ specify clip_model or feature extractor here to just load that type of model
   type: "clip"
   model: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
-  has_fp16: False
-# None of the engines reference this CLIP model. If you define a model 
+# None of the engines reference this CLIP model. If you define a model
 # but never use it, it doesn't get loaded, so this won't use any RAM
 - model_id: "laion-clip-l"
   type: "clip"
   model: "laion/CLIP-ViT-L-14-laion2B-s32B-b82K"
-  has_fp16: False
 - model_id: "laion-clip-b"
   type: "clip"
   model: "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
-  has_fp16: False
 
-# The Waifu Diffusion V1.3 mode. By now everything should make sense.
-- model_id: "waifu-diffusion-v1-3-base"
-  blacklist: "vae"
+# The Waifu Diffusion V1.4 mode. By now everything should make sense.
+- model_id: "waifu-diffusion-v1-4-base"
   model: "hakurei/waifu-diffusion"
-  local_model: "./waifu-diffusion-v1-3"
-  local_model_fp16: "./waifu-diffusion-v1-3-fp16"
-  use_auth_token: False
-  overrides:
-    vae: "@stability-vae-ema"
+  local_model: "./waifu-diffusion-v1-4"
+  # This is a new one - the HuggingFace repo has fp16 weights, but (as of when this comment was written)
+  # they're for the older V1.3. This says "don't use remote fp16 weights". You can set it
+  # to "auto", "only" (will fail if running fp16 mode and only fp32 weights available), "local" or "never".
+  fp16: "local"
 
-# Now we start specifying the Stable Diffusion 2 models. These follow 
+# Now we start specifying the Stable Diffusion 2 models. These follow
 # the same structure as the 1.5 models above
 - model_id: "stable-diffusion-v2-depth"
   whitelist: ["text_encoder", "unet"]
   model: "stabilityai/stable-diffusion-2-depth"
   local_model: "./stable-diffusion-v2-depth"
-  local_model_fp16: "./stable-diffusion-v2-depth-fp16"
-  
+
 - model_id: "stable-diffusion-v2-inpainting"
   model: "stabilityai/stable-diffusion-2-inpainting"
   whitelist: ["text_encoder", "unet"]
   local_model: "./stable-diffusion-v2-inpainting"
-  local_model_fp16: "./stable-diffusion-v2-inpainting-fp16"
 
 - model_id: "stable-diffusion-v2-base"
   model: "stabilityai/stable-diffusion-2-base"
   local_model: "./stable-diffusion-v2-base"
-  local_model_fp16: "./stable-diffusion-v2-base"
   overrides:
     # Here you can see a new type of override, the depth_unet
     depth_unet: "@stable-diffusion-v2-depth/unet"
@@ -126,7 +112,6 @@
 - model_id: "stable-diffusion-v2-1-base"
   model: "stabilityai/stable-diffusion-2-1-base"
   local_model: "./stable-diffusion-v2-1-base"
-  local_model_fp16: "./stable-diffusion-v2-1-base"
   overrides:
     # Here you can see a new type of override, the depth_unet
     depth_unet: "@stable-diffusion-v2-depth/unet"
@@ -138,26 +123,23 @@
 - model_id: "stable-diffusion-v2-vpred"
   model: "stabilityai/stable-diffusion-2"
   local_model: "./stable-diffusion-v2"
-  local_model_fp16: "./stable-diffusion-v2-fp16"
 
 # And 2.1 768x768
 - model_id: "stable-diffusion-v2-1-vpred"
   model: "stabilityai/stable-diffusion-2-1"
   local_model: "./stable-diffusion-v2-1"
-  local_model_fp16: "./stable-diffusion-v2-1-fp16"
 
 # This is the Inkpunk community finetune of Stable Diffusion 2. This shows
 # how to set up a grafted inpaint pipeline on a V2 base
-- model_id: 'inkpunk-diffusion'
+- model_id: "inkpunk-diffusion"
   model: "Envvi/Inkpunk-Diffusion"
-  has_fp16: False
   overrides:
-    inpaint_unet:
-      model: "@stable-diffusion-v2-inpainting/unet"
-    # The Inkpunk main text_encoder is incompatible with the SD2 inpaint text encoder
-    # so we need to override that too
-    inpaint_text_encoder:
-      model: "@stable-diffusion-v2-inpainting/text_encoder"
+    depth_unet: "@stable-diffusion-v2-depth/unet"
+    inpaint_unet: "@stable-diffusion-v2-inpainting/unet"
+    # Inkpunk is a 1.5 finetune, so the default text_encode isn't compatible with the
+    # V2 inpaint and depth unets. We need to override these _just_ for depth / inpainting
+    depth_text_encoder: "@stable-diffusion-v2-depth/text_encoder"
+    inpaint_text_encoder: "@stable-diffusion-v2-inpainting/text_encoder"
 
 # This is the model for MiDaS depth estimation. There are four MiDaS depth estimation
 # models here, mirrored to HuggingFace from https://github.com/isl-org/MiDaS
@@ -177,7 +159,6 @@
   model: "halffried/midas_v3_dpt_large_384"
   type: "midas_depth_estimator"
 
-
 # ---- Engine definitions ----
 
 # Now we define a set of engines that will handle requests. These expect
@@ -185,19 +166,23 @@
 # (either from the definitions above or just declared inline) and maybe some options
 
 # This is the Stable Diffusion V1.5 model with CLIP guidance enabled. It's the standard engine
-# we currently recommend to give the best results on most people's hardware. This configuration 
+# we currently recommend to give the best results on most people's hardware. This configuration
 # needs much less VRAM but is slightly less accurate than -quality below
 - id: "stable-diffusion-v1-5-standard"
-  # You can set enabled to False to temporarily prevent it from being loaded
+  # You can set enabled to False to temporarily prevent it from being loaded. The default is True
   enabled: True
-  # You can set visible to False to make the engine available but prevent it from showing 
-  # up in the API list (directly requesting it works)
+  # You can set visible to False to make the engine available but prevent it from showing
+  # up in the API list (directly requesting it works). The default is True.
   visible: True
+  # This sets this engine to be the default one used when no engine ID is provided
+  # in the API call. The default is False.
+  default: True
   # This name can be used by User Interfaces
   name: "Stable Diffusion V1.5 w/ standard CLIP guidance"
   # This description can be used by User Interfaces
   description: "Stable Diffusion using the RunwayML model, CLIP guidance (standard config) and our Unified pipeline"
-  # This class is used to actually handle the generation.
+  # This class is used to actually handle the generation. You normally don't need to
+  # specifiy it, the default is good
   class: "UnifiedPipeline"
   # You can set various options on each engine.
   options:
@@ -215,12 +200,10 @@
 # This is the Stable Diffusion V1.5 model with CLIP guidance enabled. This configuration needs quite
 # a lot of VRAM, but is faster and produces better results if you have enough.
 - id: "stable-diffusion-v1-5-quality"
-  # If you'd like to test this engine is compatible with your hardware, set this to True. 
+  # If you'd like to test this engine is compatible with your hardware, set this to True.
   enabled: False
-  visible: True
   name: "Stable Diffusion V1.5 w/ quality CLIP guided"
   description: "Stable Diffusion using the RunwayML model, CLIP guidance (quality config) and our Unified pipeline"
-  class: "UnifiedPipeline"
   # Here we're setting some options for the CLIP guidance engine
   options:
     clip:
@@ -237,25 +220,17 @@
   # This engine is disabled by default, since it's a strict subset of the engines above.
   # It uses slightly less VRAM because no clip model is loaded. You can enable it by changed this to True
   enabled: False
-  # You can set visible to False to make the engine available but prevent it from showing 
-  # up in the API list (directly requesting it works)
-  visible: True
   # This name can be used by User Interfaces
   name: "Stable Diffusion V1.5 without CLIP guidance"
   # This description can be used by User Interfaces
   description: "Stable Diffusion using the RunwayML model and our Unified pipeline"
-  # This class is used to actually handle the generation.
-  class: "UnifiedPipeline"
   # And finally we set the model to use - in this case we're just referencing an already-loaded model
   model: "@stable-diffusion-v1-5-base"
 
 # This is the Stable Diffusion V2.1 model with CLIP guidance enabled.
 - id: "stable-diffusion-v2-1-standard"
-  enabled: True
-  visible: True
   name: "Stable Diffusion V2.1 w/ standard CLIP guidance"
   description: "Stable Diffusion using the Stability V2.1 512x512 model, CLIP guidance (standard config) and our Unified pipeline"
-  class: "UnifiedPipeline"
   options:
     clip:
       approx_cutouts: 2
@@ -267,12 +242,10 @@
 # This is the Stable Diffusion V2.1 model with CLIP guidance enabled. This configuration needs quite
 # a lot of VRAM, but is faster and produces better results if you have enough.
 - id: "stable-diffusion-v2-1-quality"
-  # If you'd like to test this engine is compatible with your hardware, set this to True. 
+  # If you'd like to test this engine is compatible with your hardware, set this to True.
   enabled: False
-  visible: True
   name: "Stable Diffusion V2.1 w/ quality CLIP guidance"
   description: "Stable Diffusion using the Stability V2. 512x512 model, CLIP guidance (quality config) and our Unified pipeline"
-  class: "UnifiedPipeline"
   options:
     clip:
       approx_cutouts: 2
@@ -284,12 +257,10 @@
 # This is the Stable Diffusion V2.1 768x768 model with CLIP guidance. This configuration needs quite
 # a lot of VRAM, but is faster and produces better results if you have enough.
 - id: "stable-diffusion-v2-1-vpred"
-  # If you'd like to test this engine is compatible with your hardware, set this to True. 
+  # If you'd like to test this engine is compatible with your hardware, set this to True.
   enabled: False
-  visible: True
   name: "Stable Diffusion V2.1 VPred w/ quality CLIP guidance"
   description: "Stable Diffusion using the Stability V2.1 768x768 model, CLIP guidance (quality config) and our Unified pipeline"
-  class: "UnifiedPipeline"
   options:
     clip:
       approx_cutouts: 2
@@ -300,73 +271,67 @@
 
 - id: "inkpunk-diffusion"
   # To save on initial download time, the Inkpunk Diffusion model is disabled
-  # by default. This one should work on any hardware that can run the main model though, 
+  # by default. This one should work on any hardware that can run the main model though,
   # so anyone can enable it if they want to.
   enabled: False
-  visible: True
   name: "Inkpunk Diffusion"
   description: "Stable Diffusion using the Inkpunk Diffusion model and our Unified pipeline"
-  class: "UnifiedPipeline"
   model: "@inkpunk-diffusion"
   options:
+    grafted_depth: True
     grafted_inpaint: True
     clip:
       approx_cutouts: 2
       vae_cutouts: 0
-  model: "@inkpunk-diffusion"
   overrides:
     clip: "@laion-clip-b"
 
-# This is the standard Waifu Diffusion V1.3 model
-- id: "waifu-diffusion-v1-3-standard"
+# This is the standard Waifu Diffusion V1.4 model
+- id: "waifu-diffusion-v1-4-standard"
   # To save on initial download time, all the Waifu Diffusion models are disabled
-  # by default. This one should work on any hardware that can run the main model though, 
+  # by default. This one should work on any hardware that can run the main model though,
   # so anyone can enable it if they want to.
   enabled: False
-  visible: True
-  name: "Waifu Diffusion V1.3"
+  name: "Waifu Diffusion V1.4"
   description: "Stable Diffusion using the Hakurei Waifu Diffusion model and our Unified pipeline"
-  class: "UnifiedPipeline"
-  model: "@waifu-diffusion-v1-3-base"
+  model: "@waifu-diffusion-v1-4-base"
   options:
+    grafted_depth: True
     grafted_inpaint: True
     clip:
       approx_cutouts: 2
       vae_cutouts: 0
   overrides:
-    inpaint_unet: "@stable-diffusion-inpainting/unet"
+    depth_unet: "@stable-diffusion-v2-depth/unet"
+    inpaint_unet: "@stable-diffusion-v2-inpainting/unet"
     clip: "@laion-clip-b"
 
-# This is the quality (high VRAM) Waifu Diffusion V1.3 model
-- id: "waifu-diffusion-v1-3-quality"
-  # To save on initial download time, all the Waifu Diffusion models are disabled
-  # by default.
+# This is the quality (high VRAM) Waifu Diffusion V1.4 model
+- id: "waifu-diffusion-v1-4-quality"
+  # To save on initial download time, all the Waifu Diffusion models are disabled by default.
   enabled: False
-  visible: True
-  name: "Waifu Diffusion V1.3"
+  name: "Waifu Diffusion V1.4"
   description: "Stable Diffusion using the Hakurei Waifu Diffusion model and our Unified pipeline"
-  class: "UnifiedPipeline"
-  model: "@waifu-diffusion-v1-3-base"
+  model: "@waifu-diffusion-v1-4-base"
   options:
+    grafted_depth: True
     grafted_inpaint: True
     clip:
       approx_cutouts: 2
       vae_cutouts: 2
   overrides:
-    inpaint_unet: "@stable-diffusion-inpainting/unet"
+    depth_unet: "@stable-diffusion-v2-depth/unet"
+    inpaint_unet: "@stable-diffusion-v2-inpainting/unet"
     clip: "@laion-clip-h"
 
 # And finally, here is the unmodified Stable Diffusion V1.4 model, showing how to list
 # the model inline. This is disabled by default, set enabled: True to enable it.
 - id: "stable-diffusion-v1-4"
   enabled: False
-  visible: True
   name: "Stable Diffusion V1.4"
   description: "Stable Diffusion using the CompVis model and our Unified pipeline"
-  class: "UnifiedPipeline"
   model: "CompVis/stable-diffusion-v1-4"
   local_model: "./stable-diffusion-v1-4"
-  local_model_fp16: "./stable-diffusion-v1-4-fp16"
   use_auth_token: True
 
 # This is a bit different to the previous engines. It's a task: "depth" engine.
@@ -375,21 +340,16 @@
 # is why it's not marked as visible
 - id: "depth-midas-beit-large-512"
   task: "depth"
-  enabled: True
   # Default is _per task_, so this sets this engine as the default for "depth" tasks
   default: True
-  class: "MidasDepthPipeline"
   # This says that there aren't any models except what is provided via overrides
-  model: "!empty"
+  model: "@empty"
   overrides:
     midas_depth_estimator: "@midas-beit-large-512"
 
 # Just like generate tasks, depth tasks can have more than one engine (but one default)
-# At the moment, selecting other depth engines 
 - id: "depth-midas-nextvit-large-384"
   task: "depth"
-  enabled: True
-  class: "MidasDepthPipeline"
-  model: "!empty"
+  model: "@empty"
   overrides:
     midas_depth_estimator: "@midas-nextvit-large-384"
