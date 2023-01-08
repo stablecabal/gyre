@@ -1,0 +1,40 @@
+# The Stable Diffusion V2.0 & 2.1 models from stability.ai
+
+- model_id: "stable-diffusion-v2-depth"
+  whitelist: ["text_encoder", "unet"]
+  model: "stabilityai/stable-diffusion-2-depth"
+  local_model: "./stable-diffusion-v2-depth"
+
+- model_id: "stable-diffusion-v2-inpainting"
+  whitelist: ["text_encoder", "unet"]
+  model: "stabilityai/stable-diffusion-2-inpainting"
+  local_model: "./stable-diffusion-v2-inpainting"
+
+- model_id: "stable-diffusion-v2"
+  model: "stabilityai/stable-diffusion-2-base"
+  local_model: "./stable-diffusion-v2-base"
+  overrides:
+    # Here you can see a new type of override, the depth_unet
+    depth_unet: "@stable-diffusion-v2-depth/unet"
+    inpaint_unet: "@stable-diffusion-v2-inpainting/unet"
+
+# And the 2.1 base (using the 2.0 inpaint & depth unet until 2.1 inpaint model comes out)
+- model_id: "stable-diffusion-v2-1"
+  model: "stabilityai/stable-diffusion-2-1-base"
+  local_model: "./stable-diffusion-v2-1-base"
+  overrides:
+    # Here you can see a new type of override, the depth_unet
+    depth_unet: "@stable-diffusion-v2-depth/unet"
+    inpaint_unet: "@stable-diffusion-v2-inpainting/unet"
+
+# At the moment, the higher resolution 768x768 Stable Diffusion 2 model
+# is set up as a seperate engine, as the V2 inpaint model is still 512x512
+# and gyre can't handle mixed resolutions like that.
+- model_id: "stable-diffusion-v2-vpred"
+  model: "stabilityai/stable-diffusion-2"
+  local_model: "./stable-diffusion-v2"
+
+# And 2.1 768x768
+- model_id: "stable-diffusion-v2-1-vpred"
+  model: "stabilityai/stable-diffusion-2-1"
+  local_model: "./stable-diffusion-v2-1"

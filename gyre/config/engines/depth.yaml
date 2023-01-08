@@ -1,0 +1,20 @@
+# Depth estimation engines
+
+# This is a bit different to the previous engines. It's a task: "depth" engine.
+# That means, instead of generating images based on prompts, it generates depth_maps
+# from images. Generally, we want to keep these engines for internal use only, which
+# is why it's not marked as visible
+- id: "depth-midas-beit-large-512"
+  task: "depth"
+  # Default is _per task_, so this sets this engine as the default for "depth" tasks
+  default: True
+  # This says that there aren't any models except what is provided via overrides
+  model: "@empty"
+  overrides:
+    midas_depth_estimator: "@midas-beit-large-512"
+
+- id: "depth-midas-nextvit-large-384"
+  task: "depth"
+  model: "@empty"
+  overrides:
+    midas_depth_estimator: "@midas-nextvit-large-384"

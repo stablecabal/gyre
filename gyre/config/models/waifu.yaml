@@ -1,0 +1,11 @@
+# The Waifu Diffusion V1.4 model, based on Stable Diffusion V2.0
+
+- model_id: "waifu-diffusion-v1-4"
+  model: "hakurei/waifu-diffusion"
+  local_model: "./waifu-diffusion-v1-4"
+  # The HuggingFace repo has fp16 weights, but (as of when this comment was written)
+  # they're for the older V1.3
+  fp16: "local"
+  overrides:
+    depth_unet: "@stable-diffusion-v2-depth/unet"
+    inpaint_unet: "@stable-diffusion-v2-inpainting/unet"

@@ -1,0 +1,32 @@
+# This file sets some settings on various models and engines that reduces
+# the amount of VRAM used for various features (in particular CLIP guidance)
+# in exchange for a little quality. Generally these changes are required if
+# you have < 12GB VRAM.
+
+- model_id: "clip-common"
+  model: "@openai-clip-b"
+
+- id: "stable-diffusion-v1-5"
+  options:
+    clip:
+      vae_cutouts: 0
+
+- id: "stable-diffusion-v2-1"
+  options:
+    clip:
+      vae_cutouts: 0
+
+- id: "stable-diffusion-v2-1-vpred"
+  options:
+    clip:
+      vae_cutouts: 0
+
+- id: "waifu-diffusion-v1-4"
+  options:
+    clip:
+      vae_cutouts: 0
+
+- id: "inkpunk-diffusion"
+  options:
+    clip:
+      vae_cutouts: 0

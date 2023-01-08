@@ -1,0 +1,11 @@
+# Two different VAEs from stability
+
+- model_id: "stability-vae-ema"
+  type: "vae"
+  model: "stabilityai/sd-vae-ft-ema"
+  local_model: "./sd-vae-ft-ema"
+
+- model_id: "stability-vae-mse"
+  type: "vae"
+  model: "stabilityai/sd-vae-ft-mse"
+  local_model: "./sd-vae-ft-mse"

@@ -1,0 +1,15 @@
+# This is the standard Waifu Diffusion V1.4 model
+
+- id: "waifu-diffusion-v1-4"
+  # To save on initial download time, all the Waifu Diffusion models are disabled
+  # by default. This one should work on any hardware that can run the main model though,
+  # so anyone can enable it if they want to.
+  enabled: False
+  name: "Waifu Diffusion V1.4"
+  description: "Stable Diffusion using the Hakurei Waifu Diffusion model and our Unified pipeline"
+  model: "@waifu-diffusion-v1-4-base"
+  options:
+    grafted_depth: True
+    grafted_inpaint: True
+  overrides:
+    clip: "@clip-common"

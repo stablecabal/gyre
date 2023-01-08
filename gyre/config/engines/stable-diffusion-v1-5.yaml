@@ -1,0 +1,7 @@
+- id: "stable-diffusion-v1-5"
+  default: True
+  name: "Stable Diffusion V1.5 w/ standard CLIP guidance"
+  description: "Stable Diffusion using the RunwayML model, CLIP guidance (standard config) and our Unified pipeline"
+  model: "@stable-diffusion-v1-5"
+  overrides:
+    clip: "@clip-common"

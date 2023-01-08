@@ -1,0 +1,17 @@
+# You can enable any of the included but disabled-by-default engines here, by
+# uncommenting the relevant section
+
+# - id: "stable-diffusion-v1-4"
+#   enabled: True
+
+# - id: "stable-diffusion-v2-1-vpred"
+#   enabled: True
+
+# - id: "inkpunk-diffusion"
+#   enabled: True
+
+# - id: "waifu-diffusion-v1-4"
+#   enabled: True
+
+# You can include any adjustments to standard models here
+
