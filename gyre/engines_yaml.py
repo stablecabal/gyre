@@ -7,7 +7,7 @@ import subprocess
 
 import yaml
 
-BASE_PATH = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST_CONFIG_PATH = os.path.join(BASE_PATH, "gyre/config")
 GENHASH_PATH = os.path.join(DIST_CONFIG_PATH, "dist_hashes.json")
 
