@@ -1,5 +1,7 @@
 # These are the various CLIP models that are available
 
+# The newer, larger Laion models
+
 - model_id: "laion-clip-h"
   type: "clip"
   model: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
@@ -12,6 +14,9 @@
 - model_id: "laion-clip-b"
   type: "clip"
   model: "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+
+# The original OpenAI models
+
 - model_id: "openai-clip-l"
   type: "clip"
   model: "openai/clip-vit-large-patch14"

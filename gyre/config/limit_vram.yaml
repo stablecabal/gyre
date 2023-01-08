@@ -3,8 +3,23 @@
 # in exchange for a little quality. Generally these changes are required if
 # you have < 12GB VRAM.
 
+# Use clip-b instead of clip-h for common CLIP guidance
+
 - model_id: "clip-common"
-  model: "@openai-clip-b"
+  model: "@laion-clip-b"
+
+# Use swin2 instead of beit for depth estimation
+
+- id: "depth-midas-beit-large-512"
+  enabled: False
+  default: False
+
+- id: "depth-midas-swin2-large-384"
+  enabled: True
+  default: True
+
+# Don't use vae_cutouts during CLIP guidance, just approx cutouts
+# (default is 2 of each type)
 
 - id: "stable-diffusion-v1-5"
   options:

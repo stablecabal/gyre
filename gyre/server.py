@@ -46,6 +46,7 @@ import engines_pb2_grpc
 import generation_pb2_grpc
 
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
+from gyre.engines_yaml import EnginesYaml
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.manager import BatchMode, EngineManager, EngineMode
@@ -336,15 +337,6 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         return NoResource().render(request)
 
 
-def git_object_hash(bs: bytes):
-    hasher = hashlib.sha1()
-    hasher.update(b"blob ")
-    hasher.update(bytes(str(len(bs)), "utf-8"))
-    hasher.update(b"\0")
-    hasher.update(bs)
-    return hasher.hexdigest()
-
-
 def main():
     start_time = time.time()
 
@@ -392,7 +384,7 @@ def main():
         "--enginecfg",
         "-E",
         type=str,
-        default=os.environ.get("SD_ENGINECFG", "./engines.yaml"),
+        default=os.environ.get("SD_ENGINECFG", "./config/engines.yaml"),
         help="Path to the engines.yaml file",
     )
     generation_opts.add_argument(
@@ -571,42 +563,13 @@ def main():
     prevHandler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
 
     enginecfg_path = os.path.normpath(args.enginecfg)
-    distcfg_path = os.path.join(os.path.dirname(__file__), "config")
-    disthashes_path = os.path.join(distcfg_path, "dist_hashes")
-    distenginecfg_path = os.path.join(distcfg_path, "engines.yaml")
-
-    install_enginecfg = False
-
-    if not os.path.exists(enginecfg_path):
-        print("No existing engines.yaml - initialising with default version.")
-        install_enginecfg = True
-    else:
-        # Read in existing config as byte-string, and calculate git hash
-        current_cfg = open(enginecfg_path, "rb").read()
-        current_hash = git_object_hash(current_cfg)
-        # Read in a list of historic hashes, one per line
-        *dist_hashes, newest_hash = open(disthashes_path, "r").read().splitlines()
-
-        # If current_hash matches a distro hash, but not the _newest_ hash, update
-        if current_hash in set(dist_hashes):
-            print("Out of date default engines.yaml found - updating.")
-            install_enginecfg = True
-        elif current_hash == newest_hash:
-            print("Current default engines.yaml found.")
-        else:
-            print("Your engines.yaml has been modified, so we won't change it.")
-
-    if install_enginecfg:
-        shutil.copyfile(distenginecfg_path, enginecfg_path)
-        print(
-            f"Edit {enginecfg_path} to enable, disable or add additional models and engines."
-        )
+    EnginesYaml.check_and_update(os.path.dirname(enginecfg_path))
 
     if xformers_mea_available():
         print("Xformers defaults to on")
 
     with open(os.path.normpath(args.enginecfg), "r") as cfg:
-        engines = yaml.load(cfg, Loader=Loader)
+        engines = EnginesYaml.load(cfg)
 
         manager = EngineManager(
             engines,

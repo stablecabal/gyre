@@ -772,8 +772,8 @@ class EngineManager(object):
                     # If .bin files exist, assume .pt files aren't needed
                     ignore_patterns += ["*.pt"]
 
-                # Always exclude .ckpt files
-                ignore_patterns += ["*.ckpt"]
+                # Always exclude .ckpt, .msgpack and .h5 files
+                ignore_patterns += ["*.ckpt", "*.msgpack", "*.h5"]
 
                 if ignore_patterns:
                     extra_kwargs["ignore_patterns"] = ignore_patterns

@@ -1,6 +1,7 @@
 # Initially taken from Github's Python gitignore file
 _[A-Za-z]*
 weights/*
+config/*
 src/*
 tests/out/*
 /config.yaml

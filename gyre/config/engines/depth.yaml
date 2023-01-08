@@ -13,7 +13,15 @@
   overrides:
     midas_depth_estimator: "@midas-beit-large-512"
 
+- id: "depth-midas-swin2-large-384"
+  enabled: False
+  task: "depth"
+  model: "@empty"
+  overrides:
+    midas_depth_estimator: "@midas-swin2-large-384"
+
 - id: "depth-midas-nextvit-large-384"
+  enabled: False
   task: "depth"
   model: "@empty"
   overrides:
