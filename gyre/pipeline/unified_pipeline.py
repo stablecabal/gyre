@@ -1,5 +1,6 @@
 import contextlib
 import inspect
+import math
 from copy import copy
 from typing import (
     Callable,
@@ -1673,7 +1674,12 @@ class UnifiedPipeline(DiffusionPipeline):
             def get_natural_opts(child_opts):
                 unet = child_opts["unet"]
                 unet_pixel_size = self.get_unet_pixel_size(unet)
-                hires_threshold = unet_pixel_size * (1 + self._hires_threshold_fraction)
+                hires_threshold = math.floor(
+                    unet_pixel_size * (1 + self._hires_threshold_fraction)
+                )
+
+                if width <= unet_pixel_size or height <= unet_pixel_size:
+                    raise ModeSkipException()
 
                 if width <= hires_threshold and height <= hires_threshold:
                     raise ModeSkipException()
