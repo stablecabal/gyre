@@ -11,3 +11,5 @@ sd_cache_home = os.path.expanduser(
         os.path.join(os.getenv("XDG_CACHE_HOME", default_home), "gyre"),
     )
 )
+
+GYRE_BASE_PATH = os.path.dirname(os.path.abspath(__file__))

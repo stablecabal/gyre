@@ -29,6 +29,7 @@ from huggingface_hub.file_download import http_get
 from tqdm.auto import tqdm
 from transformers import CLIPModel, PreTrainedModel
 
+from gyre import ckpt_utils
 from gyre.constants import sd_cache_home
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
 from gyre.pipeline.samplers import build_sampler_set
@@ -1057,12 +1058,60 @@ class EngineManager(object):
 
         return ModelSet(**pipeline)
 
+    def _load_modelset_from_ckpt(
+        self, weight_path, ckpt_config, whitelist=None, blacklist=None
+    ):
+        safetensor_paths = glob.glob(os.path.join(weight_path, "*.safetensors"))
+        ckpt_paths = glob.glob(os.path.join(weight_path, "*.ckpt"))
+
+        extra_kwargs = dict(
+            whitelist=whitelist,
+            blacklist=blacklist,
+            dtype=torch.float16 if self.mode.fp16 else None,
+        )
+
+        if safetensor_paths:
+            if len(safetensor_paths) > 1:
+                raise EnvironmentError(
+                    "Path {weight_path} contained {len(safetensor_paths)} .safetensors files, there must be at most one."
+                )
+
+            models = ckpt_utils.load_as_models(
+                ckpt_config, safetensors_path=safetensor_paths[0], **extra_kwargs
+            )
+
+        elif ckpt_paths:
+            if len(ckpt_paths) > 1:
+                raise EnvironmentError(
+                    "Path {weight_path} contained {len(ckpt_paths)} .ckpt files, there must be at most one."
+                )
+
+            models = ckpt_utils.load_as_models(
+                ckpt_config, ckpt_path=ckpt_paths[0], **extra_kwargs
+            )
+
+        else:
+            raise EnvironmentError(
+                "Path {weight_path} did not contain a .safetensors or .ckpt file."
+            )
+
+        return ModelSet(**models)
+
     def _load_from_weights(self, spec: EngineSpec, weight_path: str) -> ModelSet:
 
         # A pipeline has a top-level json file that describes a set of models
         if spec.type == "pipeline":
             models = self._load_modelset_from_weights(
                 weight_path,
+                whitelist=spec.whitelist,
+                blacklist=spec.blacklist,
+            )
+        elif spec.type.startswith("ckpt/"):
+            ckpt_config = spec.type[len("ckpt/") :]
+            print(f"Ckpt loading {ckpt_config} model")
+            models = self._load_modelset_from_ckpt(
+                weight_path,
+                ckpt_config,
                 whitelist=spec.whitelist,
                 blacklist=spec.blacklist,
             )
