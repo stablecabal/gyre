@@ -20,6 +20,7 @@
 """ Conversion script for the LDM checkpoints. """
 
 import argparse
+import logging
 import os
 import re
 
@@ -816,7 +817,12 @@ def convert_ldm_bert_checkpoint(checkpoint, config):
 
 
 def convert_ldm_clip_checkpoint(checkpoint):
+    _level = logging.getLogger("transformers.modeling_utils").level
+    logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
+
     text_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14")
+
+    logging.getLogger("transformers.modeling_utils").setLevel(_level)
 
     keys = list(checkpoint.keys())
 

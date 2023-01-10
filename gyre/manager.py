@@ -1108,7 +1108,6 @@ class EngineManager(object):
             )
         elif spec.type.startswith("ckpt/"):
             ckpt_config = spec.type[len("ckpt/") :]
-            print(f"Ckpt loading {ckpt_config} model")
             models = self._load_modelset_from_ckpt(
                 weight_path,
                 ckpt_config,
