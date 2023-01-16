@@ -118,16 +118,16 @@ class EnginesYaml:
             if "id" in item:
                 id = item["id"]
                 if id not in self.engines:
-                    print(f"Warning: no such engine to update, {id}. Skipping.")
-                    continue
-                self.engines[id] = deep_update(self.engines[id], item)
+                    self.engines[id] = item
+                else:
+                    self.engines[id] = deep_update(self.engines[id], item)
 
             elif "model_id" in item:
                 model_id = item["model_id"]
                 if model_id not in self.models:
-                    print(f"Warning: no such model to update, {model_id}. Skipping.")
-                    continue
-                self.models[model_id] = deep_update(self.models[model_id], item)
+                    self.models[model_id] = item
+                else:
+                    self.models[model_id] = deep_update(self.models[model_id], item)
 
             elif "_subfile" in item:
                 self.handle_subfile(item)

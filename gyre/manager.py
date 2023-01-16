@@ -10,6 +10,7 @@ import os
 import queue
 import shutil
 import tempfile
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -607,6 +608,10 @@ class EngineNotReadyError(Exception):
     pass
 
 
+def all_same(items):
+    return all(x == items[0] for x in items)
+
+
 class EngineManager(object):
     def __init__(
         self,
@@ -1058,6 +1063,147 @@ class EngineManager(object):
 
         return ModelSet(**pipeline)
 
+    # mix_* methods copied from https://github.com/huggingface/diffusers/blob/main/examples/community/checkpoint_merger.py
+
+    @staticmethod
+    def mix_weighted_sum(alpha, theta0, theta1):
+        return ((1 - alpha) * theta0) + (alpha * theta1)
+
+    # Smoothstep (https://en.wikipedia.org/wiki/Smoothstep)
+    @staticmethod
+    def mix_sigmoid(alpha, theta0, theta1):
+        alpha = alpha * alpha * (3 - (2 * alpha))
+        return theta0 + ((theta1 - theta0) * alpha)
+
+    # Inverse Smoothstep (https://en.wikipedia.org/wiki/Smoothstep)
+    @staticmethod
+    def mix_inv_sigmoid(alpha, theta0, theta1):
+        alpha = 0.5 - math.sin(math.asin(1.0 - 2.0 * alpha) / 3.0)
+        return theta0 + ((theta1 - theta0) * alpha)
+
+    @staticmethod
+    def mix_difference(alpha, theta0, theta1, theta2):
+        return theta0 + (theta1 - theta2) * (1.0 - alpha)
+
+    def _mix_models(self, mix_method, models, alpha):
+        thetas = [model.state_dict() for model in models]
+        result = {}
+
+        for key in thetas[0].keys():
+            tomix = [theta[key] for theta in thetas]
+            shapes = [tensor.shape for tensor in tomix]
+
+            neqidx = [i for i, (u, v) in enumerate(zip(shapes[0], shapes[1])) if u != v]
+
+            # If all the shapes match, easy to mix them
+            if all_same(shapes):
+                mix = mix_method(alpha, *tomix)
+
+            # Else if the first shape is larger than the others at dim=1, but otherwise equal
+            # handle as a special case (mixing into an inpaint unet)
+            elif all_same(shapes[1:]) and neqidx == [1]:
+                dim1_slice = slice(0, shapes[1][1])
+                dim1_mix = mix_method(alpha, tomix[0][:, dim1_slice, :, :], *tomix[1:])
+
+                mix = tomix[0].clone()
+                mix[:, dim1_slice, :, :] = dim1_mix
+
+            else:
+                raise ValueError(
+                    "Can only mix models with the same shapes. "
+                    "If you're trying to mix an inpaint unet with another unet, the inpaint unet must come first. "
+                    f"Shapes were {shapes}"
+                )
+
+            result[key] = mix
+
+        mixed_model = clone_model(models[0], clone_tensors="cpu")
+        mixed_model.load_state_dict(result)
+        return mixed_model
+
+    def _load_mixed_model(self, spec):
+        alpha = spec.get("alpha", 0.5)
+        mix = spec.get("mix", {type: ""})
+
+        mix_type = "sigmoid"
+        if mix and "type" in mix:
+            mix_type = mix["type"]
+
+        mix_method = getattr(self.__class__, "mix_" + mix_type, None)
+        if not mix_method:
+            raise ValueError(
+                "mix.type must be one of weighted_sum, sigmoid, inv_sigmoid, difference"
+            )
+
+        # Build the list of models to mix
+        models = []
+
+        # Load the primary models. Currently only support 2
+        for model in spec.model:
+            if isinstance(model, str):
+                model = {"model": model}
+
+            model_spec = EngineSpec(model)
+            models.append(self._load_model(model_spec))
+
+        # Load the base model if mix type is "difference"
+        if mix_type == "difference":
+            if "base" not in mix:
+                raise ValueError("Must provide mix.base for difference mix type")
+
+            model = mix.get("base")
+            if isinstance(model, str):
+                model = {"model": model}
+
+            model_spec = EngineSpec(model)
+            print(model_spec)
+            models.append(self._load_model(model_spec))
+
+        # Check the arguments are all the same type
+        types = [type(model) for model in models]
+
+        if not all_same(types):
+            raise ValueError(
+                f"All model types must match, got {[t.__name__ for t in types]}"
+            )
+
+        # If we're mixing a modelset, do that
+        if types[0] == ModelSet:
+            # For each ModelSet, get the keys in the set that are modules
+            keysets = [
+                set(
+                    (
+                        key
+                        for key, value in model.items()
+                        if isinstance(value, torch.nn.Module)
+                    )
+                )
+                for model in models
+            ]
+
+            # Throw an error if all the ModelSets don't have the same keys
+            if not all_same(keysets):
+                raise ValueError(f"All modelset keys must match, got {keysets}")
+
+            # Start the result with all the non-module members of the first ModelSet
+            res = {
+                key: value
+                for key, value in models[0].items()
+                if not isinstance(value, torch.nn.Module)
+            }
+
+            # And then mix all the modules
+            for key in keysets[0]:
+                res[key] = self._mix_models(
+                    mix_method, [model[key] for model in models], alpha
+                )
+
+            # And done
+            return ModelSet(**res)
+
+        # Otherwise we're mixing single models, so do that.
+        return self._mix_models(mix_method, models, alpha)
+
     def _load_modelset_from_ckpt(
         self, weight_path, ckpt_config, whitelist=None, blacklist=None
     ):
@@ -1166,8 +1312,8 @@ class EngineManager(object):
             "\n  - ".join([f"Failed to load {name}. Failed attempts:"] + failures)
         )
 
-    def _load_from_reference(self, modelid: str):
-        modelid, *submodel = modelid.split("/")
+    def _load_from_reference(self, spec):
+        modelid, *submodel = spec.model[1:].split("/")
         if submodel:
             if len(submodel) > 1:
                 raise EnvironmentError(
@@ -1195,14 +1341,27 @@ class EngineManager(object):
             # And load it, storing in cache before continuing
             self._models[modelid] = model = self._load_model(specs[0])
 
-        return getattr(model, submodel) if submodel else model
+        if submodel:
+            return getattr(model, submodel)
+        elif spec.whitelist or spec.blacklist:
+            include = set(model.keys())
+            if spec.whitelist:
+                include = include & set(spec.whitelist)
+            if spec.blacklist:
+                include = include - set(spec.blacklist)
+
+            return ModelSet(**{k: v for k, v in model.items() if k in include})
+        else:
+            return model
 
     def _load_model(self, spec: EngineSpec):
         # Call the correct subroutine based on source to build the model
         if spec.model_is_empty:
             model = ModelSet()
         elif spec.model_is_reference:
-            model = self._load_from_reference(spec.model[1:])
+            model = self._load_from_reference(spec)
+        elif spec.type == "mix":
+            model = self._load_mixed_model(spec)
         else:
             model, _ = self._load_from_weight_candidates(spec)
 
