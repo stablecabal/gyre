@@ -362,8 +362,19 @@ class Depth2imgMode(Img2imgMode):
         return wrapped_unet
 
 
+def downscale_boxop_1d(inp, scale=8, op="max"):
+    shape = inp.shape[:-1] + (inp.shape[-1] // scale, scale)
+    return getattr(inp.reshape(shape), op)(dim=-1).values
+
+
+def downscale_boxop_2d(inp, scale=8, op="max"):
+    mid = downscale_boxop_1d(inp, scale, op)
+    out = downscale_boxop_1d(mid.transpose(-2, -1), scale, op).transpose(-2, -1)
+    return out
+
+
 class MaskProcessorMixin(object):
-    def preprocess_mask_tensor(self, tensor, inputIs0K1R=True):
+    def preprocess_mask_tensor(self, tensor, inputIs0K1D=True):
         """
         Preprocess a tensor in 1CHW 0..1 format into a mask in
         11HW 0..1 0R1K format
@@ -374,16 +385,14 @@ class MaskProcessorMixin(object):
         # Create a single channel, from whichever the first channel is (L or R)
         tensor = tensor[:, [0]]
         # Invert if input is 0K1R
-        if inputIs0K1R:
+        if inputIs0K1D:
             tensor = 1 - tensor
         # Done
         return tensor
 
-    def mask_to_latent_mask(self, mask):
+    def mask_to_latent_mask(self, mask, inputIs1K0D=True):
         # Downsample by a factor of 1/8th
-        mask = T.functional.resize(
-            mask, [mask.shape[2] // 8, mask.shape[3] // 8], T.InterpolationMode.NEAREST
-        )
+        mask = downscale_boxop_2d(mask, 8, "min" if inputIs1K0D else "max")
         # And make 4 channel to match latent shape
         mask = mask[:, [0, 0, 0, 0]]
         # Done
