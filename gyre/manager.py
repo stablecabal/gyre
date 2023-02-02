@@ -476,11 +476,24 @@ class GeneratePipelineWrapper(PipelineWrapper):
 
 
 class ModelSet(SN):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.__frozen = False
+
+    def freeze(self):
+        self.__frozen = True
+
     def update(self, other: dict | SN):
-        if isinstance(other, dict):
-            self.__dict__.update(other)
-        else:  # isinstance(other, SN)
-            self.__dict__.update(other.__dict__)
+        if self.__frozen:
+            raise ValueError("ModelSet is frozen")
+
+        if isinstance(other, SN):
+            other = other.__dict__
+
+        self.__dict__.update(other)
+
+    def copy(self):
+        return ModelSet(**self.__dict__)
 
     def get(self, key, default=None):
         return self.__dict__.get(key, default)
@@ -501,6 +514,9 @@ class ModelSet(SN):
         return self.__dict__[key]
 
     def __setitem__(self, key, value):
+        if self.__frozen:
+            raise ValueError("ModelSet is frozen")
+
         self.__dict__[key] = value
 
 
@@ -558,9 +574,10 @@ class EngineSpec:
         return self._data.get("class", default)
 
     @property
-    def fp16(self) -> Literal["auto", "only", "local", "never"]:
+    def fp16(self) -> Literal["auto", "only", "local", "never", "prevent"]:
         res = self._data.get("fp16", "auto").lower()
-        assert res in {"auto", "only", "local", "never"}, f"Invalid fp16 value {res}"
+        values = {"auto", "only", "local", "never", "prevent"}
+        assert res in values, f"Invalid fp16 value {res}"
         return res
 
     @property
@@ -696,7 +713,27 @@ class EngineManager(object):
         prefer_fp16 = self.mode.fp16 and spec.fp16 == "auto"
         has_fp16 = None
 
-        subfolder = spec.subfolder
+        subfolder = f"{spec.subfolder}/" if spec.subfolder else ""
+
+        # Read any specified ignore or allow patterns
+        def build_patterns(patterns):
+            if not patterns:
+                return []
+            elif isinstance(patterns, str):
+                return [patterns]
+            else:
+                return patterns
+
+        ignore_patterns = build_patterns(spec.ignore_patterns)
+        allow_patterns = build_patterns(spec.allow_patterns)
+
+        # Adjust if subfolder is set
+        if subfolder:
+            ignore_patterns = [f"{subfolder}{pattern}" for pattern in ignore_patterns]
+            allow_patterns = [f"{subfolder}{pattern}" for pattern in allow_patterns]
+            if not allow_patterns:
+                allow_patterns = [f"{subfolder}*"]
+
         use_auth_token = self._token if spec.use_auth_token else False
 
         if use_auth_token:
@@ -726,7 +763,16 @@ class EngineManager(object):
                     repo_info = huggingface_hub.model_info(model_path, **extra_kwargs)
                     has_fp16 = prefer_fp16 = False
 
-                repo_files = [os.path.splitext(f.rfilename) for f in repo_info.siblings]
+                # Read out the list of files
+                repo_files = [f.rfilename for f in repo_info.siblings]
+                # Filter by any ignore / allow
+                repo_files = huggingface_hub.utils.filter_repo_objects(
+                    repo_files,
+                    ignore_patterns=ignore_patterns,
+                    allow_patterns=allow_patterns if allow_patterns else None,
+                )
+                # Split into path and extension tuple
+                repo_files = [os.path.splitext(f) for f in repo_files]
                 # Sort by extension (grouping fails if not correctly sorted)
                 repo_files.sort(key=lambda x: x[1])
                 # Turn into a dictionary of { extension: set_of_files }
@@ -735,66 +781,62 @@ class EngineManager(object):
                     for k, v in itertools.groupby(repo_files, lambda x: x[1])
                 }
 
-                ignore_patterns = spec.ignore_patterns
-
-                if not ignore_patterns:
-                    ignore_patterns = []
-                elif isinstance(ignore_patterns, str):
-                    ignore_patterns = [ignore_patterns]
-
                 has_ckpt = ".ckpt" in grouped
                 has_bin = ".bin" in grouped
                 has_pt = ".pt" in grouped
                 has_safe = ".safetensors" in grouped
-                if has_safe and has_ckpt:
-                    # If we have ckpt and safetensors files, don't consider matching safetensors
-                    has_safe = bool(grouped[".safetensors"] - grouped[".ckpt"])
 
-                    # Exclude safetensors that match ckpt files
-                    ignore_patterns += [
-                        f"{f}.safetensors"
-                        for f in grouped[".safetensors"] & grouped[".ckpt"]
-                    ]
+                # Now decide which we will use
+                use = None
 
-                if not has_bin and not has_safe and not has_pt:
-                    if has_ckpt:
-                        raise EnvironmentError(
-                            "Repo {model_path} only contains .ckpt files. We can only load Diffusers structured models."
-                        )
-                    else:
-                        raise EnvironmentError(
-                            "Repo {model_path} doesn't appear to contain any model files."
-                        )
+                extensions = {"ckpt", "bin", "pt", "safetensors", "msgpack", "h5"}
 
-                # Only use safetensors if either we have safetensor equivalents for every bin
-                safe_only = has_bin and is_safetensors_compatible(repo_info)
-                # Or if the spec explicitly says to
-                safe_only = safe_only or spec.safe_only
-
-                if safe_only:
-                    # Don't download .bin or .pt files if we can use safetensors
-                    ignore_patterns += ["*.bin", "*.pt"]
+                if spec.safe_only:
+                    use = "safetensors"
                 elif has_bin:
-                    # If .bin files exist, assume .pt files aren't needed
-                    ignore_patterns += ["*.pt"]
+                    if is_safetensors_compatible(repo_info):
+                        use = "safetensors"
+                        # Explictly don't include any safetensors that match ckpt files
+                        ignore_patterns += [
+                            "{file}.safetensors"
+                            for file in (grouped[".ckpt"] & grouped[".safetensors"])
+                        ]
+                    else:
+                        use = "bin"
+                elif has_safe:
+                    use = "safetensors"
+                elif has_pt:
+                    use = "pt"
+                elif has_ckpt:
+                    use = "ckpt"
+                else:
+                    raise EnvironmentError(
+                        "Repo {model_path} doesn't appear to contain any model files."
+                    )
 
-                # Always exclude .ckpt, .msgpack and .h5 files
-                ignore_patterns += ["*.ckpt", "*.msgpack", "*.h5"]
+                ignore_patterns += [
+                    f"{subfolder}*.{extension}"
+                    for extension in extensions
+                    if extension != use
+                ]
 
                 if ignore_patterns:
                     extra_kwargs["ignore_patterns"] = ignore_patterns
                 if subfolder:
-                    extra_kwargs["allow_patterns"] = [f"{subfolder}*"]
+                    extra_kwargs["allow_patterns"] = allow_patterns
+
+                print(f"Using {use}", ignore_patterns, allow_patterns)
 
             if require_fp16 or prefer_fp16:
                 try:
-                    return huggingface_hub.snapshot_download(
+                    base = huggingface_hub.snapshot_download(
                         model_path,
                         repo_type="model",
                         local_files_only=local_only,
                         revision="fp16",
                         **extra_kwargs,
                     )
+                    return os.path.join(base, subfolder) if subfolder else base
                 except (
                     FileNotFoundError,
                     huggingface_hub.utils.RevisionNotFoundError,
@@ -808,12 +850,13 @@ class EngineManager(object):
                             f"fp16 for {spec.human_id} is set to 'only', but no fp16 available."
                         )
 
-            return huggingface_hub.snapshot_download(
+            base = huggingface_hub.snapshot_download(
                 model_path,
                 repo_type="model",
                 local_files_only=local_only,
                 **extra_kwargs,
             )
+            return os.path.join(base, subfolder) if subfolder else base
 
         except Exception as e:
             if local_only:
@@ -988,9 +1031,13 @@ class EngineManager(object):
         weight_path: str,
         name: str,
         fqclass_name: str | tuple[str, str] | None = None,
+        fp16: bool | None = None,
     ):
         if fqclass_name is None:
             fqclass_name = TYPE_CLASSES.get(name, None)
+
+        if fp16 is None:
+            fp16 = self.mode.fp16
 
         if fqclass_name is None:
             raise EnvironmentError(
@@ -1005,7 +1052,7 @@ class EngineManager(object):
 
         loading_kwargs = {}
 
-        if self.mode.fp16 and issubclass(class_obj, torch.nn.Module):
+        if fp16 and issubclass(class_obj, torch.nn.Module):
             loading_kwargs["torch_dtype"] = torch.float16
 
         is_diffusers_model = issubclass(class_obj, ModelMixin)
@@ -1023,7 +1070,9 @@ class EngineManager(object):
         model._source = weight_path
         return model
 
-    def _load_modelset_from_weights(self, weight_path, whitelist=None, blacklist=None):
+    def _load_modelset_from_weights(
+        self, weight_path, whitelist=None, blacklist=None, fp16=None
+    ):
         config_dict = DiffusionPipeline.load_config(weight_path, local_files_only=True)
 
         if isinstance(whitelist, str):
@@ -1058,7 +1107,7 @@ class EngineManager(object):
                     continue
 
             pipeline[name] = self._load_model_from_weights(
-                weight_path, name, fqclass_name
+                weight_path, name, fqclass_name, fp16=fp16
             )
 
         return ModelSet(**pipeline)
@@ -1119,21 +1168,28 @@ class EngineManager(object):
 
         mixed_model = clone_model(models[0], clone_tensors="cpu")
         mixed_model.load_state_dict(result)
+        mixed_model._source = "Mix " + ",".join(model._source for model in models)
         return mixed_model
 
     def _load_mixed_model(self, spec):
-        alpha = spec.get("alpha", 0.5)
-        mix = spec.get("mix", {type: ""})
+        mix = {"alpha": 0.5, "type": "sigmoid"}
+        if "mix" in spec:
+            mix.update(spec.mix)
 
-        mix_type = "sigmoid"
-        if mix and "type" in mix:
-            mix_type = mix["type"]
+        alpha = mix["alpha"]
+        if "alpha" in spec:
+            alpha = spec.get("alpha")
+            print("Deprecation notice: alpha should be part of the mix dictionary")
 
-        mix_method = getattr(self.__class__, "mix_" + mix_type, None)
-        if not mix_method:
+        mix_type = mix["type"]
+        if mix_type not in {"weighted_sum", "sigmoid", "inv_sigmoid", "difference"}:
             raise ValueError(
                 "mix.type must be one of weighted_sum, sigmoid, inv_sigmoid, difference"
             )
+
+        mix_method = getattr(self.__class__, "mix_" + mix_type, None)
+        if not mix_method:
+            raise RuntimeError(f"Couldn't find handler for mix_type {mix_type}")
 
         # Build the list of models to mix
         models = []
@@ -1156,7 +1212,6 @@ class EngineManager(object):
                 model = {"model": model}
 
             model_spec = EngineSpec(model)
-            print(model_spec)
             models.append(self._load_model(model_spec))
 
         # Check the arguments are all the same type
@@ -1205,45 +1260,71 @@ class EngineManager(object):
         return self._mix_models(mix_method, models, alpha)
 
     def _load_modelset_from_ckpt(
-        self, weight_path, ckpt_config, whitelist=None, blacklist=None
+        self,
+        weight_path,
+        ckpt_config,
+        whitelist=None,
+        blacklist=None,
+        fp16=None,
+        ignore_patterns=None,
+        allow_patterns=None,
     ):
-        safetensor_paths = glob.glob(os.path.join(weight_path, "*.safetensors"))
-        ckpt_paths = glob.glob(os.path.join(weight_path, "*.ckpt"))
+        safetensor_paths = glob.glob("*.safetensors", root_dir=weight_path)
+        ckpt_paths = glob.glob("*.ckpt", root_dir=weight_path) + glob.glob(
+            "*.pt", root_dir=weight_path
+        )
 
-        extra_kwargs = dict(
+        safetensor_paths = list(
+            huggingface_hub.utils.filter_repo_objects(
+                safetensor_paths,
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
+            )
+        )
+
+        if fp16 is None:
+            fp16 = self.mode.fp16
+
+        extra_kwargs: dict[str, Any] = dict(
             whitelist=whitelist,
             blacklist=blacklist,
-            dtype=torch.float16 if self.mode.fp16 else None,
+            dtype=torch.float16 if fp16 else None,
         )
 
         if safetensor_paths:
             if len(safetensor_paths) > 1:
                 raise EnvironmentError(
-                    "Path {weight_path} contained {len(safetensor_paths)} .safetensors files, there must be at most one."
+                    f"Folder contained {len(safetensor_paths)} .safetensors files, there must be at most one."
                 )
 
-            models = ckpt_utils.load_as_models(
-                ckpt_config, safetensors_path=safetensor_paths[0], **extra_kwargs
+            extra_kwargs["safetensors_path"] = os.path.join(
+                weight_path, safetensor_paths[0]
             )
 
         elif ckpt_paths:
             if len(ckpt_paths) > 1:
                 raise EnvironmentError(
-                    "Path {weight_path} contained {len(ckpt_paths)} .ckpt files, there must be at most one."
+                    f"Folder contained {len(ckpt_paths)} .ckpt files, there must be at most one."
                 )
 
-            models = ckpt_utils.load_as_models(
-                ckpt_config, ckpt_path=ckpt_paths[0], **extra_kwargs
-            )
+            extra_kwargs["ckpt_path"] = os.path.join(weight_path, ckpt_paths[0])
 
         else:
             raise EnvironmentError(
-                "Path {weight_path} did not contain a .safetensors or .ckpt file."
+                f"Folder did not contain a .safetensors or .ckpt file."
+            )
+
+        models = ckpt_utils.load_as_models(ckpt_config, **extra_kwargs)
+
+        for model in models.values():
+            model._source = (
+                f"Ckpt {safetensor_paths[0] if safetensor_paths else ckpt_paths[0]}"
             )
 
         return ModelSet(**models)
 
     def _load_from_weights(self, spec: EngineSpec, weight_path: str) -> ModelSet:
+        fp16 = False if spec.fp16 == "prevent" else None
 
         # A pipeline has a top-level json file that describes a set of models
         if spec.type == "pipeline":
@@ -1251,6 +1332,7 @@ class EngineManager(object):
                 weight_path,
                 whitelist=spec.whitelist,
                 blacklist=spec.blacklist,
+                fp16=fp16,
             )
         elif spec.type.startswith("ckpt/"):
             ckpt_config = spec.type[len("ckpt/") :]
@@ -1259,20 +1341,25 @@ class EngineManager(object):
                 ckpt_config,
                 whitelist=spec.whitelist,
                 blacklist=spec.blacklist,
+                fp16=fp16,
+                ignore_patterns=spec.ignore_patterns,
+                allow_patterns=spec.allow_patterns,
             )
         # `clip` type is a special case that loads the same weights into two different models
         elif spec.type == "clip":
             models = {
-                "clip_model": self._load_model_from_weights(weight_path, "clip_model"),
+                "clip_model": self._load_model_from_weights(
+                    weight_path, "clip_model", fp16=fp16
+                ),
                 "feature_extractor": self._load_model_from_weights(
-                    weight_path, "feature_extractor"
+                    weight_path, "feature_extractor", fp16=fp16
                 ),
             }
         # Otherwise load the individual model
         else:
             models = {
                 spec.type: self._load_model_from_weights(
-                    weight_path, spec.type, spec.class_name
+                    weight_path, spec.type, spec.class_name, fp16=fp16
                 )
             }
 
@@ -1340,6 +1427,8 @@ class EngineManager(object):
 
             # And load it, storing in cache before continuing
             self._models[modelid] = model = self._load_model(specs[0])
+            if isinstance(model, ModelSet):
+                model.freeze()
 
         if submodel:
             return getattr(model, submodel)
@@ -1351,6 +1440,8 @@ class EngineManager(object):
                 include = include - set(spec.blacklist)
 
             return ModelSet(**{k: v for k, v in model.items() if k in include})
+        elif isinstance(model, ModelSet):
+            return model.copy()
         else:
             return model
 
@@ -1375,8 +1466,8 @@ class EngineManager(object):
                 override_spec = EngineSpec({**override, "type": name})
                 override_model = self._load_model(override_spec)
 
-                if isinstance(override_model, SN):
-                    model.__dict__.update(override_model.__dict__)
+                if isinstance(override_model, ModelSet):
+                    model.update(override_model)
                 else:
                     setattr(model, name, override_model)
 
@@ -1386,7 +1477,7 @@ class EngineManager(object):
         fqclass_name = engine.get("class", "UnifiedPipeline")
         class_obj = self._import_class(fqclass_name)
 
-        available = set(model.__dict__.keys())
+        available = set(model.keys())
 
         class_init_params = inspect.signature(class_obj.__init__).parameters
         expected = set(class_init_params.keys()) - set(["self"])
@@ -1395,11 +1486,11 @@ class EngineManager(object):
             [
                 name
                 for name, param in class_init_params.items()
-                if param.default is inspect._empty and name != "self"
+                if param.default is inspect._empty
+                and name != "self"
+                and name != "safety_checker"
             ]
         )
-
-        # optional = expected - required
 
         if required - available:
             raise EnvironmentError(
@@ -1408,6 +1499,9 @@ class EngineManager(object):
             )
 
         modules = {k: clone_model(model[k]) for k in expected & available}
+
+        if "safety_checker" in expected and "safety_checker" not in available:
+            modules["safety_checker"] = None
 
         if False:
             # Debug print source of each model
@@ -1554,8 +1648,6 @@ class EngineManager(object):
     def find_by_hint(self, hints: str | Iterable[str], task: str | None = None):
         if isinstance(hints, str):
             hints = (hints,)
-
-        print(hints)
 
         candidates = [
             spec

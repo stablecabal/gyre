@@ -56,6 +56,8 @@ from transformers import (
     CLIPVisionConfig,
 )
 
+from gyre import torch_safe_unpickler
+
 
 def shave_segments(path, n_shave_prefix_segments=1):
     """
@@ -355,11 +357,11 @@ def convert_ldm_unet_checkpoint(checkpoint, config, path=None, extract_ema=False
     unet_key = "model.diffusion_model."
     # at least a 100 parameters have to start with `model_ema` in order for the checkpoint to be EMA
     if sum(k.startswith("model_ema") for k in keys) > 100 and extract_ema:
-        print(f"Checkpoint {path} has both EMA and non-EMA weights.")
-        print(
-            "In this conversion only the EMA weights are extracted. If you want to instead extract the non-EMA"
-            " weights (useful to continue fine-tuning), please make sure to remove the `--extract_ema` flag."
-        )
+        # print(f"Checkpoint {path} has both EMA and non-EMA weights.")
+        # print(
+        #     "In this conversion only the EMA weights are extracted. If you want to instead extract the non-EMA"
+        #     " weights (useful to continue fine-tuning), please make sure to remove the `--extract_ema` flag."
+        # )
         for key in keys:
             if key.startswith("model.diffusion_model"):
                 flat_ema_key = "model_ema." + "".join(key.split(".")[1:])
@@ -367,12 +369,11 @@ def convert_ldm_unet_checkpoint(checkpoint, config, path=None, extract_ema=False
                     flat_ema_key
                 )
     else:
-        if sum(k.startswith("model_ema") for k in keys) > 100:
-            print(
-                "In this conversion only the non-EMA weights are extracted. If you want to instead extract the EMA"
-                " weights (usually better for inference), please make sure to add the `--extract_ema` flag."
-            )
-
+        # if sum(k.startswith("model_ema") for k in keys) > 100:
+        #     print(
+        #         "In this conversion only the non-EMA weights are extracted. If you want to instead extract the EMA"
+        #         " weights (usually better for inference), please make sure to add the `--extract_ema` flag."
+        #     )
         for key in keys:
             if key.startswith(unet_key):
                 unet_state_dict[key.replace(unet_key, "")] = checkpoint.pop(key)
@@ -589,10 +590,10 @@ def convert_ldm_unet_checkpoint(checkpoint, config, path=None, extract_ema=False
     return new_checkpoint
 
 
-def convert_ldm_vae_checkpoint(checkpoint, config):
+def convert_ldm_vae_checkpoint(checkpoint, config, standalone=False):
     # extract state dict for VAE
     vae_state_dict = {}
-    vae_key = "first_stage_model."
+    vae_key = "" if standalone else "first_stage_model."
     keys = list(checkpoint.keys())
     for key in keys:
         if key.startswith(vae_key):
@@ -1049,7 +1050,9 @@ def load_as_models(
     dtype=None,
 ):
     if ckpt_path:
-        checkpoint = torch.load(ckpt_path, map_location=device)
+        checkpoint = torch.load(
+            ckpt_path, map_location=device, pickle_module=torch_safe_unpickler
+        )
     elif safetensors_path:
         checkpoint = torch_safe_load_file(safetensors_path, device=device)
     else:
@@ -1095,6 +1098,45 @@ def load_as_models(
             return False
         return True
 
+    clip_type = original_config.model.params.cond_stage_config.target.split(".")[-1]
+
+    # Check the checkpoint contains the stuff we want, and detect if we need to
+    # add key prefixes (regular checkpoint) or not (single model pytorch dump)
+    single_model = None
+
+    model_keys = {
+        "unet": "model.diffusion_model.",
+        "vae": "first_stage_model.",
+    }
+
+    if clip_type == "FrozenOpenCLIPEmbedder":
+        model_keys["text_encoder"] = "cond_stage_model.model.text_projection."
+    elif clip_type == "FrozenCLIPEmbedder":
+        model_keys["text_encoder"] = "cond_stage_model.transformer."
+
+    expected = set()
+    missing = set()
+
+    for model, prefix in model_keys.items():
+        if should_load(model):
+            expected |= {model}
+
+            if not any((1 for key in checkpoint.keys() if key.startswith(prefix))):
+                missing |= {model}
+
+    if missing:
+        if len(expected) == 1:
+            single_model = list(expected).pop()
+        else:
+            raise RuntimeError(
+                f"Checkpoint doesn't contain these models: {missing} - make sure you're passing an appropriate whitelist"
+            )
+
+    if single_model and single_model != "vae":
+        raise NotImplementedError(
+            "Only VAE single model checkpoints currently supported"
+        )
+
     if should_load("scheduler"):
         scheduler = DDIMScheduler(
             beta_end=beta_end,
@@ -1130,7 +1172,9 @@ def load_as_models(
     if should_load("vae"):
         # Convert the VAE model.
         vae_config = create_vae_diffusers_config(original_config, image_size=image_size)
-        converted_vae_checkpoint = convert_ldm_vae_checkpoint(checkpoint, vae_config)
+        converted_vae_checkpoint = convert_ldm_vae_checkpoint(
+            checkpoint, vae_config, standalone=single_model == "vae"
+        )
 
         vae = AutoencoderKL(**vae_config)
         vae.load_state_dict(converted_vae_checkpoint)

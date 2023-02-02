@@ -26,21 +26,21 @@ class Easing:
         end: float,
         easing: EASING_TYPE | Type[easing.EasingBase],
     ):
-        self.floor = 0
-        self.start = 0.1
-        self.end = 0.3
+        self.floor = floor
+        self.start = start
+        self.end = end
 
         if isinstance(easing, str):
             easing = EASINGS[easing]
 
         self.easing = easing(
-            end=1 - floor, duration=1 - (start + end)  # type: ignore - easing_functions takes floats just fine
+            end=1 - floor, duration=(end - start)  # type: ignore - easing_functions takes floats just fine
         )
 
     def interp(self, u: float):
         if u < self.start:
             return self.floor
-        if u > 1 - self.end:
+        if u > self.end:
             return 1
 
         return self.floor + self.easing(u - self.start)

@@ -13,5 +13,8 @@
 # - id: "waifu-diffusion-v1-4"
 #   enabled: True
 
+# - id: "orange-abyssmix2"
+#   enabled: True
+
 # You can include any adjustments to standard models here
 

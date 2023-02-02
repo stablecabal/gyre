@@ -276,7 +276,7 @@ class Img2imgMode(UnifiedMode):
                 "This is probably a mistake"
             )
 
-        image = image.to(device=self.device, dtype=self.latents_dtype)
+        image = image.to(device=self.device, dtype=self.pipeline.vae_dtype)
         if mask is not None:
             image = image * (mask > 0.5)
 
@@ -286,7 +286,7 @@ class Img2imgMode(UnifiedMode):
             [dist.sample(generator=generator) for generator in self.generators], dim=0
         )
 
-        latents = latents.to(self.device)
+        latents = latents.to(self.device, self.latents_dtype)
         latents = 0.18215 * latents
 
         return latents
@@ -1130,6 +1130,8 @@ class UnifiedPipeline(DiffusionPipeline):
         # Pull out VAE scale factor
         vae_config = cast(diffusers_types.VaeConfig, self.vae.config)
         self.vae_scale_factor: int = 2 ** (len(vae_config.block_out_channels) - 1)
+        # And dtype - this won't change, and is a little expensive
+        self.vae_dtype = self.vae.dtype
 
         self.clip_default_config = ClipGuidanceConfig()
 
@@ -1195,16 +1197,27 @@ class UnifiedPipeline(DiffusionPipeline):
 
     def vae_decode(self, latents: torch.Tensor) -> torch.Tensor:
         """Type-fixing vae decode"""
+
+        # Remember original type, then convert to vae dtype, in case rest of model
+        # is fp16 but vae is fp32
+        latents_dtype = latents.dtype
+        latents = latents.to(self.vae_dtype)
+
         res = self.vae.decode(cast(torch.FloatTensor, latents))
         assert not isinstance(res, torch.FloatTensor)
-        return res.sample
+        pixels = res.sample
+
+        # Return pixels, converted back to same dtype as latents were
+        return pixels.to(latents_dtype)
 
     def set_options(self, options):
         for key, value in options.items():
             if key == "grafted_depth":
-                self._grafted_depth = bool(value)
+                self._grafted_depth = value if isinstance(value, dict) else bool(value)
             elif key == "grafted_inpaint":
-                self._grafted_inpaint = bool(value)
+                self._grafted_inpaint = (
+                    value if isinstance(value, dict) else bool(value)
+                )
             elif key == "hires_fix":
                 self._hires_fix = bool(value)
             elif key == "hires":
@@ -1298,7 +1311,7 @@ class UnifiedPipeline(DiffusionPipeline):
             elif key == "clip_vae_grad":
                 set_requires_grad(self.vae, bool(value))
             elif key == "text_embedding_layer":
-                self._text_embedding_layer = str(value)
+                self._text_embedding_layer = value
             else:
                 raise ValueError(
                     f"Unknown option {key}: {value} passed to UnifiedPipeline"
@@ -1635,6 +1648,7 @@ class UnifiedPipeline(DiffusionPipeline):
         do_classifier_free_guidance: bool = guidance_scale > 1.0
 
         grafted_mode_class = None
+        grafted_mode_kwargs = {}
 
         if (
             depth_map is not None
@@ -1642,6 +1656,8 @@ class UnifiedPipeline(DiffusionPipeline):
             and self._grafted_depth
         ):
             grafted_mode_class = Img2imgMode
+            if isinstance(self._grafted_depth, dict):
+                grafted_mode_kwargs["blend"] = self._grafted_depth
 
         if (
             mask_image is not None
@@ -1649,6 +1665,8 @@ class UnifiedPipeline(DiffusionPipeline):
             and self._grafted_inpaint
         ):
             grafted_mode_class = EnhancedInpaintMode
+            if isinstance(self._grafted_inpaint, dict):
+                grafted_mode_kwargs["blend"] = self._grafted_inpaint
 
         mode_tree = ModeTreeRoot()
 
@@ -1676,6 +1694,7 @@ class UnifiedPipeline(DiffusionPipeline):
                 },
                 GraftUnets,
                 generators=generators,
+                **grafted_mode_kwargs,
             )
 
         if hires_fix:

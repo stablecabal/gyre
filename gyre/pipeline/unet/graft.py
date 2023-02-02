@@ -19,12 +19,14 @@ class GraftUnets(GenericSchedulerUNet):
         unet_root: DiffusersSchedulerUNet | KDiffusionSchedulerUNet,
         unet_top: DiffusersSchedulerUNet | KDiffusionSchedulerUNet,
         generators: list[torch.Generator],
+        blend={},
     ):
         self.unet_root = unet_root
         self.unet_top = unet_top
         self.generators = generators
 
-        self.easing = Easing(floor=0, start=0.1, end=0.3, easing="sine")
+        blend = {"floor": 0, "start": 0.1, "end": 0.3, "easing": "sine", **blend}
+        self.easing = Easing(**blend)
 
     def __call__(self, latents: XtTensor, __step, u: float) -> PX0Tensor | XtTensor:
         p = self.easing.interp(u)

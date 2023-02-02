@@ -1,0 +1,165 @@
+#
+# Documentation for Gyre config.
+#
+# (Note: this file isn't loaded by default, it's just for documentation)
+#
+# Config is broken up into "Models" (which define sets of model files) and
+# "Engines" (which take one or more models and turn them into services accessible
+# through Gyre)
+#
+# Lets start off with some models
+
+# --- Models
+
+# A model can either point to:
+# - a "single" model (one that ends up creating a specific class instance)
+# - a "set" (one that ends up creating several "single" models, each of which has a name)
+
+# You can define as many models as you like - they only get loaded if referenced by
+# an enabled engine, so they won't use any RAM or be downloaded if they aren't used
+
+# (As a reminder, files for a model can be in fp32 or fp16 and in pytorch or safetensors format)
+
+# Let's start by defining a single model, in this case the Stability VAE.
+
+# Model definitions must have a unqiue model_id which is how they are referenced later.
+# Required: either "id" (seen later in engines) or "model_id"
+- model_id: "stability-vae-ema"
+  # Whether this model is a single model or a model set depends on the type.
+  # This is a vae model, which is a single model, so lets configure that.
+  # The type must also match the model files that the links below point to
+  # Default: "pipeline"
+  type: "vae"
+  # You can override the class used to create this model by specifying it here.
+  # You will almost never need to do this, since each type has a good default, the
+  # exception is if you are developing your own models
+  # Default: based on type (see TYPE_CLASSES in gyre/manager.py)
+  class: "diffusers.AutoencoderKL"
+  # This is a path (relative or absolute) to look for a local copy of the fp32 model.
+  # (Unless overriden with safe_only, either safetensors or pytorch files will be used).
+  # You can leave it out if you want to only load from HuggingFace
+  # Default: None
+  local_model: "./sd-vae-ft-ema"
+  # This is a path (relative or absolute) to look for a local copy of the fp16 model.
+  # Generally you won't ever specify this, as the default is good
+  # Default: local_model + "-fp16"
+  local_model_fp16: "./sd-vae-ft-ema-fp16"
+  # This is the HuggingFace model ID to load from if the local version isn't found.
+  # Leaving it out means we won't attempt to download anything if the local files don't exist.
+  # Default: None
+  model: "stabilityai/sd-vae-ft-ema"
+  # Some models from HuggingFace need an authorization token. We currently don't
+  # auto-detect this, but we probably will someday (and the number of models that need it
+  # is reducing all the time)
+  # Default: False
+  use_auth_token: False
+  # By default, Gyre will try and automatically find model weights that suit it's
+  # operating mode - if it's running in fp32 it will use fp32 weights, and if it's running
+  # in fp16 it'll try and find fp16 weights for preference.
+  #
+  # You can override this behaviour here (for instance, for a model that has fp16 weights
+  # but they are out of date, or for a model that has safetensors only for fp32)
+  #
+  # You can set it to
+  # - "auto" (the default behaviour described above)
+  # - "only" (will fail if running fp16 mode and only fp32 weights available)
+  # - "local" (will use local fp16 weights, but only fp32 weights from HuggingFace)
+  # - "never" (dont try to find fp16 weights)
+  # - "prevent" (run this model in fp32 mode even if the server is in fp16 mode)
+  #
+  # (Note: Gyre can convert fp32 weights to fp16 if needed, but having fp16 weights
+  # improves load time and reduces disk space usede)
+  #
+  # (Note 2: If you use "prevent", it is not guaranteed that Gyre will work with all
+  # mixes of fp16 and fp32 models. Specifically for each engine, only "all fp32",
+  # "all fp16" and "all fp16 + fp32 vae" are supported)
+  #
+  # Default: "auto"
+  fp16: "local"
+  # Gyre supports safetensors for most models (not MiDaS models at the moment).
+  # By default it will load safetensors if those models exist in the appropriate format
+  # or fall back to any pytorch model if safetensors can't be used for some reason.
+  # If you set this to true, loading this model will fail if safetensors aren't available.
+  # Default: False
+  safe_only: False
+
+# Here we're going to define one of each of the currently supported model set types.
+
+# Lets start with a very simple one, a clip type model. A clip type model is a set made up
+# of two named single models, "clip_model" and "feature_extractor". But that is mostly
+# hidden unless we need to override one of them.
+# You've seen each of these fields above, so we won't re-document them. You can see
+# that most of the time we can leave most fields out
+- model_id: "laion-clip-h"
+  type: "clip"
+  model: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+
+# Now we're going to define a pipeline type model. A pipeline contains a bunch of
+# different single models, the exact names depend on what the engine needs.
+# Here we'll define the pipeline model for the stable diffusion v1.5 model
+- model_id: "stable-diffusion-v1-5"
+  # We blacklist the vae as we will be replacing it in the overrides, and this saves a little RAM
+  # You can specific a blacklist and/or a whitelist, and the values are the names of
+  # the individual models in the set.
+  # Default: None
+  blacklist: "vae"
+  # You've see this before
+  model: "runwayml/stable-diffusion-v1-5"
+  # Because this is a set, we can add or override the members of the set loaded from the
+  # model. This lets us change out individual single models for better versions, or add
+  # models that aren't in the set otherwise.
+  overrides:
+    # The "runwayml/stable-diffusion-v1-5" comes with a vae, but we're replacing it
+    # here for the better one we defined above.
+    # An override can be a short form like this specifying just the "model" field or a
+    # longer form shown below.
+    # Models that start with "@" are "reference" models - instead of being loaded from
+    # HuggingFace, they are expected to match a model_id of a mode defined somewhere else
+    # (order doesn't matter)
+    vae: "@stability-vae-ema"
+    # The "runwayml/stable-diffusion-v1-5" does not come with a specific clip mode
+    # (most models won't, because CLIP guidance is an additional feature added by Gyre)
+    # We provide one here. Note that this time we're referencing a model set, and using
+    # the long form. The long form can include any fields that are in a model definitiion
+    # (including it's owm overrides, but probably don't do that?)
+    clip:
+      model: "@clip"
+
+# --- Engines
+
+# Engines are special kinds of Models that are accessible via the Gyre API
+
+# We're just going to define one here, the Stable Diffusion V1.5 engine
+
+# Engines are identified as such because they have an id field (and no model_id field)
+# You can have an engine with an id that matches a model_id - they just have to be unique
+# within their kind (Model or Engine)
+- id: "stable-diffusion-v1-5"
+  # You can set enabled to False to disable it without removing it from your config
+  # Default: True
+  enabled: True
+  # You can set visible to False to make the engine available but prevent it from showing
+  # up in the API list (directly requesting it works).
+  # Default: value of enabled
+  visible: True
+  # This sets this engine to be the default one used when no engine ID is provided
+  # in the API call.
+  # Default: False.
+  default: True
+  # This name can be used by User Interfaces
+  # Required
+  name: "Stable Diffusion V1.5 w/ standard CLIP guidance"
+  # This description can be used by User Interfaces
+  # Required
+  description: "Stable Diffusion using the RunwayML model, CLIP guidance (standard config) and our Unified pipeline"
+  # This class is used to actually handle the generation. You normally don't need to
+  # specifiy it, the default is good
+  class: "UnifiedPipeline"
+  # You can set various options on each engine.
+  options:
+    # We use less cutouts than quality CLIP guidance, avoiding using the VAE entirely
+    clip:
+      approx_cutouts: 2
+      vae_cutouts: 0
+  # Here we set the model to use - in this case we're just referencing an already-loaded model
+  model: "stable-diffusion-v1-5"

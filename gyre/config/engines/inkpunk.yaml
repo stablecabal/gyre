@@ -1,13 +1,11 @@
 - id: "inkpunk-diffusion"
-  # To save on initial download time, the Inkpunk Diffusion model is disabled
-  # by default. This one should work on any hardware that can run the main model though,
-  # so anyone can enable it if they want to.
+  # To save on initial download time, the Inkpunk Diffusion model is disabled by default.
   enabled: False
   name: "Inkpunk Diffusion"
-  description: "Stable Diffusion using the Inkpunk Diffusion model and our Unified pipeline"
+  description: "Inkpunk Diffusion, a painterly inkpunk style finetune based on Stable Diffusion V1.5. Use nvinkpunk in the prompt to strengthen the style."
   model: "@inkpunk-diffusion"
   options:
     grafted_depth: True
-    grafted_inpaint: True
+    grafted_inpaint: False
   overrides:
     clip: "@clip-common"

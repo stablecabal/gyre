@@ -360,7 +360,7 @@ class ClipGuidedMode:
                     self.pipeline.feature_extractor.size // self.vae_scale_factor
                 )(sample)
                 sample = 1 / 0.18215 * sample
-                image = self.pipeline.vae.decode(sample).sample
+                image = self.pipeline.vae_decode(sample)
 
         else:
             image = None
@@ -379,7 +379,7 @@ class ClipGuidedMode:
             if vae_cutouts:
                 sample2 = self.make_cutouts(sample, vae_cutouts)
                 sample2 = 1 / 0.18215 * sample2
-                image2 = self.pipeline.vae.decode(sample2).sample
+                image2 = self.pipeline.vae_decode(sample2)
 
                 if image is None:
                     image = image2
