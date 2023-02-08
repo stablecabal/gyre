@@ -1,6 +1,7 @@
 import json
 import uuid
 from base64 import b64encode
+import regex
 
 import grpc
 import multipart
@@ -91,6 +92,8 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
             elif content_type == "multipart/form-data":
                 parser = multipart.MultipartParser(request.content, options["boundary"])
                 content = {}
+                options = {}
+                text_prompts = {}
                 for part in parser:
                     if part.name == "init_image" and part.content_type == "image/png":
                         content["init_image"] = part.raw
@@ -98,8 +101,27 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
                         content["mask_image"] = part.raw
                     elif part.name == "options":
                         content["options"] = json.load(part.file)
+                    elif part.name.startswith("text_prompts"):
+                        idx, label = regex.findall(r'\[(.*?)\]', part.name)
+                        prompt = text_prompts.setdefault(idx, {})
+                        prompt[label] = part.value
                     else:
-                        print("Ignoring unknown form part", part.name)
+                        options[part.name] = part.value
+
+                if text_prompts:
+                    keys = list(text_prompts.keys())
+                    keys.sort()
+                    options["text_prompts"] = [text_prompts[k] for k in keys]
+
+                if options:
+                    if "options" in content:
+                        raise ValueError(
+                            f"Parameters can't contain both "
+                            f"the 'options' JSON parameter (keys: {', '.join(content['options'].keys())})  "
+                            f"and form-encoded parameters (keys: {', '.join(options.keys())})"
+                        )
+
+                    content["options"] = options
 
         if content is None:
             return UnsupportedMediaTypeResource().render(request)
@@ -260,17 +282,39 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
                 self._number(options, "seed", int, 0, 0, 2147483647)
             )
 
-        # -- step_schedule_end
+        # -- init_image_mode (automatically determine for all modes where possible)
 
-        parameters.schedule.end = self._number(
-            options, "step_schedule_end", float, 0, 0, 1
-        )
+        has_image_strength = "image_strength" in options
+        has_schedule = "step_schedule_start" in options or "step_schedule_end" in options
 
-        # -- step_schedule_start
+        if has_image_strength and not has_schedule:
+            init_image_mode = "IMAGE_STRENGTH"
+        elif has_schedule and not has_image_strength:
+            init_image_mode = "STEP_SCHEDULE"
+        else:
+            default_iim = "IMAGE_STRENGTH" if init_image else "STEP_SCHEDULE"
+            init_image_mode = options.get("init_image_mode", default_iim).upper()
 
-        parameters.schedule.start = self._number(
-            options, "step_schedule_start", float, 1, 0, 1
-        )
+        if init_image_mode == "IMAGE_STRENGTH":
+
+            # -- image_strength
+
+            parameters.schedule.end = 0
+            parameters.schedule.start = 1 - self._number(options, "image_strength", float, 0.35, 0, 1)
+
+        else:
+
+            # -- step_schedule_end
+
+            parameters.schedule.end = self._number(
+                options, "step_schedule_end", float, 0, 0, 1
+            )
+
+            # -- step_schedule_start
+
+            parameters.schedule.start = self._number(
+                options, "step_schedule_start", float, 1, 0, 1
+            )
 
         # -- steps
 
@@ -309,10 +353,14 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
             http_request.setHeader("seed", str(seeds[0]))
             return images[0]
         else:
-            http_request.setHeader("finish-reason", json.dumps(finish))
-            http_request.setHeader("seed", json.dumps(seeds))
-            return json.dumps([b64encode(image).decode("ascii") for image in images])
-
+            return json.dumps([
+                {
+                    "base64": b64encode(image).decode("ascii"),
+                    "finishReason": reason,
+                    "seed": seed
+                }
+                for image, reason, seed in zip(images, finish, seeds)
+            ])
 
 class StabilityRESTAPI_GenerationRouter(resource.Resource):
     def __init__(self):

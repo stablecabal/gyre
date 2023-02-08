@@ -825,8 +825,6 @@ class EngineManager(object):
                 if subfolder:
                     extra_kwargs["allow_patterns"] = allow_patterns
 
-                print(f"Using {use}", ignore_patterns, allow_patterns)
-
             if require_fp16 or prefer_fp16:
                 try:
                     base = huggingface_hub.snapshot_download(

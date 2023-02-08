@@ -302,7 +302,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
             return self.details
 
         # Pass off stability REST API
-        if child == b"v1alpha":
+        if child == b"v1alpha" or child == b"v1beta":
             return self.stability_rest_api
 
         if child == b"grpcgateway":
