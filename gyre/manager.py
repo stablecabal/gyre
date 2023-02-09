@@ -794,13 +794,14 @@ class EngineManager(object):
                 if spec.safe_only:
                     use = "safetensors"
                 elif has_bin:
-                    if is_safetensors_compatible(repo_info):
+                    if has_safe and is_safetensors_compatible(repo_info):
                         use = "safetensors"
-                        # Explictly don't include any safetensors that match ckpt files
-                        ignore_patterns += [
-                            "{file}.safetensors"
-                            for file in (grouped[".ckpt"] & grouped[".safetensors"])
-                        ]
+                        if has_ckpt:
+                            # Explictly don't include any safetensors that match ckpt files
+                            ignore_patterns += [
+                                "{file}.safetensors"
+                                for file in (grouped[".ckpt"] & grouped[".safetensors"])
+                            ]
                     else:
                         use = "bin"
                 elif has_safe:
