@@ -1,0 +1,110 @@
+ARG CUDA_VER=118
+ARG CUDA_FULLVER=11.8.0
+
+
+# ----- Base CUDA image + magma. Seperate from pytorch because it's _slow_, and we want to save the intermediate image -----
+
+
+FROM nvidia/cuda:${CUDA_FULLVER}-cudnn8-devel-ubuntu20.04 AS buildmagma
+
+# Basic updates. Do super early so we can cache for a long time
+RUN apt update
+RUN apt install -y curl
+RUN apt install -y git
+
+# Set up core python environment
+RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
+
+# Set up basic python
+RUN /bin/micromamba -r /env -y create -c defaults -n gyre python~=3.10.0 pip
+# Install MKL from Intel - it's newer than conda-forge one
+RUN /bin/micromamba -r /env -n gyre install -c intel mkl=2022.2.0 mkl-devel=2022.2.0
+# Install dependancies
+RUN /bin/micromamba -r /env -n gyre install -c defaults astunparse numpy ninja pyyaml setuptools cmake cffi typing_extensions future six requests dataclasses
+
+# Make sure cmake looks in our enviroment
+ENV CMAKE_PREFIX_PATH=/env/envs/gyre
+
+# Copy utility function
+COPY docker_support/cuda_archs.sh /
+
+# Download magma
+RUN curl -OL http://icl.utk.edu/projectsfiles/magma/downloads/magma-2.6.2.tar.gz
+RUN tar xvzf magma-2.6.2.tar.gz
+RUN mkdir -p /magma-2.6.2/build
+
+# Modify magma CMakeFile to allow arbitrary CUDA arches
+WORKDIR /magma-2.6.2
+COPY docker_support/CMakeFile.txt.diff /
+RUN patch < /CMakeFile.txt.diff
+
+# Build it
+WORKDIR /magma-2.6.2/build
+RUN /bin/micromamba -r /env -n gyre run cmake .. -DMAGMA_WITH_MKL=1 -DUSE_FORTRAN=off -DGPU_TARGET="All" -DCUDA_ARCH_LIST="`/cuda_archs.sh long`"
+RUN /bin/micromamba -r /env -n gyre run cmake --build . --parallel 8 --target lib sparse-lib --verbose
+# RUN /bin/micromamba -r /env -n gyre run make lib
+# RUN /bin/micromamba -r /env -n gyre run make sparse-lib
+RUN /bin/micromamba -r /env -n gyre run make install
+
+# Move into env (TODO: just build here in the first place)
+RUN mv /usr/local/magma/lib/*.so /env/envs/gyre/lib/
+RUN mv /usr/local/magma/lib/pkgconfig/*.pc /env/envs/gyre/lib/pkgconfig/
+RUN mv /usr/local/magma/include/* /env/envs/gyre/include/
+
+
+# ----- Build pytorch + torchvision -----
+
+
+FROM buildmagma as buildpytorch
+ARG CUDA_FULLVER
+ARG CUDA_VER
+
+# Download pytorch
+WORKDIR /
+RUN git clone https://github.com/pytorch/pytorch
+
+WORKDIR /pytorch
+RUN git checkout -b v1.12.1 tags/v1.12.1
+RUN git submodule update --init --recursive
+
+# Built and install pytorch
+ENV FORCE_CUDA=1
+ENV USE_KINETO=0
+ENV USE_CUPTI=0
+ENV MAX_JOBS=8
+ENV PYTORCH_BUILD_VERSION=1.12.1+cu${CUDA_VER}
+ENV PYTORCH_BUILD_NUMBER=0 
+COPY docker_support/cpp_extension.py /pytorch/torch/utils/
+RUN /bin/micromamba -r /env -n gyre run python tools/generate_torch_version.py --is_debug false --cuda_version `echo ${CUDA_FULLVER} | cut -d. -f-2`
+RUN TORCH_CUDA_ARCH_LIST="`/cuda_archs.sh`" /bin/micromamba -r /env -n gyre run python setup.py install
+
+# Download torchvision
+WORKDIR /
+RUN git clone https://github.com/pytorch/vision
+
+WORKDIR /vision
+RUN git checkout -b v0.13.1 tags/v0.13.1
+
+# Install torchvision dependancies
+RUN /bin/micromamba -r /env -n gyre install -c defaults libpng jpeg
+
+# Built and install torchvision
+ENV BUILD_VERSION=0.13.1+cu${CUDA_VER}
+RUN TORCH_CUDA_ARCH_LIST="`/cuda_archs.sh`" /bin/micromamba -r /env -n gyre run python setup.py install
+
+
+# ----- Build the core "build image" base -----
+
+
+FROM nvidia/cuda:${CUDA_FULLVER}-cudnn8-devel-ubuntu20.04 AS devbase
+
+# Basic updates. Do super early so we can cache for a long time
+RUN apt update
+RUN apt install -y curl
+RUN apt install -y git
+RUN apt install -y libaio-dev
+
+# Copy core python environment from pytorchbuild
+RUN mkdir -p /env
+COPY --from=buildpytorch /bin/micromamba /bin
+COPY --from=buildpytorch /env /env/

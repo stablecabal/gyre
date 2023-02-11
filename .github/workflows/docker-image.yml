@@ -8,18 +8,26 @@ on:
 
 jobs:
   build-cuda118:
+    strategy:
+      matrix:
+        target: ["basic", "xformers", "xformers-training"]
+        cuda: ["11.6.2", "11.7.1", "11.8.0"]
+
+    #runs-on: self-hosted
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+      - name: Calculate cuda ver
+        run: echo "CUDA_VER=$(echo ${{ matrix.cuda }} | cut -d. -f-2 | tr -d .)" >> $GITHUB_ENV
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v4
         with:
           flavor: |
             latest=false
-            prefix=cuda118-xformers-,onlatest=true
+            prefix=cuda${{ env.CUDA_VER }}-${{ matrix.target }}-,onlatest=true
           images: |
             hafriedlander/gyre
             ghcr.io/stablecabal/gyre
@@ -42,13 +50,15 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
-          target: xformers
+          target: ${{ matrix.target }}
           context: .
-          file: Dockerfile.cuda118
+          file: Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            CUDA_VER=${{ env.CUDA_VER }}
+            CUDA_FULLVER=${{ matrix.cuda }}
             XFORMERS_REPO=https://github.com/hafriedlander/xformers.git
             XFORMERS_REF=53b7454
             TRITON_REF=8650b4d
