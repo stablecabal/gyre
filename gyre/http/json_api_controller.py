@@ -1,5 +1,6 @@
 import json
 
+from accept_types import get_best_match
 from twisted.web import resource
 from twisted.web.error import Error as WebError
 from twisted.web.resource import ErrorPage, NoResource
@@ -21,15 +22,28 @@ class UnsupportedMediaTypeResource(ErrorPage):
 
 
 class JSONAPIController(resource.Resource):
+    preferred_return_type = "application/json"
     return_types = {"application/json"}
 
     def _render_common(self, request, handler, input):
         if not handler:
             return NoResource().render(request)
 
+        # Calculate what (if any) return type matches the accept header
+        return_type = None
         accept_header = request.getHeader("accept")
-        if not accept_header or accept_header not in self.return_types:
+
+        if accept_header:
+            return_type = get_best_match(
+                accept_header, [self.preferred_return_type] + list(self.return_types)
+            )
+
+        # If none, throw an error
+        if not return_type:
             return NotAcceptableResource().render(request)
+
+        # Otherwise reset the request accept header to just the return type
+        request.requestHeaders.setRawHeaders("accept", [return_type])
 
         try:
             response = handler(request, input)
@@ -55,7 +69,7 @@ class JSONAPIController(resource.Resource):
             response = response.encode("utf-8")
 
         # And return it
-        request.setHeader("content-type", accept_header)
+        request.setHeader("content-type", return_type)
         return response
 
     def render_GET(self, request):
