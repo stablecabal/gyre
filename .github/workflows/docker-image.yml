@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
       - name: Calculate cuda ver
         run: echo "CUDA_VER=$(echo ${{ matrix.cuda }} | cut -d. -f-2 | tr -d .)" >> $GITHUB_ENV
       - name: Docker meta
