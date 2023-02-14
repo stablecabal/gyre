@@ -44,6 +44,7 @@ dependencies = [
   "safetensors ~= 0.2.6",
   "multipart ~= 0.2.4",
   "accept-types ~= 0.4.1",
+  "gdown ~= 4.6.2",
   # For Tests
   "pynvml ~= 11.4.1",
 ]

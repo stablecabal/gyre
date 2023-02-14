@@ -6,8 +6,10 @@ import secrets
 import shutil
 import signal
 import sys
+import tempfile
 import threading
 import time
+import zipfile
 from concurrent import futures
 
 import yaml
@@ -20,9 +22,11 @@ try:
 except ImportError:
     from yaml import Loader
 
+import gdown
 import grpc
 import hupper
 import torch
+from huggingface_hub.file_download import http_get
 from twisted.internet import endpoints, protocol, reactor
 from twisted.web import resource, server, static
 from twisted.web.resource import ForbiddenResource, NoResource
@@ -385,7 +389,7 @@ def main():
         "-E",
         type=str,
         default=os.environ.get("SD_ENGINECFG", "./config/engines.yaml"),
-        help="Path to the engines.yaml file",
+        help="Path to the engines.yaml file, or an https URL to a zip containing an `engines.yml` file and any includes",
     )
     generation_opts.add_argument(
         "--weight_root",
@@ -562,13 +566,43 @@ def main():
 
     prevHandler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
 
-    enginecfg_path = os.path.normpath(args.enginecfg)
-    EnginesYaml.check_and_update(os.path.dirname(enginecfg_path))
+    # Handle enginecfg arg being passed as a URL
+    temp_cfg = None
+    if args.enginecfg.startswith("http"):
+        temp_cfg = tempfile.TemporaryDirectory()
+        temp_zip = os.path.join(temp_cfg.name, "config.zip")
+        temp_yaml = os.path.join(temp_cfg.name, "engines.yaml")
+
+        if args.enginecfg.startswith("https://drive.google.com"):
+            print("Loading config from Google Drive. Make sure you trust the source.")
+            gdown.download(url=args.enginecfg, output=temp_zip, quiet=False, fuzzy=True)
+        else:
+            print("Loading config from a URL. Make sure you trust the source.")
+            with open(temp_zip, "wb") as zip_handle:
+                http_get(args.enginecfg, zip_handle)
+
+        if not os.path.exists(temp_zip):
+            raise RuntimeError(f"Error downloading config from {args.enginecfg}")
+
+        with zipfile.ZipFile(temp_zip) as zip_handle:
+            zip_handle.extractall(path=temp_cfg.name)
+
+        if not os.path.exists(temp_yaml):
+            raise RuntimeError(
+                f"Zip downloaded from {args.enginecfg} did not contain engines.yaml"
+            )
+
+        enginecfg_path = temp_yaml
+
+    # Otherwise enginecfg path is on the local drive
+    else:
+        enginecfg_path = os.path.normpath(args.enginecfg)
+        EnginesYaml.check_and_update(os.path.dirname(enginecfg_path))
 
     if xformers_mea_available():
         print("Xformers defaults to on")
 
-    with open(os.path.normpath(args.enginecfg), "r") as cfg:
+    with open(enginecfg_path, "r") as cfg:
         engines = EnginesYaml.load(cfg)
 
         manager = EngineManager(
