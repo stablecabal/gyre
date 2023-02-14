@@ -145,7 +145,7 @@ COPY server.py .
 RUN mkdir -p /huggingface
 RUN mkdir -p /weights
 RUN mkdir -p /config
-COPY gyre/config/engines.yaml /config/engines.yaml
+COPY gyre/config/. /config/
 
 # Set up some environment files
 
@@ -206,7 +206,7 @@ COPY server.py .
 RUN mkdir -p /huggingface
 RUN mkdir -p /weights
 RUN mkdir -p /config
-COPY gyre/config/engines.yaml /config/engines.yaml
+COPY gyre/config/. /config/
 
 # Set up some environment files
 
