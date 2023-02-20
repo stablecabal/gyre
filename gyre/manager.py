@@ -1408,7 +1408,7 @@ class EngineManager(object):
             submodel = submodel[0]
 
         print(f"    - Model {modelid}...")
-
+        os.environ['current_model_is_loading'] = modelid;
         # If we've previous loaded this model, just return the same model
         if modelid in self._models:
             model = self._models[modelid]
