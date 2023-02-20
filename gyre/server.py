@@ -41,6 +41,7 @@ generatedPath = os.path.join(os.path.dirname(__file__), "generated")
 sys.path.append(generatedPath)
 
 # Inject the nonfree projects if they exist
+os.environ['model_is_loading'] = 'Yes'
 nonfree_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "nonfree")
 if os.path.exists(nonfree_path):
     sys.path.append(os.path.join(nonfree_path, "ToMe"))
@@ -269,11 +270,48 @@ class ServerDetails(resource.Resource):
         )
 
 
+class ModelLoading(resource.Resource):
+    isLeaf = True
+    def render_GET(self, request):
+        request.setHeader("Content-Type", "text/html; charset=utf-8")
+
+        if 'model_is_loading' in os.environ and os.environ.get('model_is_loading')=='Yes':
+            currentmodelstr = ""
+            if 'current_model_is_loading' in os.environ:
+               currentmodelstr = os.environ.get('current_model_is_loading')
+            message = (
+                 f"Models are loading from server please wait few minutes..."
+                 f"now loading: {currentmodelstr}"
+                 f"<script>setTimeout(()=>window.location.reload(1), 10*1000);</script>"
+            )
+
+        else:
+            message = (
+                 f"<html><body>"
+                 f"Are Models are loaded. Server is ready to use now"
+            )
+        messagetmp = (
+                    f"<html><body>"
+                    "<style>.media {justify-content: center; align-items: center;  display: flex;}.media .content {flex: 1;padding: 10px;font-size:16px}</style>"
+                    f"<div class='media'>"
+                    f"<div class='image'><img src='https://gyre.ai/img/gyrelogo-256.png' alt='logo'></div>"
+                    f"<div class='content'>"
+                    f"{message}"
+                    f"</div>"
+                    f"</div>"
+                    f"</body></html>"
+        )
+
+        return messagetmp.encode('utf-8')
+
+
+
 class RoutingController(resource.Resource, CheckAuthHeaderMixin):
     def __init__(self, fileroot, wsgiapp, access_token=None):
         super().__init__()
 
         self.details = ServerDetails()
+        self.models_loading = ModelLoading()
         self.fileroot = fileroot
         self.files = static.File(fileroot) if fileroot else None
         self.stability_rest_api = StabilityRESTAPIRouter()
@@ -298,7 +336,6 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
     def getChild(self, child, request):
         if not self._checkAuthorization(request):
             return ForbiddenResource()
-
         # -- These handlers are all nested
 
         # Hardcoded handler for service discovery
@@ -327,6 +364,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         if self.fileroot:
             return self.files
 
+        return self.models_loading
         return NoResource()
 
     def render(self, request):
@@ -683,7 +721,7 @@ def main():
         loads_time = time.time()
 
         manager.loadPipelines()
-
+        os.environ['model_is_loading'] = 'No'
         print(
             f"All engines ready, loading took {time.time()-loads_time:.1f}s, total startup {time.time()-start_time:.1f}s"
         )
