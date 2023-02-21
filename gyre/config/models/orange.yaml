@@ -15,7 +15,7 @@
   fp16: "prevent"
 
 # Now lets load the main checkpoint
-- model_id: "orange-abyssmix2-base"
+- model_id: "orange-abyssmix2-ckpt"
   type: "ckpt/v1-inference"
   model: "WarriorMama777/OrangeMixs"
   subfolder: "Models/AbyssOrangeMix2"
@@ -23,6 +23,15 @@
   # explicitly only allow the one we want
   allow_patterns: "AbyssOrangeMix2_sfw.safetensors"
   # Save memory by just loading the model bits that are unique to this model
+  whitelist: ["unet", "text_encoder"]
+
+# We specify a Diffusers version of the same thing with no model configured.
+# This is used to load a safetensor if saved with save_safetensors
+- model_id: "orange-abyssmix2-base"
+  # Fallback gets used if this model fails to load (which it will unless
+  # local_model points to a loadable diffusers model)
+  fallback: "@orange-abyssmix2-ckpt"
+  # Whitelist (or blacklist) needs to match fallback
   whitelist: ["unet", "text_encoder"]
 
 # Now we're going to mix the Abyss Orange Mix 2 unet into the Stable Diffusion V1.5

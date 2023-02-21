@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from queue import Queue
 from types import SimpleNamespace as SN
-from typing import Any, Iterable, Literal, Optional, Union
+from typing import Any, Callable, Iterable, Literal, Optional, Union
 from urllib.parse import urlparse
 
 import generation_pb2
@@ -475,49 +475,87 @@ class GeneratePipelineWrapper(PipelineWrapper):
         return images
 
 
-class ModelSet(SN):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+class ModelSet:
+    def __init__(self, data: dict[str, Any] = {}) -> None:
+        self.__data = {}
+        self.__data.update(data)
         self.__frozen = False
+
+    @classmethod
+    def from_kwargs(cls, **kwargs) -> "ModelSet":
+        return ModelSet(kwargs)
 
     def freeze(self):
         self.__frozen = True
 
-    def update(self, other: dict | SN):
+    def update(self, other: "dict | ModelSet"):
         if self.__frozen:
             raise ValueError("ModelSet is frozen")
 
-        if isinstance(other, SN):
-            other = other.__dict__
-
-        self.__dict__.update(other)
+        if isinstance(other, ModelSet):
+            self.__data.update(other.__data)
+        else:
+            self.__data.update(other)
 
     def copy(self):
-        return ModelSet(**self.__dict__)
+        return ModelSet(self.__data)
 
     def get(self, key, default=None):
-        return self.__dict__.get(key, default)
+        return self.__data.get(key, default)
 
     def keys(self):
-        return self.__dict__.keys()
+        return self.__data.keys()
 
     def values(self):
-        return self.__dict__.values()
+        return self.__data.values()
 
     def items(self):
-        return self.__dict__.items()
+        return self.__data.items()
+
+    def first_key(self):
+        for key in self.__data.keys():
+            return key
+
+    def first(self):
+        for value in self.__data.values():
+            return value
+
+    def is_empty(self):
+        return len(self.__data) == 0
+
+    def is_singular(self):
+        return len(self.__data) == 1
+
+    def __len__(self):
+        return len(self.__data)
 
     def __contains__(self, item):
-        return item in self.__dict__
+        return item in self.__data
+
+    def __getattr__(self, key: str) -> Any:
+        if key.startswith("_"):
+            raise KeyError(key)
+
+        return self.__data[key]
+
+    def __setattr__(self, key, value):
+        if key.startswith("_"):
+            object.__setattr__(self, key, value)
+
+        elif self.__frozen:
+            raise ValueError("ModelSet is frozen")
+
+        else:
+            self.__data[key] = value
 
     def __getitem__(self, key):
-        return self.__dict__[key]
+        return self.__data[key]
 
     def __setitem__(self, key, value):
         if self.__frozen:
             raise ValueError("ModelSet is frozen")
 
-        self.__dict__[key] = value
+        self.__data[key] = value
 
 
 class EngineSpec:
@@ -586,13 +624,20 @@ class EngineSpec:
 
     @property
     def model_is_reference(self) -> bool:
-        return self.model and self.model[0] == "@"
+        return self.model and self.model[0] == "@" and not self.model_is_empty
+
+    @property
+    def local_model(self) -> str | None:
+        path = self._data.get("local_model")
+        if not path:
+            path = self.model_id
+        return path
 
     @property
     def local_model_fp16(self) -> str | None:
         path = self._data.get("local_model_fp16")
         if not path:
-            path = self._data.get("local_model")
+            path = self.local_model
             if path:
                 path += "-fp16"
         return path
@@ -645,9 +690,9 @@ class EngineManager(object):
         self._defaults = {}
 
         # Models that are explictly loaded with a model_id and can be referenced
-        self._models = {}
+        self._models: dict[str, ModelSet] = {}
         # Models for each engine
-        self._engine_models = {}
+        self._engine_models: dict[str, ModelSet] = {}
 
         self._activeId = None
         self._active = None
@@ -1109,7 +1154,7 @@ class EngineManager(object):
                 weight_path, name, fqclass_name, fp16=fp16
             )
 
-        return ModelSet(**pipeline)
+        return ModelSet(pipeline)
 
     # mix_* methods copied from https://github.com/huggingface/diffusers/blob/main/examples/community/checkpoint_merger.py
 
@@ -1133,7 +1178,9 @@ class EngineManager(object):
     def mix_difference(alpha, theta0, theta1, theta2):
         return theta0 + (theta1 - theta2) * (1.0 - alpha)
 
-    def _mix_models(self, mix_method, models, alpha):
+    def _mix_models(
+        self, mix_method: Callable, models: list[torch.nn.Module], alpha: float
+    ) -> torch.nn.Module:
         thetas = [model.state_dict() for model in models]
         result = {}
 
@@ -1170,7 +1217,7 @@ class EngineManager(object):
         mixed_model._source = "Mix " + ",".join(model._source for model in models)
         return mixed_model
 
-    def _load_mixed_model(self, spec):
+    def _load_mixed_model(self, spec: EngineSpec) -> ModelSet:
         mix = {"alpha": 0.5, "type": "sigmoid"}
         if "mix" in spec:
             mix.update(spec.mix)
@@ -1191,7 +1238,7 @@ class EngineManager(object):
             raise RuntimeError(f"Couldn't find handler for mix_type {mix_type}")
 
         # Build the list of models to mix
-        models = []
+        models: list[ModelSet] = []
 
         # Load the primary models. Currently only support 2
         for model in spec.model:
@@ -1221,42 +1268,36 @@ class EngineManager(object):
                 f"All model types must match, got {[t.__name__ for t in types]}"
             )
 
-        # If we're mixing a modelset, do that
-        if types[0] == ModelSet:
-            # For each ModelSet, get the keys in the set that are modules
-            keysets = [
-                set(
-                    (
-                        key
-                        for key, value in model.items()
-                        if isinstance(value, torch.nn.Module)
-                    )
-                )
-                for model in models
-            ]
+        # Start the result with all the non-module members of the first ModelSet
+        res = {
+            key: value
+            for key, value in models[0].items()
+            if not isinstance(value, torch.nn.Module)
+        }
 
-            # Throw an error if all the ModelSets don't have the same keys
-            if not all_same(keysets):
-                raise ValueError(f"All modelset keys must match, got {keysets}")
+        # Get the keys in the first set that are modules
+        module_keys = {
+            key
+            for key, value in models[0].items()
+            if isinstance(value, torch.nn.Module)
+        }
 
-            # Start the result with all the non-module members of the first ModelSet
-            res = {
-                key: value
-                for key, value in models[0].items()
-                if not isinstance(value, torch.nn.Module)
-            }
+        # And then mix all the modules
+        for key in module_keys:
+            fuzz_key = None
+            for check in ("unet", "text_encoder"):
+                if key.endswith("_" + check):
+                    fuzz_key = check
 
-            # And then mix all the modules
-            for key in keysets[0]:
-                res[key] = self._mix_models(
-                    mix_method, [model[key] for model in models], alpha
-                )
+            mix_models = [model.get(key, model.get(fuzz_key)) for model in models]
 
-            # And done
-            return ModelSet(**res)
+            if any([not x for x in mix_models]):
+                raise ValueError(f"No equivalent for {key} in one of the mix models")
 
-        # Otherwise we're mixing single models, so do that.
-        return self._mix_models(mix_method, models, alpha)
+            res[key] = self._mix_models(mix_method, mix_models, alpha)
+
+        # And done
+        return ModelSet(res)
 
     def _load_modelset_from_ckpt(
         self,
@@ -1267,7 +1308,7 @@ class EngineManager(object):
         fp16=None,
         ignore_patterns=None,
         allow_patterns=None,
-    ):
+    ) -> ModelSet:
         safetensor_paths = glob.glob("*.safetensors", root_dir=weight_path)
         ckpt_paths = glob.glob("*.ckpt", root_dir=weight_path) + glob.glob(
             "*.pt", root_dir=weight_path
@@ -1320,7 +1361,7 @@ class EngineManager(object):
                 f"Ckpt {safetensor_paths[0] if safetensor_paths else ckpt_paths[0]}"
             )
 
-        return ModelSet(**models)
+        return ModelSet(models)
 
     def _load_from_weights(self, spec: EngineSpec, weight_path: str) -> ModelSet:
         fp16 = False if spec.fp16 == "prevent" else None
@@ -1346,25 +1387,29 @@ class EngineManager(object):
             )
         # `clip` type is a special case that loads the same weights into two different models
         elif spec.type == "clip":
-            models = {
-                "clip_model": self._load_model_from_weights(
-                    weight_path, "clip_model", fp16=fp16
-                ),
-                "feature_extractor": self._load_model_from_weights(
-                    weight_path, "feature_extractor", fp16=fp16
-                ),
-            }
+            models = ModelSet(
+                {
+                    "clip_model": self._load_model_from_weights(
+                        weight_path, "clip_model", fp16=fp16
+                    ),
+                    "feature_extractor": self._load_model_from_weights(
+                        weight_path, "feature_extractor", fp16=fp16
+                    ),
+                }
+            )
         # Otherwise load the individual model
         else:
-            models = {
-                spec.type: self._load_model_from_weights(
-                    weight_path, spec.type, spec.class_name, fp16=fp16
-                )
-            }
+            models = ModelSet(
+                {
+                    spec.type: self._load_model_from_weights(
+                        weight_path, spec.type, spec.class_name, fp16=fp16
+                    )
+                }
+            )
 
-        return models if isinstance(models, ModelSet) else ModelSet(**models)
+        return models
 
-    def _load_from_weight_candidates(self, spec: EngineSpec) -> tuple[ModelSet, str]:
+    def _load_from_weight_candidates(self, spec: EngineSpec) -> ModelSet:
         candidates = self._get_weight_path_candidates(spec)
 
         failures = []
@@ -1373,8 +1418,7 @@ class EngineManager(object):
             weight_path = None
             try:
                 weight_path = callback(spec, *args, **kwargs)
-                models = self._load_from_weights(spec, weight_path)
-                return models, weight_path
+                return self._load_from_weights(spec, weight_path)
             except ValueError as e:
                 if str(e) not in failures:
                     failures.append(str(e))
@@ -1398,7 +1442,7 @@ class EngineManager(object):
             "\n  - ".join([f"Failed to load {name}. Failed attempts:"] + failures)
         )
 
-    def _load_from_reference(self, spec):
+    def _load_from_reference(self, spec: EngineSpec) -> ModelSet:
         modelid, *submodel = spec.model[1:].split("/")
         if submodel:
             if len(submodel) > 1:
@@ -1406,14 +1450,19 @@ class EngineManager(object):
                     f"Can't have multiple sub-model references ({modelid}/{'/'.join(submodel)})"
                 )
             submodel = submodel[0]
+        else:
+            submodel = None
 
-        print(f"    - Model {modelid}...")
+        # Let type system know submodule is now a string
+        assert isinstance(submodel, str | None), f"submodel of type {type(submodel)}"
 
         # If we've previous loaded this model, just return the same model
         if modelid in self._models:
             model = self._models[modelid]
 
         else:
+            print(f"    - Model {modelid}...")
+
             # Otherwise find the specification that matches the model_id reference
             specs = [
                 spec
@@ -1426,11 +1475,10 @@ class EngineManager(object):
 
             # And load it, storing in cache before continuing
             self._models[modelid] = model = self._load_model(specs[0])
-            if isinstance(model, ModelSet):
-                model.freeze()
+            model.freeze()
 
         if submodel:
-            return getattr(model, submodel)
+            return ModelSet({submodel: getattr(model, submodel)})
         elif spec.whitelist or spec.blacklist:
             include = set(model.keys())
             if spec.whitelist:
@@ -1438,37 +1486,44 @@ class EngineManager(object):
             if spec.blacklist:
                 include = include - set(spec.blacklist)
 
-            return ModelSet(**{k: v for k, v in model.items() if k in include})
-        elif isinstance(model, ModelSet):
+            return ModelSet({k: v for k, v in model.items() if k in include})
+        else:
             return model.copy()
-        else:
-            return model
 
-    def _load_model(self, spec: EngineSpec):
-        # Call the correct subroutine based on source to build the model
-        if spec.model_is_empty:
-            model = ModelSet()
-        elif spec.model_is_reference:
-            model = self._load_from_reference(spec)
-        elif spec.type == "mix":
-            model = self._load_mixed_model(spec)
-        else:
-            model, _ = self._load_from_weight_candidates(spec)
+    def _load_model(self, spec: EngineSpec, overrides=True):
+        try:
+            # Call the correct subroutine based on source to build the model
+            if spec.model_is_empty:
+                model = ModelSet()
+            elif spec.model_is_reference:
+                model = self._load_from_reference(spec)
+            elif spec.type == "mix":
+                model = self._load_mixed_model(spec)
+            else:
+                model = self._load_from_weight_candidates(spec)
 
-        overrides = spec.overrides
+        except Exception as e:
+            fallback = spec.fallback
+            if fallback:
+                fallback_spec = EngineSpec({"model": fallback})
+                model = self._load_from_reference(fallback_spec)
+            else:
+                raise e
 
-        if overrides:
-            for name, override in overrides.items():
+        assert isinstance(model, ModelSet), f"model from {spec._data} is not a ModelSet"
+
+        if overrides and spec.overrides:
+            for name, override in spec.overrides.items():
                 if isinstance(override, str):
                     override = {"model": override}
 
                 override_spec = EngineSpec({**override, "type": name})
                 override_model = self._load_model(override_spec)
 
-                if isinstance(override_model, ModelSet):
-                    model.update(override_model)
+                if override_model.is_singular():
+                    model[name] = override_model.first()
                 else:
-                    setattr(model, name, override_model)
+                    model.update(override_model)
 
         return model
 
@@ -1581,9 +1636,10 @@ class EngineManager(object):
         print(f"Saving {type} {_id} to {outpath}")
 
         # Load the model
-        models, inpath = self._load_from_weight_candidates(spec)
+        # TODO: Prevent references, not overrides (override with explicit modle OK)
+        models = self._load_model(spec, overrides=False)
 
-        if type == "pipeline":
+        if type == "pipeline" or type.startswith("ckpt/"):
             for name, model in models.items():
                 if not model:
                     continue
@@ -1598,15 +1654,19 @@ class EngineManager(object):
                 print(f"  Submodule {name} to {subpath}")
                 model.save_pretrained(save_directory=subpath, safe_serialization=True)
 
-            if not os.path.samefile(inpath, outpath):
-                shutil.copyfile(
-                    os.path.join(inpath, "model_index.json"),
-                    os.path.join(outpath, "model_index.json"),
-                )
+            config_path = os.path.join(outpath, "model_index.json")
+            if not os.path.exists(config_path):
+                cfg = DiffusionPipeline()
+                cfg.register_modules(**{k: v for k, v in models.items() if v})
+                cfg.to_json_file(config_path)
+
         elif type == "clip":
             models.clip_model.save_pretrained(
                 save_directory=outpath, safe_serialization=True
             )
+
+            inpath = models.clip_model.config._name_or_path
+
             if not os.path.samefile(inpath, outpath):
                 for cfg_file in glob.glob(os.path.join(inpath, "*.json")):
                     shutil.copy(cfg_file, outpath)
@@ -1676,19 +1736,33 @@ class EngineManager(object):
             model_id, *_ = spec.model[1:].split("/")
             model_spec = self._find_spec(model_id=model_id)
             referenced += self._find_referenced_weightspecs(model_spec)
-        else:
+        elif spec.type == "mix":
+            mix_models = spec.model
+            if spec.mix and spec.mix.get("base"):
+                mix_models += [spec.mix.get("base")]
+
+            for model in mix_models:
+                if isinstance(model, str):
+                    model = {"model": model}
+
+                mix_spec = EngineSpec({**model})
+                referenced += self._find_referenced_weightspecs(mix_spec)
+        elif not spec.model_is_empty and not spec.type.startswith("ckpt/"):
             referenced.append(spec)
 
         if spec.overrides:
-            for _, override in spec.overrides.items():
+            for name, override in spec.overrides.items():
                 if isinstance(override, str):
                     override = {"model": override}
-                referenced += self._find_referenced_weightspecs(override)
+
+                override_spec = EngineSpec({**override, "type": name})
+                referenced += self._find_referenced_weightspecs(override_spec)
 
         return referenced
 
     def save_engine_as_safetensor(self, patterns):
         specs = self._find_specs(id=patterns)
+        specs = [spec for spec in specs if spec.enabled]
 
         involved = []
 
@@ -1701,7 +1775,12 @@ class EngineManager(object):
         }
 
         for spec in unique.values():
-            self._save_model_as_safetensor(spec)
+            try:
+                self._save_model_as_safetensor(spec)
+            except Exception as e:
+                print(
+                    f"Skipping {spec.human_id}, error received trying to save. Error was {e}."
+                )
 
         print("Done")
 
