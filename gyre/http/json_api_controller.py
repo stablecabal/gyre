@@ -24,6 +24,25 @@ class UnsupportedMediaTypeResource(ErrorPage):
 class JSONAPIController(resource.Resource):
     preferred_return_type = "application/json"
     return_types = {"application/json"}
+    cors = True
+
+    def _cors_headers(self, request, is_preflight=False):
+        if not self.cors:
+            return
+
+        request.setHeader(
+            "Access-Control-Allow-Origin", "*" if self.cors is True else self.cors
+        )
+
+        if is_preflight:
+            request.setHeader(
+                "Access-Control-Allow-Methods",
+                "GET, POST, OPTIONS",
+            )
+            request.setHeader(
+                "Access-Control-Allow-Headers",
+                request.getHeader("Access-Control-Request-Headers") or "*",
+            )
 
     def _render_common(self, request, handler, input):
         if not handler:
@@ -68,7 +87,10 @@ class JSONAPIController(resource.Resource):
         if isinstance(response, str):
             response = response.encode("utf-8")
 
-        # And return it
+        # Set CORS headers
+        self._cors_headers(request)
+
+        # And return response
         request.setHeader("content-type", return_type)
         return response
 
@@ -84,3 +106,8 @@ class JSONAPIController(resource.Resource):
             return UnsupportedMediaTypeResource().render(request)
 
         return self._render_common(request, handler, json.load(request.content))
+
+    def render_OPTIONS(self, request):
+        self._cors_headers(request, is_preflight=True)
+        request.setResponseCode(204)
+        return b""
