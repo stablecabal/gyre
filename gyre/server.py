@@ -53,6 +53,7 @@ from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.engines_yaml import EnginesYaml
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
+from gyre.http.status_controller import StatusController
 from gyre.manager import BatchMode, EngineManager, EngineMode
 from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
@@ -182,6 +183,10 @@ class HttpServer(object):
     def stability_rest_api(self):
         return self.controller.stability_rest_api
 
+    @property
+    def status_controller(self):
+        return self.controller.status_controller
+
     def start(self, block=False):
         # Run the Twisted reactor
         self._thread = threading.Thread(target=reactor.run, args=(False,))
@@ -278,6 +283,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         self.files = static.File(fileroot) if fileroot else None
         self.stability_rest_api = StabilityRESTAPIRouter()
         self.grpc_gateway = GrpcGatewayRouter()
+        self.status_controller = StatusController()
         self.wsgi = wsgiapp
 
         self.access_token = access_token
@@ -311,6 +317,9 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
 
         if child == b"grpcgateway":
             return self.grpc_gateway
+
+        if child == b"status" or (child == b"" and not self.fileroot):
+            return self.status_controller
 
         # -- These handler are all overlapped on root
 
@@ -624,6 +633,8 @@ def main():
             nsfw_behaviour=args.nsfw_behaviour,
             ram_monitor=ram_monitor,
         )
+
+        http.status_controller.set_manager(manager)
 
         print("Manager loaded")
 

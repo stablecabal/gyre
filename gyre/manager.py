@@ -689,6 +689,9 @@ class EngineManager(object):
         self.engines = [EngineSpec(engine) for engine in engines]
         self._defaults = {}
 
+        self.status: Literal["created", "loading", "ready"] = "created"
+        self.log: list[str] = []
+
         # Models that are explictly loaded with a model_id and can be referenced
         self._models: dict[str, ModelSet] = {}
         # Models for each engine
@@ -1462,6 +1465,7 @@ class EngineManager(object):
 
         else:
             print(f"    - Model {modelid}...")
+            self.log.append(f"    - Model {modelid}...")
 
             # Otherwise find the specification that matches the model_id reference
             specs = [
@@ -1591,6 +1595,8 @@ class EngineManager(object):
     def loadPipelines(self):
 
         print("Loading engines...")
+        self.log.append("Loading engines...")
+        self.status = "loading"
 
         for engine in self.engines:
             if not engine.enabled:
@@ -1605,10 +1611,15 @@ class EngineManager(object):
                 self._defaults[engine.task] = engineid
 
             print(f"  - Engine {engineid}...")
+            self.log.append(f"  - Engine {engineid}...")
+
             self._engine_models[engineid] = self._load_model(engine)
 
         if self.batchMode.autodetect:
             self.batchMode.run_autodetect(self)
+
+        self.log.append("All engines ready")
+        self.status = "ready"
 
     def _fixcfg(self, model, key, test, value):
         if hasattr(model.config, key) and test(getattr(model.config, key)):
