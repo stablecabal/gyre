@@ -3,7 +3,7 @@ name: Docker Image CI
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["main", "test"]
     tags: ["v*"]
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
       - name: Calculate cuda ver
         run: echo "CUDA_VER=$(echo ${{ matrix.cuda }} | cut -d. -f-2 | tr -d .)" >> $GITHUB_ENV
       - name: Docker meta
@@ -36,6 +36,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=test,enable=${{ github.ref == format('refs/heads/{0}', 'test') }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Login to Docker Hub
