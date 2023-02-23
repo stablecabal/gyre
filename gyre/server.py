@@ -1,4 +1,5 @@
 import argparse
+import binascii
 import hashlib
 import os
 import re
@@ -86,10 +87,17 @@ class DartGRPCCompatibility(object):
 
 
 class CheckAuthHeaderMixin(object):
-    def _checkAuthHeader(self, value):
+    def _checkAuthHeader(self, value, accept_basic=False):
         token = re.match("Bearer\s+(.*)", value, re.IGNORECASE)
         if token and token[1] == self.access_token:
             return True
+
+        token = re.match("Basic\s+(.*)", value, re.IGNORECASE)
+        if accept_basic and token:
+            u, p = binascii.a2b_base64(token[1]).decode("utf-8").split(":")
+            if u == p and p == self.access_token:
+                return True
+
         return False
 
 
@@ -274,6 +282,16 @@ class ServerDetails(resource.Resource):
         )
 
 
+class NeedBasicAuthResource(resource.Resource):
+    def render(self, request):
+        request.setResponseCode(401)
+        request.setHeader(b"www-authenticate", 'Basic realm="Gyre access token"')
+        return b"Unauthorized"
+
+    def getChild(self, child, request):
+        return self
+
+
 class RoutingController(resource.Resource, CheckAuthHeaderMixin):
     def __init__(self, fileroot, wsgiapp, access_token=None):
         super().__init__()
@@ -288,7 +306,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
 
         self.access_token = access_token
 
-    def _checkAuthorization(self, request):
+    def _checkAuthorization(self, request, accept_basic=False):
         if not self.access_token:
             return True
         if request.method == b"OPTIONS":
@@ -296,30 +314,27 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
 
         authHeader = request.getHeader("authorization")
         if authHeader:
-            if self._checkAuthHeader(authHeader):
+            if self._checkAuthHeader(authHeader, accept_basic=accept_basic):
                 return True
 
         return False
 
-    def getChild(self, child, request):
-        if not self._checkAuthorization(request):
-            return ForbiddenResource()
-
+    def _getChildAndLevel(self, child, request):
         # -- These handlers are all nested
 
         # Hardcoded handler for service discovery
         if child == b"server.json":
-            return self.details
+            return self.details, 0
 
         # Pass off stability REST API
         if child == b"v1alpha" or child == b"v1beta":
-            return self.stability_rest_api
+            return self.stability_rest_api, 2
 
         if child == b"grpcgateway":
-            return self.grpc_gateway
+            return self.grpc_gateway, 2
 
-        if child == b"status" or (child == b"" and not self.fileroot):
-            return self.status_controller
+        if child == b"status":
+            return self.status_controller, 1
 
         # -- These handler are all overlapped on root
 
@@ -330,13 +345,32 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         # Pass off GRPC-WEB requests (detect via content-type header)
         content_type = request.getHeader("content-type")
         if content_type and content_type.startswith("application/grpc-web"):
-            return self.wsgi
+            return self.wsgi, 2
 
         # If we're serving files, check to see if the request is for a served file
         if self.fileroot:
-            return self.files
+            return self.files, 0
 
-        return NoResource()
+        return NoResource(), 0
+
+    def getChild(self, child, request):
+        child, level = self._getChildAndLevel(child, request)
+
+        if level == 2:
+            if not self._checkAuthorization(request):
+                return ForbiddenResource()
+            return child
+
+        elif level == 1:
+            if not self._checkAuthorization(request, accept_basic=True):
+                return NeedBasicAuthResource()
+            return child
+
+        elif level == 0:
+            return child
+
+        else:
+            raise RuntimeError(f"Level {level} is unknown")
 
     def render(self, request):
         if not self._checkAuthorization(request):

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.css">
+
+    <script id="data-island" type="application/json">
+        $DATA$
+    </script>
+
+    <script type="module">
+        import { h, Component, render, createContext } from 'https://unpkg.com/preact@latest?module';
+        import { useState, useContext, useCallback, useEffect, useLayoutEffect, useRef } from 'https://unpkg.com/preact@latest/hooks/dist/hooks.module.js?module';
+        import htm from 'https://unpkg.com/htm?module';
+
+        // Initialize htm with Preact
+        const html = htm.bind(h);
+
+        // Load the data island
+        const dataContext = createContext(JSON.parse(document.getElementById("data-island").innerText));
+
+        function LogLine(props) {
+            return html`<div>${props.line}</div>`;
+        }
+
+        function Log(props) {
+            const data = useContext(dataContext);
+
+            // Pin scroll to bottom unless manually scrolled up
+            const [scrollPinned, setScrollPinned] = useState(true);
+
+            const onScrollHandler = useCallback((e) => {
+                const el = e.target;
+
+                const atBottom =
+                    (el.scrollHeight <= el.clientHeight) ||
+                    (e.target.scrollTop + e.target.clientHeight > e.target.scrollHeight - 5);
+
+                setScrollPinned(atBottom);
+            }, []);
+
+            const scrollRef = useRef(null);
+
+            useLayoutEffect(() => {
+                const el = scrollRef.current;
+                if (el && scrollPinned) el.scrollTop = el.scrollHeight - el.clientHeight;
+            });
+
+            // If no log, show nothing
+            if (!data.log) return null;
+
+            // Render
+            return html`<div>
+                <h6>Logs</h6>
+                <pre><code class="log" onscroll=${onScrollHandler} ref=${scrollRef}>
+                    ${data.log.map((line, i) => html`<${LogLine} key=${i} line=${line} />`)}
+                </code></pre>
+            </div>`;
+        }
+
+
+        function Status(props) {
+            const data = useContext(dataContext);
+
+            return html`
+                <h4>
+                    Status: ${data.status}
+                    ${data.substatus ? html`<div class="subh">${data.substatus}</div>` : ""}
+                </h4>
+            `;
+        }
+
+        function App(props) {
+            const [dataStore, setDataStore] = useState(JSON.parse(document.getElementById("data-island").innerText));
+
+            const refreshData = useCallback(async () => {
+                let data;
+
+                try {
+                    const res = await fetch(location.toString(), {
+                        headers: {
+                            accept: "application/json"
+                        }
+                    });
+
+                    data = await res.json();
+                }
+                catch (e) {
+                    data = { ...dataStore, "status": "error ", "substatus": "" + e };
+                }
+
+                setDataStore(data)
+                setTimeout(refreshData, data.status == "ready" ? 2000 : 500);
+            }, []);
+
+            useEffect(refreshData, []);
+
+            return html`
+                <${dataContext.Provider} value=${dataStore}>
+                    <h1><img src='https://gyre.ai/img/gyrelogo-256.png' alt='Gyre.ai logo'/>Gyre server status</h1>
+                    <${Status} />
+                    <${Log} />
+                </${dataContext.Provider}>
+                `;
+        }
+
+        render(html`<${App} />`, document.body);
+
+        async function updateData() {
+
+        }
+
+    </script>
+
+    <style type="text/css">
+        body {
+            padding: 20px;
+        }
+
+        h1 {
+            line-height: 64px;
+        }
+
+        h1 img {
+            height: 64px;
+            vertical-align: bottom;
+            margin-right: 8px;
+        }
+
+        .subh {
+            font-size: 1.6rem;
+            letter-spacing: 0;
+        }
+
+        .log {
+            max-height: 200px;
+            overflow: auto;
+        }
+    </style>
+</head>
+
+<body>
+</body>
+
+</html>
