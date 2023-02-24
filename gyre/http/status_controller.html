@@ -21,7 +21,7 @@
         const dataContext = createContext(JSON.parse(document.getElementById("data-island").innerText));
 
         function LogLine(props) {
-            return html`<div>${props.line}</div>`;
+            return html`<div>${props.message}</div>`;
         }
 
         function Log(props) {
@@ -48,13 +48,13 @@
             });
 
             // If no log, show nothing
-            if (!data.log) return null;
+            if (!data.logs) return null;
 
             // Render
             return html`<div>
                 <h6>Logs</h6>
                 <pre><code class="log" onscroll=${onScrollHandler} ref=${scrollRef}>
-                    ${data.log.map((line, i) => html`<${LogLine} key=${i} line=${line} />`)}
+                    ${data.logs.map((line, i) => html`<${LogLine} key=${i} ...${line} />`)}
                 </code></pre>
             </div>`;
         }

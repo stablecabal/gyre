@@ -1,6 +1,7 @@
 import argparse
 import binascii
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -31,6 +32,7 @@ from huggingface_hub.file_download import http_get
 from twisted.internet import endpoints, protocol, reactor
 from twisted.web import resource, server, static
 from twisted.web.resource import ForbiddenResource, NoResource
+from twisted.web.util import Redirect, redirectTo
 from twisted.web.wsgi import WSGIResource
 from wsgicors import CORS
 
@@ -55,10 +57,13 @@ from gyre.engines_yaml import EnginesYaml
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
+from gyre.logging import LOG_LEVELS, configure_logging
 from gyre.manager import BatchMode, EngineManager, EngineMode
 from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
 from gyre.services.generate import GenerationServiceServicer
+
+configure_logging()
 
 
 class DartGRPCCompatibility(object):
@@ -351,6 +356,11 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         if self.fileroot:
             return self.files, 0
 
+        # If we're at the root, redirect to status
+        if child == b"":
+            request.postpath.pop(0)
+            return Redirect(b"/status"), 0
+
         return NoResource(), 0
 
     def getChild(self, child, request):
@@ -392,6 +402,7 @@ def main():
     )
 
     generation_opts = parser.add_argument_group("generation")
+    logging_opts = parser.add_argument_group("logging")
     networking_opts = parser.add_argument_group("networking")
     util_opts = parser.add_argument_group("utility")
     batch_opts = parser.add_argument_group("generation batch control")
@@ -475,6 +486,21 @@ def main():
     )
     generation_opts.add_argument(
         "--enable_mps", action="store_true", help="Use MPS on MacOS where available"
+    )
+
+    logging_opts.add_argument(
+        "--log_level",
+        type=str,
+        default="INFO",
+        choices=LOG_LEVELS.keys(),
+        help="Logging level for gyre logs",
+    )
+    logging_opts.add_argument(
+        "--dep_log_level",
+        type=str,
+        default="ERROR",
+        choices=LOG_LEVELS.keys(),
+        help="Logging level for dependancies",
     )
 
     batch_opts.add_argument(
@@ -564,6 +590,9 @@ def main():
     if args.reload:
         # start_reloader will only return in a monitored subprocess
         reloader = hupper.start_reloader("gyre.server.main", reload_interval=10)
+
+    logging.getLogger().setLevel(args.dep_log_level)
+    logging.getLogger("gyre").setLevel(args.log_level)
 
     debug_recorder = DebugNullRecorder()
 

@@ -3,6 +3,7 @@
 # unsafe or unknown types in them
 
 import functools as _functools
+import logging
 from collections import OrderedDict
 from typing import Any, Dict, List
 
@@ -10,6 +11,7 @@ import torch
 
 from gyre.src.picklemagic.picklemagic import FakeUnpickler
 
+logger = logging.getLogger(__name__)
 
 # Unpickling machinery
 @_functools.lru_cache(maxsize=1)
@@ -66,11 +68,11 @@ class Unpickler(FakeUnpickler):
             return safe[fqn]
 
         # Logging for now
-        print(f"Warning: skipping unpickling {fqn} as unsafe.")
+        logger.warn(f"skipping unpickling {fqn} as unsafe.")
         return self.class_factory(name, module)
 
     def get_extension(self, code):
-        print("Warning: skipping unpickling extension {code} as unsafe.")
+        logger.warn("skipping unpickling extension {code} as unsafe.")
         return self.class_factory("extension_code_{0}".format(code), "copyreg")
 
 

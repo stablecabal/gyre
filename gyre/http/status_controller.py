@@ -5,6 +5,7 @@ from gyre.http.json_api_controller import (
     JSONAPIController,
     UnsupportedMediaTypeResource,
 )
+from gyre.logging import store_handler
 
 with open(
     os.path.join(
@@ -30,7 +31,7 @@ class StatusController(JSONAPIController):
     def handle_GET(self, request, _):
         data = {
             "status": self._manager.status if self._manager else "pending",
-            "log": self._manager.log if self._manager else "",
+            "logs": store_handler.logs,
         }
 
         accept_header = request.getHeader("accept")

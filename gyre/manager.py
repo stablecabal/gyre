@@ -5,6 +5,7 @@ import importlib
 import inspect
 import itertools
 import json
+import logging
 import math
 import os
 import queue
@@ -39,6 +40,8 @@ from gyre.pipeline.unified_pipeline import (
     UnifiedPipelineImageType,
     UnifiedPipelinePromptType,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LIBRARIES = {
     "StableDiffusionPipeline": "stable_diffusion",
@@ -690,7 +693,6 @@ class EngineManager(object):
         self._defaults = {}
 
         self.status: Literal["created", "loading", "ready"] = "created"
-        self.log: list[str] = []
 
         # Models that are explictly loaded with a model_id and can be referenced
         self._models: dict[str, ModelSet] = {}
@@ -1464,8 +1466,7 @@ class EngineManager(object):
             model = self._models[modelid]
 
         else:
-            print(f"    - Model {modelid}...")
-            self.log.append(f"    - Model {modelid}...")
+            logger.info(f"    - Model {modelid}...")
 
             # Otherwise find the specification that matches the model_id reference
             specs = [
@@ -1594,9 +1595,7 @@ class EngineManager(object):
 
     def loadPipelines(self):
 
-        print("Loading engines...")
-        self.log.append("Loading engines...")
-        self.status = "loading"
+        logger.info("Loading engines...")
 
         for engine in self.engines:
             if not engine.enabled:
@@ -1610,15 +1609,13 @@ class EngineManager(object):
             if engine.default:
                 self._defaults[engine.task] = engineid
 
-            print(f"  - Engine {engineid}...")
-            self.log.append(f"  - Engine {engineid}...")
+            logger.info(f"  - Engine {engineid}...")
 
             self._engine_models[engineid] = self._load_model(engine)
 
         if self.batchMode.autodetect:
             self.batchMode.run_autodetect(self)
 
-        self.log.append("All engines ready")
         self.status = "ready"
 
     def _fixcfg(self, model, key, test, value):
