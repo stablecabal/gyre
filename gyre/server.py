@@ -63,8 +63,6 @@ from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
 from gyre.services.generate import GenerationServiceServicer
 
-configure_logging()
-
 
 class DartGRPCCompatibility(object):
     """Fixes a couple of compatibility issues between Dart GRPC-WEB and Sonora
@@ -469,7 +467,12 @@ def main():
         "-V",
         type=int,
         default=os.environ.get("SD_VRAM_OPTIMISATION_LEVEL", 2),
-        help="How much to trade off performance to reduce VRAM usage (0 = none, 2 = max)",
+        help="How much to trade off performance to reduce VRAM usage (0 = none, 5 = max)",
+    )
+    generation_opts.add_argument(
+        "--force_fp32",
+        action="store_true",
+        help="Regardless of VRAM optimisation level, don't use fp16 anywhere (needed for GTX1660)",
     )
     generation_opts.add_argument(
         "--nsfw_behaviour",
@@ -574,6 +577,7 @@ def main():
     args.dont_refresh_on_error = (
         args.dont_refresh_on_error or "SD_DONT_REFRESH_ON_ERROR" in os.environ
     )
+    args.force_fp32 = args.force_fp32 or "SD_FORCE_FP32" in os.environ
 
     refresh_models = None
     if args.refresh_models:
@@ -591,6 +595,7 @@ def main():
         # start_reloader will only return in a monitored subprocess
         reloader = hupper.start_reloader("gyre.server.main", reload_interval=10)
 
+    configure_logging()
     logging.getLogger().setLevel(args.dep_log_level)
     logging.getLogger("gyre").setLevel(args.log_level)
 
@@ -684,6 +689,7 @@ def main():
             refresh_on_error=not args.dont_refresh_on_error,
             mode=EngineMode(
                 vram_optimisation_level=args.vram_optimisation_level,
+                force_fp32=args.force_fp32,
                 enable_cuda=True,
                 enable_mps=args.enable_mps,
             ),

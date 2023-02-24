@@ -1,12 +1,17 @@
+import functools
 import inspect
 import io
 import logging
 import sys
 import traceback
 
+import tqdm
 from colorama import Back, Fore, Style, just_fix_windows_console
 
 just_fix_windows_console()
+
+# Capture stdout and stderr and turn anything printed to them
+# into logger messages instead
 
 original_stdout = sys.stdout
 original_stderr = sys.stderr
@@ -26,20 +31,20 @@ class StdCapture:
     def write(self, text):
         caller_module_name = sys._getframe(1).f_globals["__name__"]
 
-        if caller_module_name.startswith("tqdm."):
-            self.std.write(text)
+        text = text.splitlines()
+        logger = logging.getLogger(caller_module_name)
 
-        else:
-            text = text.splitlines()
-            logger = logging.getLogger(caller_module_name)
-
-            for line in text:
-                if line:
-                    logger.log(self.level, line)
+        for line in text:
+            if line:
+                logger.log(self.level, line)
 
 
-sys.stdout = StdCapture(original_stdout, logging.INFO)
-sys.stderr = StdCapture(original_stderr, logging.ERROR)
+# Fix tqdm to print to original_stderr, so that any progress bars
+# don't get converted into log messages
+
+tqdm.tqdm.__init__ = functools.partialmethod(
+    tqdm.tqdm.__init__, file=original_stderr, dynamic_ncols=True
+)  # type: ignore
 
 
 class ColorFormatter(logging.Formatter):
@@ -88,6 +93,9 @@ store_handler = StoreHandler()
 
 
 def configure_logging():
+    # Capture stdout and stderr
+    sys.stdout = StdCapture(original_stdout, logging.INFO)
+    sys.stderr = StdCapture(original_stderr, logging.ERROR)
 
     # Capture warnings
     logging.captureWarnings(True)

@@ -100,8 +100,15 @@ class ProgressBarWrapper(object):
 
 
 class EngineMode(object):
-    def __init__(self, vram_optimisation_level=0, enable_cuda=True, enable_mps=False):
+    def __init__(
+        self,
+        vram_optimisation_level=0,
+        force_fp32=False,
+        enable_cuda=True,
+        enable_mps=False,
+    ):
         self._vramO = vram_optimisation_level
+        self._force_fp32 = force_fp32
         self._enable_cuda = enable_cuda
         self._enable_mps = enable_mps
 
@@ -125,7 +132,7 @@ class EngineMode(object):
 
     @property
     def fp16(self):
-        return self.device == "cuda" and self._vramO > 1
+        return self.device == "cuda" and self._vramO > 1 and not self._force_fp32
 
     @property
     def unet_exclusion(self):
@@ -1012,7 +1019,7 @@ class EngineManager(object):
             # Or an explicit URL
             add_candidate(self._get_url_path, local_only=False)
         # 2nd: If we're in fp16 mode, try loading the fp16-specific local model
-        if self.mode.fp16 and spec.fp16 != "never":
+        if self.mode.fp16 and spec.fp16 not in {"never", "prevent"}:
             add_candidate(self._get_local_path, fp16=True)
         # 3rd: Try loading the general local model
         if not (self.mode.fp16 and spec.fp16 == "only"):
