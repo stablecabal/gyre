@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Maximise space
-        if: ${{ matrix.target == "xformers" }}
+        if: ${{ matrix.target == 'xformers' }}
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
