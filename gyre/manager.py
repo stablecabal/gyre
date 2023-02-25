@@ -25,7 +25,10 @@ import huggingface_hub
 import torch
 from diffusers import ModelMixin, UNet2DConditionModel, pipelines
 from diffusers.configuration_utils import FrozenDict
-from diffusers.pipeline_utils import DiffusionPipeline, is_safetensors_compatible
+from diffusers.pipelines.pipeline_utils import (
+    DiffusionPipeline,
+    is_safetensors_compatible,
+)
 from diffusers.utils import deprecate
 from huggingface_hub.file_download import http_get
 from tqdm.auto import tqdm

@@ -1,4 +1,5 @@
 import functools
+import logging
 
 import torch
 from diffusers.models.attention import CrossAttention
@@ -9,6 +10,8 @@ if is_xformers_available():
     import xformers.ops
 else:
     xformers = None
+
+logger = logging.getLogger(__name__)
 
 
 @functools.cache
@@ -50,8 +53,10 @@ def xformers_mea_reversible(size: int):
 
     try:
         _grad(size)
+        logger.debug(f"Xformers reverse testing {size} - passed")
         return True
     except Exception as e:
+        logger.debug(f"Xformers reverse testing {size} - failed")
         return False
 
 

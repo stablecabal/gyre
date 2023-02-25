@@ -1,5 +1,6 @@
 import contextlib
 import inspect
+import logging
 import math
 from copy import copy
 from typing import (
@@ -19,14 +20,14 @@ import torch
 import torchvision.transforms as T
 from diffusers.configuration_utils import FrozenDict
 from diffusers.models import AutoencoderKL, UNet2DConditionModel
+from diffusers.models.cross_attention import CrossAttnProcessor, SlicedAttnProcessor
 from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import (
     StableDiffusionSafetyChecker,
 )
 from diffusers.schedulers.scheduling_utils import SchedulerMixin
-from diffusers.utils import deprecate, logging
-from diffusers.utils.import_utils import is_xformers_available
+from diffusers.utils import deprecate
 from packaging import version
 from PIL.Image import Image as PILImage
 from transformers.models.clip import (
@@ -39,7 +40,6 @@ from transformers.models.clip import (
 from gyre import images, resize_right
 from gyre.patching import patch_module_references
 from gyre.pipeline import diffusers_types
-from gyre.pipeline.attention_replacer import replace_cross_attention
 from gyre.pipeline.common_scheduler import (
     SCHEDULER_NOISE_TYPE,
     SCHEDULER_PREDICTION_TYPE,
@@ -60,7 +60,6 @@ from gyre.pipeline.lora import (
     parse_safeloras_embeds,
     tune_lora_scale,
 )
-from gyre.pipeline.models.structured_cross_attention import StructuredCrossAttention
 from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
@@ -93,7 +92,7 @@ try:
 except ImportError:
     tome_patcher = None
 
-logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
 def set_requires_grad(model, value):
@@ -1145,6 +1144,8 @@ class UnifiedPipeline(DiffusionPipeline):
             if self.inpaint_text_encoder:
                 set_requires_grad(self.inpaint_text_encoder, False)
 
+        self._sliced_attention = False
+
         self._xformers_available = False
         self._xformers = False
         self._xformers_notice_given = False
@@ -1154,40 +1155,92 @@ class UnifiedPipeline(DiffusionPipeline):
             self._xformers = True
             self.enable_xformers_memory_efficient_attention()
 
+    def set_use_memory_efficient_attention_xformers(
+        self, valid: bool, *args, **kwargs
+    ) -> None:
+        self._xformers = valid
+        super().set_use_memory_efficient_attention_xformers(valid, *args, **kwargs)
+
+    def set_attention_slice(self, slice_size: Optional[int]):
+        self._sliced_attention = slice_size
+
+        module_names, _, _ = self.extract_init_dict(dict(self.config))
+        for module_name in module_names:
+            module = getattr(self, module_name)
+            if (
+                isinstance(module, torch.nn.Module)
+                and hasattr(module, "set_attention_slice")
+                and not (
+                    self._xformers
+                    and hasattr(module, "set_use_memory_efficient_attention_xformers")
+                )
+            ):
+                module.set_attention_slice(slice_size)
+
     def _build_reversible_ctx(self, unet):
         # If we're not using xformers, no need to do anything
         if not self._xformers:
             return contextlib.nullcontext
 
-        xformers_modules = [
+        basic_modules = [
             module
             for _, module in unet.named_modules()
-            if hasattr(module, "_use_memory_efficient_attention_xformers")
+            if getattr(module, "_use_memory_efficient_attention_xformers", False)
+            and not xformers_mea_reversible_for_module(module)
         ]
 
-        modules = [
+        processor_modules = [
             module
-            for module in xformers_modules
-            if not xformers_mea_reversible_for_module(module)
+            for _, module in unet.named_modules()
+            if hasattr(module, "set_processor")
+            and not xformers_mea_reversible_for_module(module)
         ]
 
-        if modules and not self._xformers_notice_given:
+        # If all modules work in reversible mode already, no need to do anything
+        if not basic_modules and not processor_modules:
+            return contextlib.nullcontext
+
+        if not self._xformers_notice_given:
             self._xformers_notice_given = True
             print(
-                f"Disabling xformers from some ({len(modules)} out of {len(xformers_modules)}) "
-                "CrossAttention modules on this Pipeline"
+                f"Disabling xformers from some ({len(basic_modules) + len(processor_modules)}) "
+                "modules on this Pipeline"
             )
+
+        orig_processors = []
+        revs_processors = []
+
+        for module in processor_modules:
+            assert not getattr(
+                module, "added_kv_proj_dim", False
+            ), "SD unets shouldn't have"
+
+            orig_processors.append(module.processor)
+
+            if self._sliced_attention == "auto":
+                slice_size = module.sliceable_head_dim // 2
+                revs_processors.append(SlicedAttnProcessor(slice_size))
+            elif self._sliced_attention:
+                revs_processors.append(SlicedAttnProcessor(self._sliced_attention))
+            else:
+                revs_processors.append(CrossAttnProcessor())
 
         @contextlib.contextmanager
         def reversiblectx():
             # Disable xformers while context manager is open
-            for module in modules:
+            for module in basic_modules:
                 module._use_memory_efficient_attention_xformers = False
-            # Run context
-            yield
-            # Enable xformers now context manager is closed
-            for module in modules:
-                module._use_memory_efficient_attention_xformers = True
+            for module, processor in zip(processor_modules, revs_processors):
+                module.set_processor(processor)
+            try:
+                # Run context
+                yield
+            finally:
+                # Enable xformers now context manager is closed
+                for module in basic_modules:
+                    module._use_memory_efficient_attention_xformers = True
+                for module, processor in zip(processor_modules, orig_processors):
+                    module.set_processor(processor)
 
         return reversiblectx
 
@@ -1262,21 +1315,7 @@ class UnifiedPipeline(DiffusionPipeline):
                         "Warning: you asked for ToMe, but nonfree packages are not available"
                     )
             elif key == "structured_diffusion" and value:
-                print(
-                    "Warning: structured diffusion isn't finished, and shouldn't be used"
-                )
-                replace_cross_attention(
-                    target=self.unet,
-                    crossattention=StructuredCrossAttention,
-                    name="unet",
-                )
-                if self.inpaint_unet:
-                    replace_cross_attention(
-                        target=self.inpaint_unet,
-                        crossattention=StructuredCrossAttention,
-                        name="inpaint_unet",
-                    )
-                self._structured_diffusion = True
+                logger.warning("structured diffusion is deprecated")
             elif key == "clip":
                 for subkey, subval in value.items():
                     if subkey == "unet_grad":
