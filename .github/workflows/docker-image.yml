@@ -69,6 +69,7 @@ jobs:
           build-args: |
             CUDA_VER=${{ env.CUDA_VER }}
             CUDA_FULLVER=${{ matrix.cuda }}
+            MAX_JOBS=2
             XFORMERS_REPO=https://github.com/hafriedlander/xformers.git
             XFORMERS_REF=53b7454
             TRITON_REF=8650b4d

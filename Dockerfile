@@ -78,6 +78,7 @@ RUN tar cvjf /triton.tbz /env/envs/gyre/lib/python3.*/site-packages/triton*
 FROM tritonbase AS xformersbase
 ARG XFORMERS_REPO=https://github.com/facebookresearch/xformers.git
 ARG XFORMERS_REF=main
+ARG MAX_JOBS=8
 COPY docker_support/cuda_archs.sh /
 
 WORKDIR /
@@ -87,8 +88,10 @@ WORKDIR /xformers
 RUN git checkout $XFORMERS_REF
 RUN git submodule update --init --recursive
 RUN /bin/micromamba -r /env -n gyre run pip install -r requirements.txt
+RUN /bin/micromamba -r /env -n gyre run pip install ninja
 
 ENV FORCE_CUDA=1
+ENV MAX_JOBS=$MAX_JOBS
 RUN TORCH_CUDA_ARCH_LIST="`/cuda_archs.sh`" /bin/micromamba -r /env -n gyre run pip install .
 
 RUN tar cvjf /xformers.tbz /env/envs/gyre/lib/python3.*/site-packages/xformers*
