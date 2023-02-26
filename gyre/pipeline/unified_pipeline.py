@@ -55,10 +55,10 @@ from gyre.pipeline.kschedulers.scheduling_utils import KSchedulerMixin
 from gyre.pipeline.latent_debugger import LatentDebugger
 from gyre.pipeline.lora import (
     apply_learned_embed_in_clip,
-    monkeypatch_or_replace_safeloras,
-    monkeypatch_remove_lora,
+    apply_lora_to_pipe,
     parse_safeloras_embeds,
-    tune_lora_scale,
+    remove_lora_from_pipe,
+    set_lora_scale,
 )
 from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
@@ -1540,19 +1540,18 @@ class UnifiedPipeline(DiffusionPipeline):
             lora = lora[0]
             safeloras, weights = lora
 
-            monkeypatch_or_replace_safeloras(self, safeloras)
+            apply_lora_to_pipe(self, safeloras)
 
-            embeds = parse_safeloras_embeds(safeloras)
-            if embeds:
-                apply_learned_embed_in_clip(
-                    embeds, self.text_encoder, self.tokenizer, idempotent=True
-                )
+            # embeds = parse_safeloras_embeds(safeloras)
+            # if embeds:
+            #     apply_learned_embed_in_clip(
+            #         embeds, self.text_encoder, self.tokenizer, idempotent=True
+            #     )
 
             for key, weight in weights.items():
-                tune_lora_scale(getattr(self, key), weight)
+                set_lora_scale(getattr(self, key), weight)
         else:
-            monkeypatch_remove_lora(self.unet)
-            monkeypatch_remove_lora(self.text_encoder)
+            remove_lora_from_pipe(self)
 
         latent_debugger = LatentDebugger(
             vae=self.vae,

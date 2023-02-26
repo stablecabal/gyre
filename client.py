@@ -44,7 +44,10 @@ import generation_pb2 as generation
 import generation_pb2_grpc as generation_grpc
 import tensors_pb2 as tensors
 
-from gyre.protobuf_safetensors import serialize_safetensor
+from gyre.protobuf_safetensors import (
+    serialize_safetensor,
+    serialize_safetensor_from_dict,
+)
 from gyre.protobuf_tensors import serialize_tensor
 
 logger = logging.getLogger(__name__)
@@ -176,9 +179,14 @@ def ref_to_prompt(ref_uuid, mask: bool = False, depth: bool = False):
 
 
 def lora_to_prompt(path, weights):
-    safetensors = safe_open(path, framework="pt", device="cpu")
+    ext = os.path.splitext(path)[1]
 
-    lora = generation.Lora(lora=serialize_safetensor(safetensors))
+    if ext in {".bin", ".pt"}:
+        tensordict = torch.load(path, "cpu")
+        lora = generation.Lora(lora=serialize_safetensor_from_dict(tensordict))
+    else:
+        safetensors = safe_open(path, framework="pt", device="cpu")
+        lora = generation.Lora(lora=serialize_safetensor(safetensors))
 
     if weights:
         lora.weights.append(
@@ -276,7 +284,7 @@ class StabilityInference:
         if verbose:
             logger.info(f"Opening channel to {host}")
 
-        maxMsgLength = 30 * 1024 * 1024  # 30 MB
+        maxMsgLength = 256 * 1024 * 1024  # 256 MB
 
         channel_options = [
             ("grpc.max_message_length", maxMsgLength),

@@ -20,6 +20,17 @@ def serialize_safetensor(safetensors):
     return proto_safetensors
 
 
+def serialize_safetensor_from_dict(tensors):
+    proto_safetensors = Safetensors()
+
+    for k, v in tensors.items():
+        proto_safetensors.tensors.append(
+            SafetensorsTensor(key=k, tensor=serialize_tensor(v))
+        )
+
+    return proto_safetensors
+
+
 class FakeSafetensors:
     def __init__(self, metadata, tensors):
         self._metadata = metadata
