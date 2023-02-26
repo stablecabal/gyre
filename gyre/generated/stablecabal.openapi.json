@@ -291,6 +291,23 @@
                         }
                     },
                     {
+                        "name": "image.tilingX",
+                        "description": "The specific axis override tiling if both set",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "image.tilingY",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
                         "name": "classifier.realizedAction",
                         "in": "query",
                         "required": false,
@@ -725,6 +742,23 @@
                     },
                     {
                         "name": "image.tiling",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "image.tilingX",
+                        "description": "The specific axis override tiling if both set",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "image.tilingY",
                         "in": "query",
                         "required": false,
                         "schema": {
@@ -1759,6 +1793,13 @@
                         "$ref": "#/components/schemas/HiresFixParameters"
                     },
                     "tiling": {
+                        "type": "boolean"
+                    },
+                    "tilingX": {
+                        "type": "boolean",
+                        "title": "The specific axis override tiling if both set"
+                    },
+                    "tilingY": {
                         "type": "boolean"
                     }
                 }

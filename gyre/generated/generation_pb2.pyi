@@ -1471,6 +1471,8 @@ class ImageParameters(google.protobuf.message.Message):
     EXTENSION_FIELD_NUMBER: builtins.int
     HIRES_FIELD_NUMBER: builtins.int
     TILING_FIELD_NUMBER: builtins.int
+    TILING_X_FIELD_NUMBER: builtins.int
+    TILING_Y_FIELD_NUMBER: builtins.int
     height: builtins.int
     width: builtins.int
     @property
@@ -1492,6 +1494,9 @@ class ImageParameters(google.protobuf.message.Message):
     @property
     def hires(self) -> global___HiresFixParameters: ...
     tiling: builtins.bool
+    tiling_x: builtins.bool
+    """The specific axis override tiling if both set"""
+    tiling_y: builtins.bool
     def __init__(
         self,
         *,
@@ -1508,9 +1513,11 @@ class ImageParameters(google.protobuf.message.Message):
         extension: global___ExtendedParameters | None = ...,
         hires: global___HiresFixParameters | None = ...,
         tiling: builtins.bool | None = ...,
+        tiling_x: builtins.bool | None = ...,
+        tiling_y: builtins.bool | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_extension", b"_extension", "_height", b"_height", "_hires", b"_hires", "_masked_area_init", b"_masked_area_init", "_quantize", b"_quantize", "_samples", b"_samples", "_steps", b"_steps", "_tiling", b"_tiling", "_transform", b"_transform", "_weight_method", b"_weight_method", "_width", b"_width", "extension", b"extension", "height", b"height", "hires", b"hires", "masked_area_init", b"masked_area_init", "quantize", b"quantize", "samples", b"samples", "steps", b"steps", "tiling", b"tiling", "transform", b"transform", "weight_method", b"weight_method", "width", b"width"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_extension", b"_extension", "_height", b"_height", "_hires", b"_hires", "_masked_area_init", b"_masked_area_init", "_quantize", b"_quantize", "_samples", b"_samples", "_steps", b"_steps", "_tiling", b"_tiling", "_transform", b"_transform", "_weight_method", b"_weight_method", "_width", b"_width", "extension", b"extension", "height", b"height", "hires", b"hires", "masked_area_init", b"masked_area_init", "parameters", b"parameters", "quantize", b"quantize", "samples", b"samples", "seed", b"seed", "steps", b"steps", "tiling", b"tiling", "transform", b"transform", "weight_method", b"weight_method", "width", b"width"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_extension", b"_extension", "_height", b"_height", "_hires", b"_hires", "_masked_area_init", b"_masked_area_init", "_quantize", b"_quantize", "_samples", b"_samples", "_steps", b"_steps", "_tiling", b"_tiling", "_tiling_x", b"_tiling_x", "_tiling_y", b"_tiling_y", "_transform", b"_transform", "_weight_method", b"_weight_method", "_width", b"_width", "extension", b"extension", "height", b"height", "hires", b"hires", "masked_area_init", b"masked_area_init", "quantize", b"quantize", "samples", b"samples", "steps", b"steps", "tiling", b"tiling", "tiling_x", b"tiling_x", "tiling_y", b"tiling_y", "transform", b"transform", "weight_method", b"weight_method", "width", b"width"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_extension", b"_extension", "_height", b"_height", "_hires", b"_hires", "_masked_area_init", b"_masked_area_init", "_quantize", b"_quantize", "_samples", b"_samples", "_steps", b"_steps", "_tiling", b"_tiling", "_tiling_x", b"_tiling_x", "_tiling_y", b"_tiling_y", "_transform", b"_transform", "_weight_method", b"_weight_method", "_width", b"_width", "extension", b"extension", "height", b"height", "hires", b"hires", "masked_area_init", b"masked_area_init", "parameters", b"parameters", "quantize", b"quantize", "samples", b"samples", "seed", b"seed", "steps", b"steps", "tiling", b"tiling", "tiling_x", b"tiling_x", "tiling_y", b"tiling_y", "transform", b"transform", "weight_method", b"weight_method", "width", b"width"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_extension", b"_extension"]) -> typing_extensions.Literal["extension"] | None: ...
     @typing.overload
@@ -1527,6 +1534,10 @@ class ImageParameters(google.protobuf.message.Message):
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_steps", b"_steps"]) -> typing_extensions.Literal["steps"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_tiling", b"_tiling"]) -> typing_extensions.Literal["tiling"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_tiling_x", b"_tiling_x"]) -> typing_extensions.Literal["tiling_x"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_tiling_y", b"_tiling_y"]) -> typing_extensions.Literal["tiling_y"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_transform", b"_transform"]) -> typing_extensions.Literal["transform"] | None: ...
     @typing.overload

@@ -1396,7 +1396,32 @@ class UnifiedPipeline(DiffusionPipeline):
 
         return self.device
 
-    def set_tiling_mode(self, tiling=True):
+    def set_module_tiling(self, module, tiling):
+        F, _pair = torch.nn.functional, torch.nn.modules.utils._pair
+
+        padding_modeX = "circular" if tiling != "y" else "constant"
+        padding_modeY = "circular" if tiling != "x" else "constant"
+
+        rprt = module._reversed_padding_repeated_twice
+        paddingX = (rprt[0], rprt[1], 0, 0)
+        paddingY = (0, 0, rprt[2], rprt[3])
+
+        def _conv_forward(self, input, weight, bias):
+            padded = F.pad(input, paddingX, mode=padding_modeX)
+            padded = F.pad(padded, paddingY, mode=padding_modeY)
+            return F.conv2d(
+                padded, weight, bias, self.stride, _pair(0), self.dilation, self.groups
+            )
+
+        module._conv_forward = _conv_forward.__get__(module)
+
+    def remove_module_tiling(self, module):
+        try:
+            del module._conv_forward
+        except AttributeError:
+            pass
+
+    def set_tiling_mode(self, tiling: bool | Literal["x", "y", "xy"] = True):
         module_names, _, _ = self.extract_init_dict(dict(self.config))
         modules = [getattr(self, name) for name in module_names.keys()]
         modules = filter(lambda module: isinstance(module, torch.nn.Module), modules)
@@ -1404,14 +1429,15 @@ class UnifiedPipeline(DiffusionPipeline):
         for module in modules:
             for submodule in module.modules():
                 if isinstance(submodule, torch.nn.Conv2d | torch.nn.ConvTranspose2d):
-                    # Remember original padding mode
-                    if not hasattr(submodule, "orig_padding_mode"):
-                        submodule.orig_padding_mode = submodule.padding_mode
-                    # Then set padding mode to either "circular" or original mode
-                    if tiling:
-                        submodule.padding_mode = "circular"
+                    if isinstance(submodule, torch.nn.ConvTranspose2d):
+                        raise NotImplementedError(
+                            "Assymetric tiling doesn't support this module"
+                        )
+
+                    if tiling is False:
+                        self.remove_module_tiling(submodule)
                     else:
-                        submodule.padding_mode = submodule.orig_padding_mode
+                        self.set_module_tiling(submodule, tiling)
 
     @torch.no_grad()
     def __call__(
@@ -1744,7 +1770,7 @@ class UnifiedPipeline(DiffusionPipeline):
                     unet_pixel_size * (1 + self._hires_threshold_fraction)
                 )
 
-                if width <= unet_pixel_size or height <= unet_pixel_size:
+                if width < unet_pixel_size or height < unet_pixel_size:
                     raise ModeSkipException()
 
                 if width <= hires_threshold and height <= hires_threshold:

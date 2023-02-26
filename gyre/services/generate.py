@@ -439,7 +439,30 @@ class ParameterExtractor:
         return None
 
     def tiling(self):
-        return self._image_parameter("tiling")
+        tiling: set[str] = set()
+
+        # Handle tiling initially setting the status, but then the
+        # two specific axis being able to override if present
+        if self._image_parameter("tiling") is True:
+            tiling = {"x", "y"}
+
+        if self._image_parameter("tiling_x") is True:
+            tiling |= {"x"}
+        elif self._image_parameter("tiling_x") is False:
+            tiling -= {"x"}
+
+        if self._image_parameter("tiling_y") is True:
+            tiling |= {"y"}
+        elif self._image_parameter("tiling_y") is False:
+            tiling -= {"y"}
+
+        # Turning a set into a string isn't predictable in ordering
+        if len(tiling) == 2:
+            return True
+        elif tiling:
+            return list(tiling)[0]
+        else:
+            return False
 
     def get(self, field):
         return getattr(self, field)()

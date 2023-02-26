@@ -363,7 +363,7 @@ class StabilityInference:
         guidance_models: List[str] = None,
         hires_fix: bool | None = None,
         hires_oos_fraction: float | None = None,
-        tiling: bool = False,
+        tiling: str = "no",
         lora: list[tuple[str, list[float]]] | None = None,
         depth_engine: list[str] | None = None,
         as_async=False,
@@ -559,6 +559,14 @@ class StabilityInference:
 
             hires = generation.HiresFixParameters(**hires_params)
 
+        tiling_params = {}
+        if tiling == "xy" or tiling == "yes":
+            tiling_params["tiling"] = True
+        elif tiling == "x":
+            tiling_params["tiling_x"] = True
+        elif tiling == "y":
+            tiling_params["tiling_y"] = True
+
         image_parameters = generation.ImageParameters(
             transform=generation.TransformType(diffusion=sampler),
             height=height,
@@ -568,7 +576,7 @@ class StabilityInference:
             samples=samples,
             parameters=[generation.StepParameter(**step_parameters)],
             hires=hires,
-            tiling=tiling,
+            **tiling_params,
         )
 
         if as_async:
@@ -852,8 +860,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--tiling",
-        action=BooleanOptionalAction,
-        help="Enable or disable producing a tilable result",
+        type=str,
+        choices=["x", "y", "xy", "no", "yes"],
+        help="Select one or both axis to tile on",
     )
     parser.add_argument(
         "--lora",
