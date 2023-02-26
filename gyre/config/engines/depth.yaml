@@ -26,3 +26,9 @@
   model: "@empty"
   overrides:
     midas_depth_estimator: "@midas-nextvit-large-384"
+
+- id: "depth-stable-diffusion-v2-depth"
+  enabled: False
+  task: "depth"
+  class: "DiffusersDepthPipeline"
+  model: "@depth-stable-diffusion-v2-depth"

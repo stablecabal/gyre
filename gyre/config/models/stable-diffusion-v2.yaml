@@ -5,6 +5,11 @@
   model: "stabilityai/stable-diffusion-2-depth"
   local_model: "./stable-diffusion-v2-depth"
 
+# This is the depth estimation model, loaded seperately for seperate use
+- model_id: "depth-stable-diffusion-v2-depth"
+  model: "stabilityai/stable-diffusion-2-depth"
+  whitelist: ["depth_estimator", "feature_extractor"]
+
 - model_id: "stable-diffusion-v2-inpainting"
   whitelist: ["text_encoder", "unet"]
   model: "stabilityai/stable-diffusion-2-inpainting"
