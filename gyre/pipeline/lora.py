@@ -1,5 +1,7 @@
 import logging
 import re
+import sys
+import types
 from typing import Literal
 
 from accelerate.hooks import (
@@ -11,9 +13,15 @@ from accelerate.hooks import (
 from safetensors import safe_open
 from torch import nn
 
-from gyre.src.lora.lora_diffusion.lora import (  # tune_lora_scale,
+# Nasty hack - detect if fire is installed, and if not, prevent lora import from failing
+
+try:
+    import fire
+except ImportError:
+    sys.modules["fire"] = types.ModuleType("fire")
+
+from gyre.src.lora.lora_diffusion.lora import (
     _find_modules,
-    apply_learned_embed_in_clip,
     parse_safeloras,
     parse_safeloras_embeds,
 )
@@ -190,6 +198,8 @@ def apply_lora_to_pipe(pipe, lora):
 def apply_cloneofsimo_to_pipe(pipe, lora):
     loras = parse_safeloras(lora)
 
+    logger.debug(f"Loading cloneofsimo Lora with {loras.keys()} models")
+
     for name, (lora, ranks, target) in loras.items():
         model = getattr(pipe, name, None)
 
@@ -213,6 +223,8 @@ def apply_cloneofsimo_to_pipe(pipe, lora):
 
 def apply_diffusers_to_pipe(pipe, lora):
     wrapped = _Wrapper(lora)
+
+    logger.debug(f"Loading diffusers Lora (unet only)")
 
     for key in wrapped.keys():
         if not key.endswith(".down.weight"):
@@ -241,7 +253,12 @@ def apply_diffusers_to_pipe(pipe, lora):
 def apply_kohya_to_pipe(pipe, lora):
     wrapped = _Wrapper(lora)
 
-    # This logic taken from https://github.com/kohya-ss/sd-webui-additional-networks/blob/main/scripts/lora_compvis.py
+    has_unet = any((x.startswith("lora_unet_") for x in wrapped.keys()))
+    has_te = any((x.startswith("lora_te_") for x in wrapped.keys()))
+
+    logger.debug(
+        f"Loading kohya-ss Lora ({'unet' if has_unet else ''} {'text_encoder' if has_te else ''})"
+    )
 
     for key in wrapped.keys():
         if not key.endswith(".lora_down.weight"):

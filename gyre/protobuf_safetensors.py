@@ -9,8 +9,10 @@ from gyre.protobuf_tensors import deserialize_tensor, serialize_tensor
 def serialize_safetensor(safetensors):
     proto_safetensors = Safetensors()
 
-    for k, v in safetensors.metadata().items():
-        proto_safetensors.metadata.append(SafetensorsMeta(key=k, value=v))
+    metadata = safetensors.metadata()
+    if metadata:
+        for k, v in metadata.items():
+            proto_safetensors.metadata.append(SafetensorsMeta(key=k, value=v))
 
     for k in safetensors.keys():
         proto_safetensors.tensors.append(

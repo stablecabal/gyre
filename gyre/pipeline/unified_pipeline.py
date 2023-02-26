@@ -54,7 +54,6 @@ from gyre.pipeline.common_scheduler import (
 from gyre.pipeline.kschedulers.scheduling_utils import KSchedulerMixin
 from gyre.pipeline.latent_debugger import LatentDebugger
 from gyre.pipeline.lora import (
-    apply_learned_embed_in_clip,
     apply_lora_to_pipe,
     parse_safeloras_embeds,
     remove_lora_from_pipe,
@@ -64,6 +63,7 @@ from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
 from gyre.pipeline.text_embedding.text_encoder_alt_layer import TextEncoderAltLayer
+from gyre.pipeline.textual_inversion import apply_ti_token
 from gyre.pipeline.unet.cfg import CFGChildUnets, CFGUnet
 from gyre.pipeline.unet.clipguided import (
     CLIP_GUIDANCE_BASE,
@@ -1568,11 +1568,13 @@ class UnifiedPipeline(DiffusionPipeline):
 
             apply_lora_to_pipe(self, safeloras)
 
-            # embeds = parse_safeloras_embeds(safeloras)
-            # if embeds:
-            #     apply_learned_embed_in_clip(
-            #         embeds, self.text_encoder, self.tokenizer, idempotent=True
-            #     )
+            embeds = parse_safeloras_embeds(safeloras)
+            if embeds:
+                logger.info(
+                    f"LoRA contains tokens {', '.join(embeds.keys())} - make sure to use them in the prompt for maxium effect"
+                )
+                for token, tensor in embeds.items():
+                    apply_ti_token(self, token, tensor)
 
             for key, weight in weights.items():
                 set_lora_scale(getattr(self, key), weight)
