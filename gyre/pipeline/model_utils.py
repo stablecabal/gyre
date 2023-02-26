@@ -95,7 +95,7 @@ def clone_model(
     # If this isn't actually a model, just return a deepcopy
     if not isinstance(model, torch.nn.Module):
         clone = deepcopy(model)
-        if clone_tensors != "share":
+        if clone_tensors != "share" and hasattr(clone, "to"):
             clone = clone.to(clone_tensors)
         return clone
 

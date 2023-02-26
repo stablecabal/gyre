@@ -58,6 +58,7 @@ class _ArtifactTypeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._E
     ARTIFACT_TENSOR: _ArtifactType.ValueType  # 9
     ARTIFACT_LORA: _ArtifactType.ValueType  # 500
     ARTIFACT_DEPTH: _ArtifactType.ValueType  # 501
+    ARTIFACT_TOKEN_EMBEDDING: _ArtifactType.ValueType  # 502
 
 class ArtifactType(_ArtifactType, metaclass=_ArtifactTypeEnumTypeWrapper): ...
 
@@ -73,6 +74,7 @@ ARTIFACT_LATENT: ArtifactType.ValueType  # 8
 ARTIFACT_TENSOR: ArtifactType.ValueType  # 9
 ARTIFACT_LORA: ArtifactType.ValueType  # 500
 ARTIFACT_DEPTH: ArtifactType.ValueType  # 501
+ARTIFACT_TOKEN_EMBEDDING: ArtifactType.ValueType  # 502
 global___ArtifactType = ArtifactType
 
 class _GaussianDirection:
@@ -814,6 +816,26 @@ class ArtifactReference(google.protobuf.message.Message):
 global___ArtifactReference = ArtifactReference
 
 @typing_extensions.final
+class TokenEmbedding(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TEXT_FIELD_NUMBER: builtins.int
+    TENSOR_FIELD_NUMBER: builtins.int
+    text: builtins.str
+    @property
+    def tensor(self) -> tensors_pb2.Tensor: ...
+    def __init__(
+        self,
+        *,
+        text: builtins.str = ...,
+        tensor: tensors_pb2.Tensor | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["tensor", b"tensor"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["tensor", b"tensor", "text", b"text"]) -> None: ...
+
+global___TokenEmbedding = TokenEmbedding
+
+@typing_extensions.final
 class Artifact(google.protobuf.message.Message):
     """A tangible Artifact, such as an image, video, or text that is used for input
     or output.
@@ -832,6 +854,7 @@ class Artifact(google.protobuf.message.Message):
     TENSOR_FIELD_NUMBER: builtins.int
     LORA_FIELD_NUMBER: builtins.int
     REF_FIELD_NUMBER: builtins.int
+    TOKEN_EMBEDDING_FIELD_NUMBER: builtins.int
     INDEX_FIELD_NUMBER: builtins.int
     FINISH_REASON_FIELD_NUMBER: builtins.int
     SEED_FIELD_NUMBER: builtins.int
@@ -866,6 +889,9 @@ class Artifact(google.protobuf.message.Message):
     @property
     def ref(self) -> global___ArtifactReference:
         """A reference to a previous Artifact"""
+    @property
+    def token_embedding(self) -> global___TokenEmbedding:
+        """A textual inversion embedding or similar"""
     index: builtins.int
     """Index of this artifact in input/output list"""
     finish_reason: global___FinishReason.ValueType
@@ -896,6 +922,7 @@ class Artifact(google.protobuf.message.Message):
         tensor: tensors_pb2.Tensor | None = ...,
         lora: global___Lora | None = ...,
         ref: global___ArtifactReference | None = ...,
+        token_embedding: global___TokenEmbedding | None = ...,
         index: builtins.int = ...,
         finish_reason: global___FinishReason.ValueType = ...,
         seed: builtins.int = ...,
@@ -904,12 +931,12 @@ class Artifact(google.protobuf.message.Message):
         adjustments: collections.abc.Iterable[global___ImageAdjustment] | None = ...,
         postAdjustments: collections.abc.Iterable[global___ImageAdjustment] | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_magic", b"_magic", "binary", b"binary", "classifier", b"classifier", "data", b"data", "lora", b"lora", "magic", b"magic", "ref", b"ref", "tensor", b"tensor", "text", b"text", "tokens", b"tokens"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_magic", b"_magic", "adjustments", b"adjustments", "binary", b"binary", "classifier", b"classifier", "data", b"data", "finish_reason", b"finish_reason", "id", b"id", "index", b"index", "lora", b"lora", "magic", b"magic", "mime", b"mime", "postAdjustments", b"postAdjustments", "ref", b"ref", "seed", b"seed", "size", b"size", "tensor", b"tensor", "text", b"text", "tokens", b"tokens", "type", b"type", "uuid", b"uuid"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_magic", b"_magic", "binary", b"binary", "classifier", b"classifier", "data", b"data", "lora", b"lora", "magic", b"magic", "ref", b"ref", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_magic", b"_magic", "adjustments", b"adjustments", "binary", b"binary", "classifier", b"classifier", "data", b"data", "finish_reason", b"finish_reason", "id", b"id", "index", b"index", "lora", b"lora", "magic", b"magic", "mime", b"mime", "postAdjustments", b"postAdjustments", "ref", b"ref", "seed", b"seed", "size", b"size", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "type", b"type", "uuid", b"uuid"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_magic", b"_magic"]) -> typing_extensions.Literal["magic"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["data", b"data"]) -> typing_extensions.Literal["binary", "text", "tokens", "classifier", "tensor", "lora", "ref"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["data", b"data"]) -> typing_extensions.Literal["binary", "text", "tokens", "classifier", "tensor", "lora", "ref", "token_embedding"] | None: ...
 
 global___Artifact = Artifact
 

@@ -425,6 +425,18 @@ class ParameterExtractor:
 
         return loras if loras else None
 
+    def token_embeddings(self):
+        embeddings = {}
+
+        for prompt in self._prompt_of_artifact_type(
+            generation_pb2.ARTIFACT_TOKEN_EMBEDDING
+        ):
+            embeddings[prompt.artifact.token_embedding.text] = deserialize_tensor(
+                prompt.artifact.token_embedding.tensor
+            )
+
+        return embeddings
+
     def strength(self):
         return self._image_stepparameter("schedule.start")
 
@@ -588,6 +600,11 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                             f"[{len(value)}]" if isinstance(value, list) else "yes"
                         )
 
+                if "token_embeddings" in logargs:
+                    logargs["token_embeddings"] = list(
+                        logargs["token_embeddings"].keys()
+                    )
+
                 print()
                 print(f"Generating {repr(logargs)}")
 
@@ -603,6 +620,8 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                             del prompt["artifact"]["binary"]
                         if "lora" in prompt["artifact"]:
                             del prompt["artifact"]["lora"]
+                        if "token_embedding" in prompt["artifact"]:
+                            del prompt["artifact"]["token_embedding"]
 
                 for i, (result_image, nsfw) in enumerate(zip(results[0], results[1])):
                     answer = generation_pb2.Answer()

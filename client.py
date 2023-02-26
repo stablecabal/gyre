@@ -18,11 +18,12 @@ import sys
 import time
 import uuid
 from argparse import ArgumentParser, BooleanOptionalAction, Namespace
+from itertools import zip_longest
 from typing import Any, Dict, Generator, List, Literal, Optional, Sequence, Tuple, Union
 
 import grpc
 import torch
-from google.protobuf.json_format import MessageToJson
+from google.protobuf.json_format import MessageToDict, MessageToJson
 from PIL import Image, ImageOps
 from safetensors.torch import safe_open
 
@@ -206,6 +207,28 @@ def lora_to_prompt(path, weights):
     )
 
 
+def ti_to_prompts(path, override_tokens):
+    data = torch.load(path, "cpu")
+
+    if "string_to_param" in data:
+        data = data["string_to_param"]
+
+    # Make sure we don't have more override tokens than items in the TI
+    override_tokens = override_tokens[: len(data.keys())]
+
+    return [
+        generation.Prompt(
+            artifact=generation.Artifact(
+                type=generation.ARTIFACT_TOKEN_EMBEDDING,
+                token_embedding=generation.TokenEmbedding(
+                    text=override or token, tensor=serialize_tensor(tensor)
+                ),
+            )
+        )
+        for (token, tensor), override in zip_longest(data.items(), override_tokens)
+    ]
+
+
 def process_artifacts_from_answers(
     prefix: str,
     answers: Union[
@@ -365,6 +388,7 @@ class StabilityInference:
         hires_oos_fraction: float | None = None,
         tiling: str = "no",
         lora: list[tuple[str, list[float]]] | None = None,
+        ti: list[tuple[str, list[str]]] | None = None,
         depth_engine: list[str] | None = None,
         as_async=False,
     ) -> Generator[generation.Answer, None, None]:
@@ -509,6 +533,10 @@ class StabilityInference:
             for path, weights in lora:
                 prompts += [lora_to_prompt(path, weights)]
 
+        if ti:
+            for path, overrides in ti:
+                prompts += ti_to_prompts(path, overrides)
+
         if guidance_prompt:
             if isinstance(guidance_prompt, str):
                 guidance_prompt = generation.Prompt(text=guidance_prompt)
@@ -605,6 +633,8 @@ class StabilityInference:
             prompt=prompt,
             image=image_parameters,
         )
+
+        # print(MessageToDict(rq))
 
         if self.verbose:
             logger.info("Sending request.")
@@ -867,7 +897,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lora",
         action="append",
-        help="Add a (safetensor format) Lora. Either a path, or path:unet_weight or path:unet_weight:text_encode_weight (i.e. ./lora_weight.safetensors:0.5:0.5)",
+        help="Add a Lora (cloneofsimo, diffusers or kohya-ss format). Either a path, or path:unet_weight or path:unet_weight:text_encode_weight (i.e. ./lora_weight.safetensors:0.5:0.5)",
+    )
+    parser.add_argument(
+        "--ti",
+        action="append",
+        help="Add a Textual Inversion. Either as a path, or path:token[:token] to override the tokens used (i.e. ./learned_embeds.bin:<token>)",
     )
     parser.add_argument(
         "--depth_engine",
@@ -924,6 +959,12 @@ if __name__ == "__main__":
             weights = [float(weight) for weight in weights]
             lora.append((path, weights))
 
+    ti = []
+    if args.ti:
+        for path in args.ti:
+            path, *tokens = path.split(":")
+            ti.append((path, tokens))
+
     request = {
         "negative_prompt": args.negative_prompt,
         "height": args.height,
@@ -953,6 +994,7 @@ if __name__ == "__main__":
         "hires_oos_fraction": args.hires_oos_fraction,
         "tiling": args.tiling,
         "lora": lora,
+        "ti": ti,
         "depth_engine": args.depth_engine,
         "as_async": args.as_async,
     }

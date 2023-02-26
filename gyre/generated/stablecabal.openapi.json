@@ -126,7 +126,8 @@
                                 "ARTIFACT_LATENT",
                                 "ARTIFACT_TENSOR",
                                 "ARTIFACT_LORA",
-                                "ARTIFACT_DEPTH"
+                                "ARTIFACT_DEPTH",
+                                "ARTIFACT_TOKEN_EMBEDDING"
                             ],
                             "default": "ARTIFACT_NONE"
                         }
@@ -584,7 +585,8 @@
                                 "ARTIFACT_LATENT",
                                 "ARTIFACT_TENSOR",
                                 "ARTIFACT_LORA",
-                                "ARTIFACT_DEPTH"
+                                "ARTIFACT_DEPTH",
+                                "ARTIFACT_TOKEN_EMBEDDING"
                             ],
                             "default": "ARTIFACT_NONE"
                         }
@@ -1004,6 +1006,9 @@
                     "ref": {
                         "$ref": "#/components/schemas/ArtifactReference"
                     },
+                    "tokenEmbedding": {
+                        "$ref": "#/components/schemas/TokenEmbedding"
+                    },
                     "index": {
                         "type": "integer",
                         "format": "int64",
@@ -1081,7 +1086,8 @@
                     "ARTIFACT_LATENT",
                     "ARTIFACT_TENSOR",
                     "ARTIFACT_LORA",
-                    "ARTIFACT_DEPTH"
+                    "ARTIFACT_DEPTH",
+                    "ARTIFACT_TOKEN_EMBEDDING"
                 ],
                 "default": "ARTIFACT_NONE"
             },
@@ -2196,6 +2202,17 @@
                     }
                 },
                 "description": "Generally, a GPT BPE 16-bit token, paired with an optional string representation."
+            },
+            "TokenEmbedding": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string"
+                    },
+                    "tensor": {
+                        "$ref": "#/components/schemas/Tensor"
+                    }
+                }
             },
             "Tokens": {
                 "type": "object",

@@ -6,8 +6,8 @@ from .text_embedding import TextEmbedding
 
 
 class BasicTextEmbedding(TextEmbedding):
-    def __init__(self, pipe, text_encoder, **kwargs):
-        super().__init__(pipe, text_encoder, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def _get_embeddedings(self, strings, label):
         tokenizer = self.tokenizer

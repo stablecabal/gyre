@@ -2,7 +2,7 @@ import contextlib
 import inspect
 import logging
 import math
-from copy import copy
+from copy import copy, deepcopy
 from typing import (
     Callable,
     Iterable,
@@ -1482,6 +1482,7 @@ class UnifiedPipeline(DiffusionPipeline):
         no_cutouts: CLIP_NO_CUTOUTS_TYPE = False,
         scheduler: DiffusersSchedulerProtocol | Callable | None = None,
         lora=None,
+        token_embeddings=None,
         hires_fix=None,
         hires_oos_fraction=None,
         tiling=False,
@@ -1568,18 +1569,27 @@ class UnifiedPipeline(DiffusionPipeline):
 
             apply_lora_to_pipe(self, safeloras)
 
-            embeds = parse_safeloras_embeds(safeloras)
-            if embeds:
-                logger.info(
-                    f"LoRA contains tokens {', '.join(embeds.keys())} - make sure to use them in the prompt for maxium effect"
-                )
-                for token, tensor in embeds.items():
-                    apply_ti_token(self, token, tensor)
+            if not token_embeddings:
+                token_embeddings = {}
+            token_embeddings.update(parse_safeloras_embeds(safeloras))
 
             for key, weight in weights.items():
                 set_lora_scale(getattr(self, key), weight)
         else:
             remove_lora_from_pipe(self)
+
+        tokenizer = self.tokenizer
+        clip_tokenizer = self.clip_tokenizer
+
+        if token_embeddings:
+            tokenizer = deepcopy(tokenizer)
+
+            logger.info(
+                f"Available token embeddings: {', '.join(token_embeddings.keys())}"
+            )
+
+            for token, tensor in token_embeddings.items():
+                apply_ti_token(tokenizer, self.text_encoder, token, tensor)
 
         latent_debugger = LatentDebugger(
             vae=self.vae,
@@ -1838,13 +1848,15 @@ class UnifiedPipeline(DiffusionPipeline):
             text_encoder = TextEncoderAltLayer(text_encoder, self._text_embedding_layer)
 
             # text_embedding_calculator = BasicTextEmbedding(
-            #     self,
+            #     tokenizer=tokenizer,
             #     text_encoder=text_encoder,
+            #     device=self.execution_device,
             # )
 
             text_embedding_calculator = LPWTextEmbedding(
-                self,
+                tokenizer=tokenizer,
                 text_encoder=text_encoder,
+                device=self.execution_device,
                 max_embeddings_multiples=max_embeddings_multiples,
             )
 
@@ -1915,11 +1927,11 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if self.clip_model is not None and clip_guidance_scale:
             max_length = min(
-                self.clip_tokenizer.model_max_length,
+                clip_tokenizer.model_max_length,
                 self.text_encoder.config.max_position_embeddings,
             )
 
-            clip_text_input = self.clip_tokenizer(
+            clip_text_input = clip_tokenizer(
                 clip_prompt.as_unweighted_string(),
                 padding="max_length",
                 max_length=max_length,

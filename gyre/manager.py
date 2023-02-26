@@ -401,6 +401,8 @@ class GeneratePipelineWrapper(PipelineWrapper):
         strength: float = None,
         # Lora
         lora=None,
+        # Token Embeddings
+        token_embeddings=None,
         # Hires control
         hires_fix=None,
         hires_oos_fraction=None,
@@ -464,6 +466,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
             depth_map=depth_map,
             strength=strength,
             lora=lora,
+            token_embeddings=token_embeddings,
             hires_fix=hires_fix,
             hires_oos_fraction=hires_oos_fraction,
             tiling=tiling,

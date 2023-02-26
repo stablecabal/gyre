@@ -383,13 +383,13 @@ def get_weighted_text_embeddings(
 
 
 class LPWTextEmbedding(TextEmbedding):
-    def __init__(self, pipe, text_encoder, max_embeddings_multiples, **kwargs):
-        super().__init__(pipe, text_encoder, **kwargs)
+    def __init__(self, max_embeddings_multiples, **kwargs):
+        super().__init__(**kwargs)
         self.max_embeddings_multiples = max_embeddings_multiples
 
     def get_embeddings(self, prompt, uncond_prompt=None):
         return get_weighted_text_embeddings(
-            tokenizer=self.pipe.tokenizer,
+            tokenizer=self.tokenizer,
             text_encoder=self.text_encoder,
             device=self.device,
             prompt=prompt.as_tokens(),
