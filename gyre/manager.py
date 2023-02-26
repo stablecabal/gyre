@@ -1867,34 +1867,36 @@ class EngineManager(object):
         # Get device queue slot
         slot = self._device_queue.get()
 
-        # Get pipeline (create if all pipelines for the id are busy)
-
-        # If a pipeline is already active on this device slot, check if it's the right
-        # one. If not, deactivate it and clear it
-        if slot.pipeline and slot.pipeline.id != id:
-            old_id = slot.pipeline.id
-            self._return_pipeline_to_pool(slot)
-
-            if self._ram_monitor:
-                print(f"Existing pipeline {old_id} deactivated")
-                self._ram_monitor.print()
-
-        # If there's no pipeline on this device slot yet, find it (creating it
-        # if all the existing pipelines are busy)
-        if not slot.pipeline:
-            existing = True
-            self._get_pipeline_from_pool(slot, id)
-
-            if not slot.pipeline:
-                existing = False
-                slot.pipeline = self._build_pipeline_for_engine(spec)
-                slot.pipeline.activate(slot.device)
-
-            if self._ram_monitor:
-                print(f"{'Existing' if existing else 'New'} pipeline {id} activated")
-                self._ram_monitor.print()
-
         try:
+            # Get pipeline (create if all pipelines for the id are busy)
+
+            # If a pipeline is already active on this device slot, check if it's the right
+            # one. If not, deactivate it and clear it
+            if slot.pipeline and slot.pipeline.id != id:
+                old_id = slot.pipeline.id
+                self._return_pipeline_to_pool(slot)
+
+                if self._ram_monitor:
+                    print(f"Existing pipeline {old_id} deactivated")
+                    self._ram_monitor.print()
+
+            # If there's no pipeline on this device slot yet, find it (creating it
+            # if all the existing pipelines are busy)
+            if not slot.pipeline:
+                existing = True
+                self._get_pipeline_from_pool(slot, id)
+
+                if not slot.pipeline:
+                    existing = False
+                    slot.pipeline = self._build_pipeline_for_engine(spec)
+                    slot.pipeline.activate(slot.device)
+
+                if self._ram_monitor:
+                    print(
+                        f"{'Existing' if existing else 'New'} pipeline {id} activated"
+                    )
+                    self._ram_monitor.print()
+
             # Do the work
             yield slot.pipeline
         finally:
