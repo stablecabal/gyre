@@ -730,7 +730,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 answer = async_context.queue.get(timeout=2)
                 if answer == "DONE":
                     async_answer.complete = True
-                    async_answer.status.code = async_context.code
+                    async_answer.status.code = async_context.code.value[0]
                     async_answer.status.message = async_context.message
                     break
                 else:
