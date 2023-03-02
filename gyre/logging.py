@@ -22,6 +22,8 @@ class StdCapture:
         self.std = std
         self.level = level
 
+        self.line_buffer = ""
+
     def __getattr__(self, name):
         return getattr(self.std, name)
 
@@ -29,13 +31,23 @@ class StdCapture:
         return self.std.__enter__(*args, **kwargs)
 
     def write(self, text):
-        caller_module_name = sys._getframe(1).f_globals["__name__"]
+        try:
+            caller_module_name = sys._getframe(1).f_globals["__name__"]
+        except Exception as e:
+            caller_module_name = "gyre"
 
-        text = text.splitlines()
-        logger = logging.getLogger(caller_module_name)
+        self.line_buffer += text
 
-        for line in text:
-            if line:
+        if "\n" in self.line_buffer:
+            text = self.line_buffer.splitlines()
+
+            if self.line_buffer.endswith("\n"):
+                self.line_buffer = ""
+            else:
+                self.line_buffer = text.pop()
+
+            logger = logging.getLogger(caller_module_name)
+            for line in text:
                 logger.log(self.level, line)
 
 
