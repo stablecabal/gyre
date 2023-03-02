@@ -1,8 +1,14 @@
+import functools
 from copy import deepcopy
 from typing import Literal
 
 import torch
-from accelerate.hooks import ModelHook, add_hook_to_module
+from accelerate.hooks import (
+    ModelHook,
+    SequentialHook,
+    add_hook_to_module,
+    remove_hook_from_module,
+)
 from accelerate.utils import send_to_device, set_module_tensor_to_device
 
 
@@ -166,3 +172,53 @@ def clone_model(
                     set_module_tensor_to_device(dest, name, clone_tensors, new_buffer)
 
     return clone
+
+
+def is_hooked(module):
+    return hasattr(module, "_hf_hook")
+
+
+def has_hook(module, hook_class):
+    if hasattr(module, "_hf_hook"):
+        if isinstance(module._hf_hook, SequentialHook):
+            return any((isinstance(hook, hook_class) for hook in module._hf_hook.hooks))
+
+        else:
+            return isinstance(module._hf_hook, hook_class)
+
+    return False
+
+
+def remove_hook(module, hook_class):
+    if hasattr(module, "_hf_hook"):
+        if isinstance(module._hf_hook, SequentialHook):
+            module._hf_hook.hooks = [
+                hook
+                for hook in module._hf_hook.hooks
+                if not isinstance(hook, hook_class)
+            ]
+            if not module._hf_hook.hooks:
+                remove_hook_from_module(module)
+
+        elif isinstance(module._hf_hook, hook_class):
+            remove_hook_from_module(module)
+
+
+def replace_hooked_forward(module, forward):
+    old_forward = module._old_forward
+
+    @functools.wraps(old_forward)
+    def new_forward(*args, **kwargs):
+        args, kwargs = module._hf_hook.pre_forward(module, *args, **kwargs)
+        if module._hf_hook.no_grad:
+            with torch.no_grad():
+                output = forward(*args, **kwargs)
+        else:
+            output = forward(*args, **kwargs)
+        return module._hf_hook.post_forward(module, output)
+
+    module.forward = new_forward
+
+
+def restore_hooked_forward(module):
+    replace_hooked_forward(module, module._old_forward)
