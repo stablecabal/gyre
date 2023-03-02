@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import generation_pb2
 import huggingface_hub
 import torch
+import yaml
 from diffusers import ModelMixin, UNet2DConditionModel, pipelines
 from diffusers.configuration_utils import FrozenDict
 from diffusers.pipelines.pipeline_utils import (
@@ -40,6 +41,7 @@ from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
 from gyre.pipeline.samplers import build_sampler_set
 from gyre.pipeline.unified_pipeline import (
     SCHEDULER_NOISE_TYPE,
+    UnifiedPipelineHintImage,
     UnifiedPipelineImageType,
     UnifiedPipelinePromptType,
 )
@@ -53,7 +55,10 @@ DEFAULT_LIBRARIES = {
     "DiffusersDepthPipeline": "gyre.pipeline.depth.diffusers_depth_pipeline",
     "MidasDepthPipeline": "gyre.pipeline.depth.midas_depth_pipeline",
     "MidasModelWrapper": "gyre.pipeline.depth.midas_model_wrapper",
+    "T2iAdapter": "gyre.pipeline.t2i_adapter",
+    "ControlNetModel": "gyre.pipeline.controlnet",
 }
+
 
 TYPE_CLASSES = {
     "vae": "diffusers.AutoencoderKL",
@@ -68,6 +73,8 @@ TYPE_CLASSES = {
     "upscaler": "gyre.pipeline.upscaler_pipeline.NoiseLevelAndTextConditionedUpscaler",
     "depth_estimator": "transformers.DPTForDepthEstimation",
     "midas_depth_estimator": "MidasModelWrapper",
+    "t2i_adapter": "T2iAdapter",
+    "controlnet": "ControlNetModel",
 }
 
 
@@ -397,6 +404,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
         mask_image: Optional[UnifiedPipelineImageType] = None,
         outmask_image: Optional[UnifiedPipelineImageType] = None,
         depth_map: Optional[UnifiedPipelineImageType] = None,
+        hint_images: list[UnifiedPipelineHintImage] | None = None,
         # The strength of the img2img or inpaint process, if init_image is provided
         strength: float = None,
         # Lora
@@ -464,6 +472,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
             mask_image=mask_image,
             outmask_image=outmask_image,
             depth_map=depth_map,
+            hint_images=hint_images,
             strength=strength,
             lora=lora,
             token_embeddings=token_embeddings,
@@ -829,40 +838,51 @@ class EngineManager(object):
                 # Read out the list of files
                 repo_files = [f.rfilename for f in repo_info.siblings]
                 # Filter by any ignore / allow
-                repo_files = huggingface_hub.utils.filter_repo_objects(
-                    repo_files,
-                    ignore_patterns=ignore_patterns,
-                    allow_patterns=allow_patterns if allow_patterns else None,
+                repo_files = list(
+                    huggingface_hub.utils.filter_repo_objects(
+                        repo_files,
+                        ignore_patterns=ignore_patterns if ignore_patterns else None,
+                        allow_patterns=allow_patterns if allow_patterns else None,
+                    )
                 )
                 # Split into path and extension tuple
-                repo_files = [os.path.splitext(f) for f in repo_files]
+                split_repo_files = [os.path.splitext(f) for f in repo_files]
                 # Sort by extension (grouping fails if not correctly sorted)
-                repo_files.sort(key=lambda x: x[1])
+                split_repo_files.sort(key=lambda x: x[1])
                 # Turn into a dictionary of { extension: set_of_files }
                 grouped = {
                     k: {f[0] for f in v}
-                    for k, v in itertools.groupby(repo_files, lambda x: x[1])
+                    for k, v in itertools.groupby(split_repo_files, lambda x: x[1])
                 }
 
                 has_ckpt = ".ckpt" in grouped
                 has_bin = ".bin" in grouped
                 has_pt = ".pt" in grouped
+                has_pth = ".pth" in grouped
                 has_safe = ".safetensors" in grouped
 
                 # Now decide which we will use
                 use = None
 
-                extensions = {"ckpt", "bin", "pt", "safetensors", "msgpack", "h5"}
+                extensions = {
+                    "ckpt",
+                    "bin",
+                    "pt",
+                    "pth",
+                    "safetensors",
+                    "msgpack",
+                    "h5",
+                }
 
                 if spec.safe_only:
                     use = "safetensors"
                 elif has_bin:
-                    if has_safe and is_safetensors_compatible(repo_info):
+                    if has_safe and is_safetensors_compatible(repo_files):
                         use = "safetensors"
                         if has_ckpt:
                             # Explictly don't include any safetensors that match ckpt files
                             ignore_patterns += [
-                                "{file}.safetensors"
+                                f"{file}.safetensors"
                                 for file in (grouped[".ckpt"] & grouped[".safetensors"])
                             ]
                     else:
@@ -871,6 +891,8 @@ class EngineManager(object):
                     use = "safetensors"
                 elif has_pt:
                     use = "pt"
+                elif has_pth:
+                    use = "pth"
                 elif has_ckpt:
                     use = "ckpt"
                 else:
@@ -886,7 +908,7 @@ class EngineManager(object):
 
                 if ignore_patterns:
                     extra_kwargs["ignore_patterns"] = ignore_patterns
-                if subfolder:
+                if allow_patterns:
                     extra_kwargs["allow_patterns"] = allow_patterns
 
             if require_fp16 or prefer_fp16:
@@ -918,6 +940,7 @@ class EngineManager(object):
                 local_files_only=local_only,
                 **extra_kwargs,
             )
+
             return os.path.join(base, subfolder) if subfolder else base
 
         except Exception as e:
@@ -1094,7 +1117,20 @@ class EngineManager(object):
         name: str,
         fqclass_name: str | tuple[str, str] | None = None,
         fp16: bool | None = None,
+        ignore_patterns=None,
+        allow_patterns=None,
     ):
+        parts = name.split("/")
+        name = parts.pop(0)
+        subtype = parts.pop(0) if parts else None
+        args = parts.pop(0) if parts else None
+
+        if args:
+            args = {
+                arg.split("=")[0]: yaml.load(arg.split("=")[1], Loader=yaml.Loader)
+                for arg in args.split(";")
+            }
+
         if fqclass_name is None:
             fqclass_name = TYPE_CLASSES.get(name, None)
 
@@ -1108,11 +1144,13 @@ class EngineManager(object):
 
         class_obj = self._import_class(fqclass_name)
 
-        load_method_names = ["from_pretrained", "from_config"]
+        load_method_names = (
+            [f"from_{subtype}"] if subtype else ["from_pretrained", "from_config"]
+        )
         load_candidates = [getattr(class_obj, name, None) for name in load_method_names]
         load_method = [m for m in load_candidates if m is not None][0]
 
-        loading_kwargs = {}
+        loading_kwargs = args or {}
 
         if fp16 and issubclass(class_obj, torch.nn.Module):
             loading_kwargs["torch_dtype"] = torch.float16
@@ -1122,6 +1160,12 @@ class EngineManager(object):
 
         if is_diffusers_model or is_transformers_model:
             loading_kwargs["low_cpu_mem_usage"] = True
+
+        init_params = inspect.signature(load_method).parameters
+        if "ignore_patterns" in init_params:
+            loading_kwargs["ignore_patterns"] = ignore_patterns
+        if "allow_patterns" in init_params:
+            loading_kwargs["allow_patterns"] = allow_patterns
 
         # check if the module is in a subdirectory
         sub_path = os.path.join(weight_path, name)
@@ -1133,7 +1177,7 @@ class EngineManager(object):
         return model
 
     def _load_modelset_from_weights(
-        self, weight_path, whitelist=None, blacklist=None, fp16=None
+        self, weight_path, whitelist=None, blacklist=None, **kwargs
     ):
         config_dict = DiffusionPipeline.load_config(weight_path, local_files_only=True)
 
@@ -1169,7 +1213,7 @@ class EngineManager(object):
                     continue
 
             pipeline[name] = self._load_model_from_weights(
-                weight_path, name, fqclass_name, fp16=fp16
+                weight_path, name, fqclass_name, **kwargs
             )
 
         return ModelSet(pipeline)
@@ -1384,13 +1428,19 @@ class EngineManager(object):
     def _load_from_weights(self, spec: EngineSpec, weight_path: str) -> ModelSet:
         fp16 = False if spec.fp16 == "prevent" else None
 
+        kwargs = dict(
+            fp16=fp16,
+            ignore_patterns=spec.ignore_patterns,
+            allow_patterns=spec.allow_patterns,
+        )
+
         # A pipeline has a top-level json file that describes a set of models
         if spec.type == "pipeline":
             models = self._load_modelset_from_weights(
                 weight_path,
                 whitelist=spec.whitelist,
                 blacklist=spec.blacklist,
-                fp16=fp16,
+                **kwargs,
             )
         elif spec.type.startswith("ckpt/"):
             ckpt_config = spec.type[len("ckpt/") :]
@@ -1399,19 +1449,17 @@ class EngineManager(object):
                 ckpt_config,
                 whitelist=spec.whitelist,
                 blacklist=spec.blacklist,
-                fp16=fp16,
-                ignore_patterns=spec.ignore_patterns,
-                allow_patterns=spec.allow_patterns,
+                **kwargs,
             )
         # `clip` type is a special case that loads the same weights into two different models
         elif spec.type == "clip":
             models = ModelSet(
                 {
                     "clip_model": self._load_model_from_weights(
-                        weight_path, "clip_model", fp16=fp16
+                        weight_path, "clip_model", **kwargs
                     ),
                     "feature_extractor": self._load_model_from_weights(
-                        weight_path, "feature_extractor", fp16=fp16
+                        weight_path, "feature_extractor", **kwargs
                     ),
                 }
             )
@@ -1420,7 +1468,7 @@ class EngineManager(object):
             models = ModelSet(
                 {
                     spec.type: self._load_model_from_weights(
-                        weight_path, spec.type, spec.class_name, fp16=fp16
+                        weight_path, spec.type, spec.class_name, **kwargs
                     )
                 }
             )
@@ -1552,12 +1600,20 @@ class EngineManager(object):
         available = set(model.keys())
 
         class_init_params = inspect.signature(class_obj.__init__).parameters
-        expected = set(class_init_params.keys()) - set(["self"])
+        regular_params = {
+            k: v
+            for k, v in class_init_params.items()
+            if v.kind is v.POSITIONAL_OR_KEYWORD or v.kind is v.KEYWORD_ONLY
+        }
+        takes_kwargs = any(
+            [p.kind is p.VAR_KEYWORD for p in class_init_params.values()]
+        )
+        expected = set(regular_params.keys()) - set(["self"])
 
         required = set(
             [
                 name
-                for name, param in class_init_params.items()
+                for name, param in regular_params.items()
                 if param.default is inspect._empty
                 and name != "self"
                 and name != "safety_checker"
@@ -1570,7 +1626,10 @@ class EngineManager(object):
                 + repr(required - available)
             )
 
-        modules = {k: clone_model(model[k]) for k in expected & available}
+        modules = {
+            k: clone_model(model[k])
+            for k in (available if takes_kwargs else expected & available)
+        }
 
         if "safety_checker" in expected and "safety_checker" not in available:
             modules["safety_checker"] = None
