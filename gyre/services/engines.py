@@ -46,7 +46,6 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
 
             init_args = inspect.signature(class_obj.__init__).parameters.keys()
             call_args = inspect.signature(class_obj.__call__).parameters.keys()
-            model: ModelSet = self._manager._engine_models.get(engine.id)
 
             if "prompt" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_TEXT)
@@ -55,8 +54,7 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
             if "mask_image" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_MASK)
             if "depth_map" in call_args:
-                if "depth_unet" in model or "depth_unet" not in init_args:
-                    info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_DEPTH)
+                info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_DEPTH)
             if "lora" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_LORA)
 
