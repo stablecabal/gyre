@@ -856,7 +856,7 @@ class EngineManager(object):
                         if has_ckpt:
                             # Explictly don't include any safetensors that match ckpt files
                             ignore_patterns += [
-                                "{file}.safetensors"
+                                f"{file}.safetensors"
                                 for file in (grouped[".ckpt"] & grouped[".safetensors"])
                             ]
                     else:
