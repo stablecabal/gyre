@@ -5,3 +5,4 @@
   model: "@stable-diffusion-v1-5"
   overrides:
     clip: "@clip-common"
+  hintset: "hintset-sd15-common"

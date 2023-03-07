@@ -1,0 +1,31 @@
+- model_id: "controlnet-canny"
+  model: "lllyasviel/sd-controlnet-canny"
+  type: "controlnet"
+
+- model_id: "controlnet-depth"
+  model: "lllyasviel/sd-controlnet-depth"
+  type: "controlnet"
+
+- model_id: "controlnet-hed"
+  model: "lllyasviel/sd-controlnet-hed"
+  type: "controlnet"
+
+- model_id: "controlnet-mlsd"
+  model: "lllyasviel/sd-controlnet-mlsd"
+  type: "controlnet"
+
+- model_id: "controlnet-normal"
+  model: "lllyasviel/sd-controlnet-normal"
+  type: "controlnet"
+
+- model_id: "controlnet-openpose"
+  model: "lllyasviel/sd-controlnet-openpose"
+  type: "controlnet"
+
+- model_id: "controlnet-scribble"
+  model: "lllyasviel/sd-controlnet-scribble"
+  type: "controlnet"
+
+- model_id: "controlnet-seg"
+  model: "fusing/stable-diffusion-v1-5-controlnet-seg"
+  type: "controlnet"

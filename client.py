@@ -8,6 +8,7 @@
 #   - Supports sending key to machines on local network over HTTP (not HTTPS)
 
 import io
+import json
 import logging
 import mimetypes
 import os
@@ -162,19 +163,55 @@ def image_to_prompt(
     )
 
 
-def ref_to_prompt(ref_uuid, mask: bool = False, depth: bool = False):
-    type = generation.ARTIFACT_IMAGE
-    if mask:
-        type = generation.ARTIFACT_MASK
-    if depth:
-        type = generation.ARTIFACT_DEPTH
+def add_converter_to_hint_image_prompt(prompt, converter):
+    if converter is None or converter is False:
+        return
 
+    hint_type = prompt.artifact.hint_image_type
+
+    if hint_type == "depth":
+        depth_estimate = generation.ImageAdjustment(
+            depth=generation.ImageAdjustment_Depth()
+        )
+        if isinstance(converter, str):
+            depth_estimate.depth.depth_engine_hint.extend(converter)
+
+        prompt.artifact.adjustments.append(depth_estimate)
+    else:
+        raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
+
+    return prompt
+
+
+def hint_image_to_prompt(
+    image, hint_type, weight=1.0, converter=None
+) -> generation.Prompt:
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    buf.seek(0)
+
+    artifact_uuid = str(uuid.uuid4())
+
+    prompt = generation.Prompt(
+        artifact=generation.Artifact(
+            type=generation.ARTIFACT_HINT_IMAGE,
+            uuid=artifact_uuid,
+            binary=buf.getvalue(),
+            hint_image_type=hint_type,
+        ),
+        parameters=generation.PromptParameters(weight=weight),
+    )
+
+    add_converter_to_hint_image_prompt(prompt, converter)
+
+    return prompt
+
+
+def ref_to_prompt(ref_uuid, type, stage=generation.ARTIFACT_AFTER_ADJUSTMENTS):
     return generation.Prompt(
         artifact=generation.Artifact(
             type=type,
-            ref=generation.ArtifactReference(
-                uuid=ref_uuid, stage=generation.ARTIFACT_AFTER_ADJUSTMENTS
-            ),
+            ref=generation.ArtifactReference(uuid=ref_uuid, stage=stage),
         )
     )
 
@@ -189,15 +226,11 @@ def lora_to_prompt(path, weights):
         safetensors = safe_open(path, framework="pt", device="cpu")
         lora = generation.Lora(lora=serialize_safetensor(safetensors))
 
-    if weights:
-        lora.weights.append(
-            generation.LoraWeight(model_name="unet", weight=weights.pop(0))
-        )
-
-    if weights:
-        lora.weights.append(
-            generation.LoraWeight(model_name="text_encoder", weight=weights.pop(0))
-        )
+    for model_name in ["unet", "text_encoder"]:
+        if weights:
+            lora.weights.append(
+                generation.LoraWeight(model_name=model_name, weight=weights.pop(0))
+            )
 
     return generation.Prompt(
         artifact=generation.Artifact(
@@ -358,8 +391,6 @@ class StabilityInference:
         init_image: Optional[Image.Image] = None,
         mask_image: Optional[Image.Image] = None,
         mask_from_image_alpha: bool = False,
-        depth_image: Optional[Image.Image] = None,
-        depth_from_image: bool = False,
         height: int = 512,
         width: int = 512,
         start_schedule: float = 1.0,
@@ -387,9 +418,10 @@ class StabilityInference:
         hires_fix: bool | None = None,
         hires_oos_fraction: float | None = None,
         tiling: str = "no",
+        hint_images: list[dict[str, str | float]] | None = None,
+        hints_from_init: list[dict[str, str | float]] | None = None,
         lora: list[tuple[str, list[float]]] | None = None,
         ti: list[tuple[str, list[str]]] | None = None,
-        depth_engine: list[str] | None = None,
         as_async=False,
     ) -> Generator[generation.Answer, None, None]:
         """
@@ -481,8 +513,10 @@ class StabilityInference:
             scaled_step=0, sampler=generation.SamplerParameters(**sampler_parameters)
         )
 
-        # NB: Specifying schedule when there's no init image causes washed out results
+        init_image_prompt = None
+
         if init_image is not None:
+            # NB: Specifying schedule when there's no init image causes washed out results
             step_parameters["schedule"] = generation.ScheduleParameters(
                 start=start_schedule,
                 end=end_schedule,
@@ -494,7 +528,9 @@ class StabilityInference:
                 prompts += [image_to_prompt(mask_image, mask=True)]
 
             elif mask_from_image_alpha:
-                mask_prompt = ref_to_prompt(init_image_prompt.artifact.uuid, mask=True)
+                mask_prompt = ref_to_prompt(
+                    init_image_prompt.artifact.uuid, type=generation.ARTIFACT_MASK
+                )
                 mask_prompt.artifact.adjustments.append(
                     generation.ImageAdjustment(
                         channels=generation.ImageAdjustment_Channels(
@@ -513,21 +549,27 @@ class StabilityInference:
 
                 prompts += [mask_prompt]
 
-            if depth_image is not None:
-                prompts += [image_to_prompt(depth_image, depth=True)]
+        if hint_images:
+            for hint in hint_images:
+                if "image" not in hint:
+                    if init_image_prompt is None:
+                        raise ValueError(
+                            "Can't use hint_from_init without also passing init_image"
+                        )
 
-            if depth_from_image:
-                depth_prompt = ref_to_prompt(
-                    init_image_prompt.artifact.uuid, depth=True
-                )
-                depth_estimate = generation.ImageAdjustment(
-                    depth=generation.ImageAdjustment_Depth()
-                )
-                if depth_engine:
-                    depth_estimate.depth.depth_engine_hint.extend(depth_engine)
+                    hint_prompt = ref_to_prompt(
+                        init_image_prompt.artifact.uuid,
+                        type=generation.ARTIFACT_HINT_IMAGE,
+                    )
 
-                depth_prompt.artifact.adjustments.append(depth_estimate)
-                prompts += [depth_prompt]
+                    hint_prompt.artifact.hint_image_type = hint["hint_type"]
+                    hint_prompt.parameters.weight = hint["weight"]
+
+                    add_converter_to_hint_image_prompt(hint_prompt, hint["converter"])
+                else:
+                    hint_prompt = hint_image_to_prompt(**hint)
+
+                prompts += [hint_prompt]
 
         if lora:
             for path, weights in lora:
@@ -634,7 +676,8 @@ class StabilityInference:
             image=image_parameters,
         )
 
-        # print(MessageToDict(rq))
+        # with open("request.json", "w") as f:
+        #     json.dump(MessageToDict(rq), f, indent=2)
 
         if self.verbose:
             logger.info("Sending request.")
@@ -863,16 +906,6 @@ if __name__ == "__main__":
         help="Get the mask from the image alpha channel, rather than a seperate image",
     )
     parser.add_argument(
-        "--depth_image",
-        type=str,
-        help="Depth image",
-    )
-    parser.add_argument(
-        "--depth_from_image",
-        action="store_true",
-        help="Inference the depth from the image",
-    )
-    parser.add_argument(
         "--negative_prompt",
         "-N",
         type=str,
@@ -895,6 +928,21 @@ if __name__ == "__main__":
         help="Select one or both axis to tile on",
     )
     parser.add_argument(
+        "--hint_image",
+        action="append",
+        help="Provide a hint image, in type:path or type:path:weight format",
+    )
+    parser.add_argument(
+        "--hint_from_image",
+        action="append",
+        help="Provide a image to be converted to a hint image, in type:path, type:path:weight, type:converter_id:path or type:converter_id:path:weight format",
+    )
+    parser.add_argument(
+        "--hint_from_init",
+        action="append",
+        help="Provide a hint image by converting the init_image, in type, type:weight, type:converter_id or type:converter_id:weight format",
+    )
+    parser.add_argument(
         "--lora",
         action="append",
         help="Add a Lora (cloneofsimo, diffusers or kohya-ss format). Either a path, or path:unet_weight or path:unet_weight:text_encode_weight (i.e. ./lora_weight.safetensors:0.5:0.5)",
@@ -903,11 +951,6 @@ if __name__ == "__main__":
         "--ti",
         action="append",
         help="Add a Textual Inversion. Either as a path, or path:token[:token] to override the tokens used (i.e. ./learned_embeds.bin:<token>)",
-    )
-    parser.add_argument(
-        "--depth_engine",
-        action="append",
-        help="Add a depth engine hint (you can provide multiple, the first matching will be used)",
     )
     parser.add_argument(
         "--list_engines",
@@ -949,9 +992,6 @@ if __name__ == "__main__":
     if args.mask_image:
         args.mask_image = Image.open(args.mask_image)
 
-    if args.depth_image:
-        args.depth_image = Image.open(args.depth_image)
-
     lora = []
     if args.lora:
         for path in args.lora:
@@ -964,6 +1004,42 @@ if __name__ == "__main__":
         for path in args.ti:
             path, *tokens = path.split(":")
             ti.append((path, tokens))
+
+    def parse_hint(hint, path, converter):
+        parts = hint.split(":")
+
+        try:
+            weight = float(parts[-1])
+            parts = parts[:-1]
+        except ValueError:
+            weight = 1.0
+
+        hint_info = {"hint_type": parts.pop(0), "weight": weight}
+
+        if path:
+            if not parts:
+                raise ValueError(
+                    "No path provided for hint - did you mean hint_from_init?"
+                )
+            hint_info["image"] = Image.open(parts.pop())
+
+        if converter:
+            hint_info["converter"] = parts[0] if parts else True
+
+        return hint_info
+
+    hint_images = []
+    if args.hint_image:
+        for hint in args.hint_image:
+            hint_images.append(parse_hint(hint, path=True, converter=False))
+
+    if args.hint_from_image:
+        for hint in args.hint_from_image:
+            hint_images.append(parse_hint(hint, path=True, converter=True))
+
+    if args.hint_from_init:
+        for hint in args.hint_from_init:
+            hint_images.append(parse_hint(hint, path=False, converter=True))
 
     request = {
         "negative_prompt": args.negative_prompt,
@@ -988,14 +1064,12 @@ if __name__ == "__main__":
         "init_image": args.init_image,
         "mask_image": args.mask_image,
         "mask_from_image_alpha": args.mask_from_image_alpha,
-        "depth_image": args.depth_image,
-        "depth_from_image": args.depth_from_image,
         "hires_fix": args.hires_fix,
         "hires_oos_fraction": args.hires_oos_fraction,
         "tiling": args.tiling,
+        "hint_images": hint_images,
         "lora": lora,
         "ti": ti,
-        "depth_engine": args.depth_engine,
         "as_async": args.as_async,
     }
 

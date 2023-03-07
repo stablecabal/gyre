@@ -58,7 +58,10 @@ class _ArtifactTypeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._E
     ARTIFACT_TENSOR: _ArtifactType.ValueType  # 9
     ARTIFACT_LORA: _ArtifactType.ValueType  # 500
     ARTIFACT_DEPTH: _ArtifactType.ValueType  # 501
+    """Deprecated - use IMAGE with an image control type of "depth" instead"""
     ARTIFACT_TOKEN_EMBEDDING: _ArtifactType.ValueType  # 502
+    ARTIFACT_HINT_IMAGE: _ArtifactType.ValueType  # 503
+    """Controlnet or T2I input image"""
 
 class ArtifactType(_ArtifactType, metaclass=_ArtifactTypeEnumTypeWrapper): ...
 
@@ -74,7 +77,10 @@ ARTIFACT_LATENT: ArtifactType.ValueType  # 8
 ARTIFACT_TENSOR: ArtifactType.ValueType  # 9
 ARTIFACT_LORA: ArtifactType.ValueType  # 500
 ARTIFACT_DEPTH: ArtifactType.ValueType  # 501
+"""Deprecated - use IMAGE with an image control type of "depth" instead"""
 ARTIFACT_TOKEN_EMBEDDING: ArtifactType.ValueType  # 502
+ARTIFACT_HINT_IMAGE: ArtifactType.ValueType  # 503
+"""Controlnet or T2I input image"""
 global___ArtifactType = ArtifactType
 
 class _GaussianDirection:
@@ -862,6 +868,7 @@ class Artifact(google.protobuf.message.Message):
     SIZE_FIELD_NUMBER: builtins.int
     ADJUSTMENTS_FIELD_NUMBER: builtins.int
     POSTADJUSTMENTS_FIELD_NUMBER: builtins.int
+    HINT_IMAGE_TYPE_FIELD_NUMBER: builtins.int
     id: builtins.int
     type: global___ArtifactType.ValueType
     mime: builtins.str
@@ -908,6 +915,8 @@ class Artifact(google.protobuf.message.Message):
     @property
     def postAdjustments(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___ImageAdjustment]:
         """Adjustments to this image / mask after generation"""
+    hint_image_type: builtins.str
+    """Indicate the sort of control for image types"""
     def __init__(
         self,
         *,
@@ -930,9 +939,12 @@ class Artifact(google.protobuf.message.Message):
         size: builtins.int = ...,
         adjustments: collections.abc.Iterable[global___ImageAdjustment] | None = ...,
         postAdjustments: collections.abc.Iterable[global___ImageAdjustment] | None = ...,
+        hint_image_type: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_magic", b"_magic", "binary", b"binary", "classifier", b"classifier", "data", b"data", "lora", b"lora", "magic", b"magic", "ref", b"ref", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_magic", b"_magic", "adjustments", b"adjustments", "binary", b"binary", "classifier", b"classifier", "data", b"data", "finish_reason", b"finish_reason", "id", b"id", "index", b"index", "lora", b"lora", "magic", b"magic", "mime", b"mime", "postAdjustments", b"postAdjustments", "ref", b"ref", "seed", b"seed", "size", b"size", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "type", b"type", "uuid", b"uuid"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_hint_image_type", b"_hint_image_type", "_magic", b"_magic", "binary", b"binary", "classifier", b"classifier", "data", b"data", "hint_image_type", b"hint_image_type", "lora", b"lora", "magic", b"magic", "ref", b"ref", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_hint_image_type", b"_hint_image_type", "_magic", b"_magic", "adjustments", b"adjustments", "binary", b"binary", "classifier", b"classifier", "data", b"data", "finish_reason", b"finish_reason", "hint_image_type", b"hint_image_type", "id", b"id", "index", b"index", "lora", b"lora", "magic", b"magic", "mime", b"mime", "postAdjustments", b"postAdjustments", "ref", b"ref", "seed", b"seed", "size", b"size", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "type", b"type", "uuid", b"uuid"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_hint_image_type", b"_hint_image_type"]) -> typing_extensions.Literal["hint_image_type"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_magic", b"_magic"]) -> typing_extensions.Literal["magic"] | None: ...
     @typing.overload

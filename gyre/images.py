@@ -80,6 +80,26 @@ def toPngBytes(tensor):
         return []
 
 
+def normalise_tensor(tensor: torch.Tensor, channels: int = 3) -> torch.Tensor:
+    # Process depth map
+    if tensor.ndim == 3:
+        tensor = tensor[None, ...]
+
+    if channels == 1:
+        return tensor[:, [0]]
+    elif channels == 3:
+        return tensor[:, [0, 1, 2]] if tensor.shape[1] >= 3 else tensor[:, [0, 0, 0]]
+    elif channels == 4:
+        if tensor.shape[1] >= 4:
+            return tensor[:, [0, 1, 2, 3]]
+        else:
+            alpha = torch.zeros(tensor.shape[0], 1, *tensor.shape[2:])
+            tensor = normalise_tensor(tensor, 3)
+            return torch.concat((tensor, alpha), dim=1)
+
+    raise ValueError(f"Unknown number of channels {channels}")
+
+
 # TOOD: This won't work on images with alpha
 def levels(tensor, in0, in1, out0, out1):
     c = (out1 - out0) / (in1 - in0)

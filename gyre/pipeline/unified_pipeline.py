@@ -1,9 +1,11 @@
 import contextlib
-import inspect
+import itertools
 import logging
 import math
 from copy import copy, deepcopy
+from types import SimpleNamespace as SN
 from typing import (
+    Any,
     Callable,
     Iterable,
     List,
@@ -11,6 +13,7 @@ from typing import (
     Optional,
     Protocol,
     Tuple,
+    TypedDict,
     Union,
     cast,
 )
@@ -38,8 +41,9 @@ from transformers.models.clip import (
 )
 
 from gyre import images, resize_right
+from gyre.hints import HintsetManager
 from gyre.patching import patch_module_references
-from gyre.pipeline import diffusers_types
+from gyre.pipeline import controlnet, diffusers_types, t2i_adapter
 from gyre.pipeline.common_scheduler import (
     SCHEDULER_NOISE_TYPE,
     SCHEDULER_PREDICTION_TYPE,
@@ -71,7 +75,12 @@ from gyre.pipeline.unet.clipguided import (
     ClipGuidanceConfig,
     ClipGuidedMode,
 )
-from gyre.pipeline.unet.core import UNetWithEmbeddings
+from gyre.pipeline.unet.core import (
+    UNetWithControlnet,
+    UNetWithEmbeddings,
+    UnetWithExtraChannels,
+    UNetWithT2I,
+)
 from gyre.pipeline.unet.graft import GraftUnets
 from gyre.pipeline.unet.hires_fix import HiresUnetWrapper
 from gyre.pipeline.unet.types import (
@@ -308,57 +317,6 @@ class Img2imgMode(UnifiedMode):
         init_latents = self._buildInitialLatents()
         init_latents = self._addInitialNoise(init_latents)
         return init_latents
-
-
-class Depth2imgMode(Img2imgMode):
-    def __init__(self, do_classifier_free_guidance, depth_map, **kwargs):
-        super().__init__(
-            do_classifier_free_guidance=do_classifier_free_guidance, **kwargs
-        )
-
-        # Process depth map
-        if depth_map.ndim == 3:
-            depth_map = depth_map[None, ...]
-
-        depth_map = depth_map[:, [0]]
-        depth_map = depth_map.to(self.device, self.latents_dtype)
-
-        depth_map = images.resize_right(
-            depth_map,
-            out_shape=[depth_map.shape[-2] // 8, depth_map.shape[-1] // 8],
-            interp_method=images.interp_methods.lanczos2,
-            pad_mode="replicate",
-            antialiasing=False,
-        ).clamp(0, 1)
-
-        depth_map = 2.0 * depth_map - 1.0
-
-        # Store regular and CFG versions
-        self.depth_map = depth_map
-
-        if do_classifier_free_guidance:
-            self.depth_map_cfg = torch.cat([self.depth_map] * 2)
-
-    def wrap_unet(self, unet: NoisePredictionUNet) -> NoisePredictionUNet:
-        def wrapped_unet(latents: XtTensor, t) -> EpsTensor:
-            if latents.shape[0] == self.depth_map.shape[0]:
-                depth_map = self.depth_map
-            else:
-                depth_map = self.depth_map_cfg
-
-            expanded_latents = torch.cat(
-                [
-                    latents,
-                    # Note: these specifically _do not_ get scaled by the
-                    # current timestep sigma like the latents above have been
-                    depth_map,
-                ],
-                dim=1,
-            )
-
-            return unet(expanded_latents, t)
-
-        return wrapped_unet
 
 
 def downscale_boxop_1d(inp, scale=8, op="max"):
@@ -793,6 +751,76 @@ UnifiedPipelinePromptType = Union[
 UnifiedPipelineImageType = torch.Tensor | PILImage
 
 
+class UnifiedPipelineHintImage(TypedDict):
+    image: UnifiedPipelineImageType
+    hint_type: str
+    weight: float | None
+
+
+class UnifiedPipelineHint:
+    model: t2i_adapter.T2iAdapter | controlnet.ControlNetModel
+    image: torch.Tensor
+    weight: float
+
+    @classmethod
+    def for_model(cls, model, image, weight=1.0):
+        if isinstance(model, t2i_adapter.T2iAdapter):
+            return UnifiedPipelineHint_T2i(model, image, weight)
+        elif isinstance(model, controlnet.ControlNetModel):
+            return UnifiedPipelineHint_Controlnet(model, image, weight)
+
+    def __init__(self, model, image, weight=1.0, channels=3):
+        if type(self) is UnifiedPipelineHint:
+            raise RuntimeError(
+                "Don't construct UnifiedPipelineHint directly, use for_model"
+            )
+
+        self.model = model
+        self.image = images.fromPIL(image) if isinstance(image, PILImage) else image
+        self.weight = weight
+        self.normalise(channels)
+
+    def to(self, device=None, dtype=None):
+        self.image = self.image.to(device, dtype)
+
+    def normalise(self, channels=3):
+        self.image = images.normalise_tensor(self.image, channels)
+
+    def with_image(self, callback):
+        return self.__class__(self.model, callback(self.image), self.weight)
+
+    def __call__(self):
+        raise NotImplementedError("Sub-class needs to implement")
+
+
+class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
+    patch_unet = t2i_adapter.patch_unet
+    wrap_unet = UNetWithT2I
+
+    def __init__(self, model, image, weight=1.0):
+        channels = model.config.cin // 64 if "cin" in model.config else 3
+        super().__init__(model, image, weight, channels=channels)
+
+    def __call__(self):
+        return [state * self.weight for state in self.model(self.image)]
+
+
+class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
+    patch_unet = controlnet.patch_unet
+    wrap_unet = UNetWithControlnet
+
+    def __call__(self, *args, **kwargs):
+        res = self.model(*args, **kwargs, controlnet_cond=self.image)
+        weight = self.weight
+
+        return SN(
+            down_block_res_samples=[
+                residual * weight for residual in res.down_block_res_samples
+            ],
+            mid_block_res_sample=res.mid_block_res_sample * weight,
+        )
+
+
 class ModeSkipException(Exception):
     pass
 
@@ -958,6 +986,10 @@ class ModeTreeLeaf:
                 print(f"{ws}{k}: {v.config.in_channels} channels")
             elif np.isscalar(v):
                 print(f"{ws}{k}: {v}")
+            elif isinstance(v, list):
+                print(f"{ws}{k}: list, len {len(v)}")
+            elif v is None:
+                print(f"{ws}{k}: None")
             elif hasattr(v, "__name__"):
                 print(f"{ws}{k}: {v.__name__}")
             else:
@@ -1082,6 +1114,7 @@ class UnifiedPipeline(DiffusionPipeline):
         depth_text_encoder: CLIPTokenizer | None = None,
         inpaint_unet: UNet2DConditionModel | None = None,
         inpaint_text_encoder: CLIPTokenizer | None = None,
+        hintset_manager: HintsetManager | None = None,
     ):
         super().__init__()
 
@@ -1125,6 +1158,8 @@ class UnifiedPipeline(DiffusionPipeline):
             inpaint_unet=inpaint_unet,
             inpaint_text_encoder=inpaint_text_encoder,
         )
+
+        self.hintset_manager = hintset_manager
 
         # Pull out VAE scale factor
         vae_config = cast(diffusers_types.VaeConfig, self.vae.config)
@@ -1449,6 +1484,7 @@ class UnifiedPipeline(DiffusionPipeline):
         mask_image: Optional[UnifiedPipelineImageType] = None,
         outmask_image: Optional[UnifiedPipelineImageType] = None,
         depth_map: Optional[UnifiedPipelineImageType] = None,
+        hint_images: list[UnifiedPipelineHintImage] | None = None,
         strength: float | None = None,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
@@ -1695,16 +1731,10 @@ class UnifiedPipeline(DiffusionPipeline):
         if outmask_image is not None and init_image is None:
             raise ValueError("Can't pass a outmask without an image")
 
-        if depth_map is not None and init_image is None:
-            raise ValueError("Can't pass a depth without an image")
-
-        if depth_map is not None and mask_image is not None:
-            raise ValueError("Can't pass a depth and a mask at the same time")
-
-        if depth_map is not None and self.depth_unet is None:
-            print(
-                "Depth passed to pipeline without a depth_unet. Falling back to img2img mode."
-            )
+        depth_map = None
+        can_use_depth_unet = False
+        if self.depth_unet is not None and mask_image is None:
+            can_use_depth_unet = True
 
         if init_image is not None and isinstance(init_image, PILImage):
             init_image = images.fromPIL(init_image)
@@ -1715,58 +1745,112 @@ class UnifiedPipeline(DiffusionPipeline):
         if outmask_image is not None and isinstance(outmask_image, PILImage):
             outmask_image = images.fromPIL(outmask_image)
 
-        if depth_map is not None and isinstance(depth_map, PILImage):
-            depth_map = images.fromPIL(depth_map)
+        leaf_args: dict[str, Any] = dict(
+            hints=[],
+            depth_map=None,
+            unet=self.unet,
+        )
+
+        if hint_images is not None:
+            for hint_image in hint_images:
+                image = hint_image["image"]
+                hint_type = hint_image["hint_type"]
+                weight = (
+                    hint_image["weight"] if hint_image["weight"] is not None else 1.0
+                )
+
+                if isinstance(image, PILImage):
+                    image = images.fromPIL(image)
+
+                image = images.normalise_tensor(image, 3)
+
+                # If this model has a depth_unet, use it for preference
+                if hint_type == "depth" and can_use_depth_unet:
+                    logger.debug("Using unet for depth")
+
+                    depth_map = images.normalise_tensor(image, 1)
+
+                    depth_map = images.resize_right(
+                        depth_map,
+                        out_shape=[depth_map.shape[-2] // 8, depth_map.shape[-1] // 8],
+                        interp_method=images.interp_methods.lanczos2,
+                        pad_mode="replicate",
+                        antialiasing=False,
+                    ).clamp(0, 1)
+
+                    leaf_args["depth_map"] = 2.0 * depth_map - 1.0
+                    leaf_args["unet"] = self.depth_unet
+
+                else:
+                    handler = None
+
+                    if self.hintset_manager:
+                        handler = self.hintset_manager.for_type(hint_type, None)
+
+                    if handler:
+                        leaf_args["hints"].append(
+                            UnifiedPipelineHint.for_model(handler, image, weight)
+                        )
+                    else:
+                        if (
+                            hint_type == "depth"
+                            and can_use_depth_unet
+                            and mask_image is not None
+                        ):
+                            raise EnvironmentError(
+                                "Pipeline can't handle a depth hint and a mask at the same time"
+                            )
+
+                        else:
+                            raise EnvironmentError(
+                                f"Pipeline doesn't know how to handle hint image of type {hint_type}"
+                            )
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance: bool = guidance_scale > 1.0
 
-        grafted_mode_class = None
-        grafted_mode_kwargs = {}
-
-        if (
-            depth_map is not None
-            and self.depth_unet is not None
-            and self._grafted_depth
-        ):
-            grafted_mode_class = Img2imgMode
-            if isinstance(self._grafted_depth, dict):
-                grafted_mode_kwargs["blend"] = self._grafted_depth
-
-        if (
-            mask_image is not None
-            and self.inpaint_unet is not None
-            and self._grafted_inpaint
-        ):
-            grafted_mode_class = EnhancedInpaintMode
-            if isinstance(self._grafted_inpaint, dict):
-                grafted_mode_kwargs["blend"] = self._grafted_inpaint
+        # Build the main mode leaf
 
         mode_tree = ModeTreeRoot()
 
         if mask_image is not None:
             if self.inpaint_unet is not None:
-                mode_tree.leaf(
-                    {"mode_class": EnhancedRunwayInpaintMode, "unet": self.inpaint_unet}
-                )
+                mode_class = EnhancedRunwayInpaintMode
+                leaf_args["unet"] = self.inpaint_unet
             else:
-                mode_tree.leaf({"mode_class": EnhancedInpaintMode, "unet": self.unet})
-        elif depth_map is not None and self.depth_unet is not None:
-            mode_tree.leaf({"mode_class": Depth2imgMode, "unet": self.depth_unet})
+                mode_class = EnhancedInpaintMode
         elif init_image is not None:
-            mode_tree.leaf({"mode_class": Img2imgMode, "unet": self.unet})
+            mode_class = Img2imgMode
         else:
-            mode_tree.leaf({"mode_class": Txt2imgMode, "unet": self.unet})
+            mode_class = Txt2imgMode
+
+        mode_tree.leaf({"mode_class": mode_class, **leaf_args})
+
+        # If we ned to graft, build the graft wrapper
+
+        grafted_mode_class = None
+        grafted_mode_kwargs = {}
+        grafted_mode_overrides = {"unet": self.unet, "depth_map": None}
+
+        if leaf_args["unet"] is self.depth_unet and self._grafted_depth:
+            grafted_mode_class = mode_class
+            if isinstance(self._grafted_depth, dict):
+                grafted_mode_kwargs["blend"] = self._grafted_depth
+
+        if leaf_args["unet"] is self.inpaint_unet and self._grafted_inpaint:
+            grafted_mode_class = EnhancedInpaintMode
+            if isinstance(self._grafted_inpaint, dict):
+                grafted_mode_kwargs["blend"] = self._grafted_inpaint
 
         if grafted_mode_class:
             mode_tree.wrap(
                 None,
                 lambda child_opts: {
                     **child_opts,
+                    **grafted_mode_overrides,
                     "mode_class": grafted_mode_class,
-                    "unet": self.unet,
                 },
                 GraftUnets,
                 generators=generators,
@@ -1794,31 +1878,33 @@ class UnifiedPipeline(DiffusionPipeline):
                         "Either use a K-Diffusion scheduler or disable Hires fix."
                     )
 
-                natural = dict(
-                    init_image=init_image,
-                    mask_image=mask_image,
-                    depth_map=depth_map,
-                )
-
-                fills = dict(mask_image=torch.ones)
-
-                for name, image in natural.items():
-                    if image is not None:
-                        natural[name] = HiresUnetWrapper.image_to_natural(
+                def image_to_natural(image, fill=torch.zeros):
+                    return (
+                        None
+                        if image is None
+                        else HiresUnetWrapper.image_to_natural(
                             unet_pixel_size,
                             cast(torch.Tensor, image),
                             oos_fraction=hires_oos_fraction,
-                            fill=fills.get(name, torch.zeros),
+                            fill=fill,
                         )
-
-                        self.latent_debugger.log(name, 0, pixels=image)
-                        self.latent_debugger.log("nat" + name, 0, pixels=natural[name])
+                    )
 
                 return {
                     **child_opts,
                     "width": unet_pixel_size,
                     "height": unet_pixel_size,
-                    **natural,
+                    "init_image": image_to_natural(init_image),
+                    "mask_image": image_to_natural(mask_image, torch.ones),
+                    "depth_map": image_to_natural(child_opts["depth_map"]),
+                    "hints": [
+                        hint.with_image(image_to_natural)
+                        for hint in child_opts["hints"]
+                    ],
+                    # "controlnet_hints": [
+                    #     hint.with_image(image_to_natural)
+                    #     for hint in child_opts["controlnet_hints"]
+                    # ],
                 }
 
             # TODO: This only works as long as all unets have same natural size
@@ -1873,6 +1959,18 @@ class UnifiedPipeline(DiffusionPipeline):
             text_embeddings = text_embedding_calculator.repeat(
                 text_embeddings, num_images_per_prompt
             )
+
+            if leaf.opts.get("depth_map") is not None:
+                unet = UnetWithExtraChannels(unet, leaf.opts["depth_map"])
+
+            hints = leaf.opts.get("hints")
+            if hints:
+                for hint in hints:
+                    hint.to(self.execution_device, latents_dtype)
+
+                for cls, ghints in itertools.groupby(hints, lambda hint: type(hint)):
+                    cls.patch_unet(leaf.opts["unet"])
+                    unet = cls.wrap_unet(unet, list(ghints))
 
             # unet_g is the guided unet, for when we aren't doing CFG, or we want to run seperately to unet_u
             leaf.unet_g = UNetWithEmbeddings(unet, text_embeddings)

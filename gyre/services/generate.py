@@ -412,6 +412,29 @@ class ParameterExtractor:
             if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
                 return self._image_from_artifact(prompt.artifact)
 
+    def hint_images(self):
+        hint_images = []
+
+        for prompt in self._prompt_of_type("artifact"):
+            if prompt.artifact.type == generation_pb2.ARTIFACT_HINT_IMAGE:
+                weight = 1.0
+                if prompt.HasField("parameters") and prompt.parameters.HasField(
+                    "weight"
+                ):
+                    weight = prompt.parameters.weight
+
+                hint_images.append(
+                    {
+                        "image": self._image_from_artifact(prompt.artifact),
+                        "hint_type": prompt.artifact.hint_image_type,
+                        "weight": weight,
+                    }
+                )
+
+                print(hint_images[-1]["image"].shape)
+
+        return hint_images
+
     def lora(self):
         loras = []
 
@@ -592,6 +615,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     "mask_image",
                     "outmask_image",
                     "depth_map",
+                    "hint_images",
                     "lora",
                 ]:
                     if field in logargs:

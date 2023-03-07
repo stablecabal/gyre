@@ -1,0 +1,62 @@
+- hintset_id: "hintset-sd15-t2i"
+  t2i/canny:
+    aliases: "canny"
+    model: "@t2i-adapter-canny"
+  t2i/color:
+    aliases: "color"
+    model: "@t2i-adapter-color"
+  t2i/depth:
+    aliases: "depth"
+    model: "@t2i-adapter-depth"
+  t2i/keypose:
+    aliases: "pose/hrnet"
+    model: "@t2i-adapter-keypose"
+  t2i/openpose:
+    aliases: ["pose", "pose/openpose"]
+    model: "@t2i-adapter-openpose"
+  t2i/seg:
+    aliases: ["segmentation", "segmentation/coco"]
+    model: "@t2i-adapter-seg"
+  t2i/sketch:
+    aliases: ["sketch", "scribble"]
+    model: "@t2i-adapter-sketch"
+  t2i/style:
+    aliases: "style"
+    model: "@t2i-adapter-style"
+
+- hintset_id: "hintset-sd15-controlnet"
+  controlnet/canny:
+    aliases: "canny"
+    priority: 200
+    model: "@controlnet-canny"
+  controlnet/depth:
+    aliases: "depth"
+    priority: 50
+    model: "@controlnet-depth"
+  controlnet/hed:
+    aliases: "hed"
+    model: "@controlnet-hed"
+  controlnet/mlsd:
+    aliases: "mlsd"
+    model: "@controlnet-mlsd"
+  controlnet/normal:
+    aliases: "normal"
+    model: "@controlnet-normal"
+  controlnet/openpose:
+    aliases: ["pose", "pose/openpose"]
+    model: "@controlnet-openpose"
+  controlnet/scribble:
+    aliases: ["sketch", "scribble"]
+    priority: 50
+    model: "@controlnet-scribble"
+  controlnet/seg:
+    aliases: ["segmentation", "segmentation/ade20k"]
+    model: "@controlnet-seg"
+
+- hintset_id: "hintset-sd15-common"
+  "@hintset-sd15-t2i": ["t2i/depth", "t2i/openpose", "t2i/sketch"]
+  "@hintset-sd15-controlnet": ["controlnet/canny", "controlnet/seg"]
+
+- hintset_id: "hintset-sd15-complete"
+  "@hintset-sd15-t2i": "*"
+  "@hintset-sd15-controlnet": "*"

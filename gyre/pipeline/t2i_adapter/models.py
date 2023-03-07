@@ -1,0 +1,189 @@
+# Original from https://github.com/HimariO/diffusers-t2i-adapter/blob/dcfcce9095d587dddbea12d4612955ff4da662b7/src/diffusers/models/adapter.py
+# modify from https://github.com/TencentARC/T2I-Adapter/blob/main/ldm/modules/encoders/adapter.py
+
+import glob
+import os
+
+import huggingface_hub
+import torch
+from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.models.modeling_utils import ModelMixin
+
+from .adapter import Adapter, Adapter_light, StyleAdapter
+
+
+class T2iAdapter:
+    @classmethod
+    def from_state_dict(
+        cls,
+        path,
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+        allow_patterns=[],
+        ignore_patterns=[],
+        **config,
+    ):
+        t2i_type = config.pop("type", "main")
+
+        if t2i_type == "main":
+            adapter_cls = T2iAdapter_main
+        elif t2i_type == "style":
+            adapter_cls = T2iAdapter_style
+        elif t2i_type == "light":
+            adapter_cls = T2iAdapter_light
+        else:
+            raise ValueError(f"Unknown T2i Adapter type {t2i_type}")
+
+        paths = glob.glob("*.pt", root_dir=path) + glob.glob("*.pth", root_dir=path)
+        paths = list(
+            huggingface_hub.utils.filter_repo_objects(
+                paths,
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
+            )
+        )
+
+        if not paths:
+            raise RuntimeError(f"No model found for T2iAdapter at {path}")
+
+        adapter = adapter_cls(**{**adapter_cls.default_config, **config})
+        adapter.load_state_dict(torch.load(os.path.join(path, paths[0])))
+
+        if torch_dtype != "auto":
+            adapter.to(torch_dtype)
+
+        return adapter
+
+
+class T2iAdapter_main(Adapter, T2iAdapter, ModelMixin, ConfigMixin):
+    # Defaults from https://github.com/TencentARC/T2I-Adapter/blob/main/ldm/inference_base.py#L228
+    default_config = dict(
+        cin=int(3 * 64),
+        channels=[320, 640, 1280, 1280][:4],
+        nums_rb=2,
+        ksize=1,
+        sk=True,
+        use_conv=False,
+    )
+
+    @register_to_config
+    def __init__(
+        self,
+        channels=[320, 640, 1280, 1280],
+        nums_rb=3,
+        cin=64,
+        ksize=3,
+        sk=False,
+        use_conv=True,
+    ):
+        super().__init__(
+            channels=channels,
+            nums_rb=nums_rb,
+            cin=cin,
+            ksize=ksize,
+            sk=sk,
+            use_conv=use_conv,
+        )
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        super().from_pretrained(pretrained_model_name_or_path, **kwargs)
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        path,
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+        allow_patterns=[],
+        ignore_patterns=[],
+        **config,
+    ):
+        super().from_state_dict(
+            path,
+            torch_dtype,
+            low_cpu_mem_usage,
+            allow_patterns,
+            ignore_patterns,
+            type="main",
+            **config,
+        )
+
+
+class T2iAdapter_style(StyleAdapter, T2iAdapter, ModelMixin, ConfigMixin):
+    default_config = dict(
+        width=1024, context_dim=768, num_head=8, n_layes=3, num_token=8
+    )
+
+    @register_to_config
+    def __init__(self, width=1024, context_dim=768, num_head=8, n_layes=3, num_token=4):
+        super().__init__(
+            width=width,
+            context_dim=context_dim,
+            num_head=num_head,
+            n_layes=n_layes,
+            num_token=num_token,
+        )
+
+    def forward(self, x):
+        raise NotImplementedError("Currently doesn't work")
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        super().from_pretrained(pretrained_model_name_or_path, **kwargs)
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        path,
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+        allow_patterns=[],
+        ignore_patterns=[],
+        **config,
+    ):
+        super().from_state_dict(
+            path,
+            torch_dtype,
+            low_cpu_mem_usage,
+            allow_patterns,
+            ignore_patterns,
+            type="style",
+            **config,
+        )
+
+
+class T2iAdapter_light(Adapter_light, T2iAdapter, ModelMixin, ConfigMixin):
+    default_config = dict(
+        cin=int(3 * 64),
+        channels=[320, 640, 1280, 1280][:4],
+        nums_rb=4,
+    )
+
+    @register_to_config
+    def __init__(self, channels=[320, 640, 1280, 1280], nums_rb=3, cin=64):
+        super().__init__(channels=channels, nums_rb=nums_rb, cin=cin)
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        super().from_pretrained(pretrained_model_name_or_path, **kwargs)
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        path,
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+        allow_patterns=[],
+        ignore_patterns=[],
+        **config,
+    ):
+        super().from_state_dict(
+            path,
+            torch_dtype,
+            low_cpu_mem_usage,
+            allow_patterns,
+            ignore_patterns,
+            type="light",
+            **config,
+        )

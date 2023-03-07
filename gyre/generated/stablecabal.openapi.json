@@ -110,6 +110,7 @@
                     },
                     {
                         "name": "requestedType",
+                        "description": " - ARTIFACT_DEPTH: Deprecated - use IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image",
                         "in": "query",
                         "required": false,
                         "schema": {
@@ -127,7 +128,8 @@
                                 "ARTIFACT_TENSOR",
                                 "ARTIFACT_LORA",
                                 "ARTIFACT_DEPTH",
-                                "ARTIFACT_TOKEN_EMBEDDING"
+                                "ARTIFACT_TOKEN_EMBEDDING",
+                                "ARTIFACT_HINT_IMAGE"
                             ],
                             "default": "ARTIFACT_NONE"
                         }
@@ -569,6 +571,7 @@
                     },
                     {
                         "name": "requestedType",
+                        "description": " - ARTIFACT_DEPTH: Deprecated - use IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image",
                         "in": "query",
                         "required": false,
                         "schema": {
@@ -586,7 +589,8 @@
                                 "ARTIFACT_TENSOR",
                                 "ARTIFACT_LORA",
                                 "ARTIFACT_DEPTH",
-                                "ARTIFACT_TOKEN_EMBEDDING"
+                                "ARTIFACT_TOKEN_EMBEDDING",
+                                "ARTIFACT_HINT_IMAGE"
                             ],
                             "default": "ARTIFACT_NONE"
                         }
@@ -1044,6 +1048,10 @@
                             "$ref": "#/components/schemas/ImageAdjustment"
                         },
                         "title": "Adjustments to this image / mask after generation"
+                    },
+                    "hintImageType": {
+                        "type": "string",
+                        "title": "Indicate the sort of control for image types"
                     }
                 },
                 "description": "A tangible Artifact, such as an image, video, or text that is used for input\nor output."
@@ -1087,9 +1095,11 @@
                     "ARTIFACT_TENSOR",
                     "ARTIFACT_LORA",
                     "ARTIFACT_DEPTH",
-                    "ARTIFACT_TOKEN_EMBEDDING"
+                    "ARTIFACT_TOKEN_EMBEDDING",
+                    "ARTIFACT_HINT_IMAGE"
                 ],
-                "default": "ARTIFACT_NONE"
+                "default": "ARTIFACT_NONE",
+                "title": "- ARTIFACT_DEPTH: Deprecated - use IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image"
             },
             "AssetAction": {
                 "type": "string",

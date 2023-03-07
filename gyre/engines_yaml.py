@@ -78,6 +78,7 @@ class EnginesYaml:
         # Flatten out the data
         self.engines = {}
         self.models = {}
+        self.hintsets = {}
 
         # Load the raw yaml data
         data = yaml.load(stream, Loader=Loader)
@@ -105,6 +106,10 @@ class EnginesYaml:
                     print(f"Warning: overwriting model with duplicate ID {model_id}.")
                 self.models[model_id] = item
 
+            elif "hintset_id" in item:
+                hintset_id = item["hintset_id"]
+                self.hintsets[hintset_id] = item
+
             elif "_subfile" in item:
                 self.handle_subfile(item)
 
@@ -129,6 +134,15 @@ class EnginesYaml:
                 else:
                     self.models[model_id] = deep_update(self.models[model_id], item)
 
+            elif "hintset_id" in item:
+                hintset_id = item["hintset_id"]
+                if hintset_id not in self.hintsets:
+                    self.hintsets[hintset_id] = item
+                else:
+                    self.hintsets[hintset_id] = deep_update(
+                        self.hintsets[hintset_id], item
+                    )
+
             elif "_subfile" in item:
                 self.handle_subfile(item)
 
@@ -140,7 +154,11 @@ class EnginesYaml:
     @classmethod
     def load(cls, stream):
         res = cls(stream)
-        return list(res.models.values()) + list(res.engines.values())
+        return (
+            list(res.models.values())
+            + list(res.engines.values())
+            + list(res.hintsets.values())
+        )
 
     @classmethod
     def check_and_update(cls, config_path):

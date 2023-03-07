@@ -37,6 +37,7 @@ from transformers import CLIPModel, PreTrainedModel
 
 from gyre import ckpt_utils
 from gyre.constants import sd_cache_home
+from gyre.hints import HintsetManager
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
 from gyre.pipeline.samplers import build_sampler_set
 from gyre.pipeline.unified_pipeline import (
@@ -296,6 +297,11 @@ class PipelineWrapper:
             # And set it on the pipeline
             setattr(self._pipeline, name, cloned)
 
+        hintset_manager = getattr(self._pipeline, "hintset_manager", None)
+        self._previous_hintset_manager = hintset_manager
+        if hintset_manager:
+            self._pipeline.hintset_manager = hintset_manager.on(device)
+
     def deactivate(self):
         if self._previous is None:
             raise Exception("Deactivate called without previous activate")
@@ -303,7 +309,10 @@ class PipelineWrapper:
         for name, module in self.pipeline_modules():
             setattr(self._pipeline, name, self._previous.get(name))
 
+        self._pipeline.hintset_manager = self._previous_hintset_manager
+
         self._previous = None
+        self._previous_hintset_manager = None
 
         gc.collect()
         if torch.cuda.is_available():
@@ -584,6 +593,10 @@ class ModelSet:
 
 
 class EngineSpec:
+    @classmethod
+    def is_engine_spec(cls, data: dict):
+        return "id" in data or "model_id" in data
+
     def __init__(self, data: dict | None = None):
         if data is None:
             data = {}
@@ -681,6 +694,32 @@ class EngineSpec:
         return __name in self._data
 
 
+class HintsetSpec:
+    @classmethod
+    def is_hintset_spec(cls, data: dict):
+        return "hintset_id" in data
+
+    def __init__(self, data: dict | None = None):
+        if data is None:
+            data = {}
+
+        self._data = {k.lower(): v for k, v in data.items()}
+
+    def items(self):
+        for k, v in self._data.items():
+            if k != "hintset_id":
+                yield k, v
+
+    def get(self, __name: str, *args) -> Any:
+        return getattr(self, __name, *args)
+
+    def __getattr__(self, __name: str) -> Any:
+        return self._data.get(__name)
+
+    def __contains__(self, __name) -> bool:
+        return __name in self._data
+
+
 @dataclass
 class DeviceQueueSlot:
     device: torch.device
@@ -711,7 +750,12 @@ class EngineManager(object):
         batchMode=BatchMode(),
         ram_monitor=None,
     ):
-        self.engines = [EngineSpec(engine) for engine in engines]
+        self.engines = [
+            EngineSpec(spec) for spec in engines if EngineSpec.is_engine_spec(spec)
+        ]
+        self.hintsets = [
+            HintsetSpec(spec) for spec in engines if HintsetSpec.is_hintset_spec(spec)
+        ]
         self._defaults = {}
 
         self.status: Literal["created", "loading", "ready"] = "created"
@@ -720,6 +764,8 @@ class EngineManager(object):
         self._models: dict[str, ModelSet] = {}
         # Models for each engine
         self._engine_models: dict[str, ModelSet] = {}
+        # Hintsets
+        self._hintsets: dict[str, HintManager] = {}
 
         self._activeId = None
         self._active = None
@@ -1152,16 +1198,23 @@ class EngineManager(object):
 
         loading_kwargs = args or {}
 
-        if fp16 and issubclass(class_obj, torch.nn.Module):
+        init_params = inspect.signature(load_method).parameters
+
+        if fp16 and (
+            issubclass(class_obj, torch.nn.Module) or "torch_dtype" in init_params
+        ):
             loading_kwargs["torch_dtype"] = torch.float16
 
         is_diffusers_model = issubclass(class_obj, ModelMixin)
         is_transformers_model = issubclass(class_obj, PreTrainedModel)
 
-        if is_diffusers_model or is_transformers_model:
+        if (
+            is_diffusers_model
+            or is_transformers_model
+            or "low_cpu_mem_usage" in init_params
+        ):
             loading_kwargs["low_cpu_mem_usage"] = True
 
-        init_params = inspect.signature(load_method).parameters
         if "ignore_patterns" in init_params:
             loading_kwargs["ignore_patterns"] = ignore_patterns
         if "allow_patterns" in init_params:
@@ -1640,6 +1693,9 @@ class EngineManager(object):
             for n, m in modules.items():
                 print(f"{n.rjust(max_len, ' ')} | {'None' if m is None else m._source}")
 
+        if "hintset_manager" in expected and engine.hintset:
+            extra_kwargs["hintset_manager"] = self._hintsets[engine.hintset]
+
         modules = {**modules, **extra_kwargs}
         return class_obj(**modules)
 
@@ -1665,6 +1721,40 @@ class EngineManager(object):
 
         return wrap_class(id=spec.id, mode=self._mode, pipeline=pipeline)
 
+    def _build_hintset(self, hintset_id, whitelist="*"):
+        if isinstance(whitelist, str):
+            whitelist = [whitelist]
+
+        hintset_spec = self._find_hintset_spec(hintset_id)
+        if not hintset_spec:
+            raise EnvironmentError(f"Hintset {hintset_id} not defined anywhere")
+
+        result = {}
+        for name, handler in hintset_spec.items():
+            if name.startswith("@"):
+                subhintset = self._build_hintset(name[1:], whitelist=handler)
+                for subname, subdetails in subhintset.items():
+                    result[subname] = subdetails
+
+            else:
+                whitelisted = any((fnmatch(name, pattern) for pattern in whitelist))
+                if not whitelisted:
+                    continue
+
+                spec = EngineSpec({"model": handler["model"]})
+
+                aliases = handler.get("aliases", [])
+                if isinstance(aliases, str):
+                    aliases = [aliases]
+
+                result[name] = dict(
+                    model=self._load_model(spec).first(),
+                    types=[name] + aliases,
+                    priority=handler.get("priority", 100),
+                )
+
+        return result
+
     def loadPipelines(self):
 
         logger.info("Loading engines...")
@@ -1684,6 +1774,15 @@ class EngineManager(object):
             logger.info(f"  - Engine {engineid}...")
 
             self._engine_models[engineid] = self._load_model(engine)
+
+            if engine.hintset and engine.hintset not in self._hintsets:
+                hintset_id = engine.hintset
+                logger.info(f"  - Hintset {hintset_id}...")
+
+                self._hintsets[hintset_id] = hintset_manager = HintsetManager()
+
+                for handler in self._build_hintset(hintset_id).values():
+                    hintset_manager.add_hint_handler(**handler)
 
         if self.batchMode.autodetect:
             self.batchMode.run_autodetect(self)
@@ -1798,6 +1897,13 @@ class EngineManager(object):
             for spec in candidates:
                 if hint in spec.id:
                     return spec.id
+
+        return None
+
+    def _find_hintset_spec(self, hintset_id) -> HintsetSpec | None:
+        for hintset in self.hintsets:
+            if hintset.hintset_id == hintset_id:
+                return hintset
 
         return None
 
