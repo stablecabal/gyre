@@ -1,4 +1,6 @@
 import functools
+import logging
+import weakref
 from copy import deepcopy
 from typing import Literal
 
@@ -11,32 +13,43 @@ from accelerate.hooks import (
 )
 from accelerate.utils import send_to_device, set_module_tensor_to_device
 
+logger = logging.getLogger(__name__)
+
 
 class CloneToGPUHook(ModelHook):
-    def __init__(self, execution_device, exclusion_set, top, params, buffers):
+    def __init__(self, execution_device, activate_callback, params, buffers):
         self.execution_device = execution_device
-        self.exclusion_set = exclusion_set
-        self.top = top
+        self.activate_callback = activate_callback
         self.params = params
         self.buffers = buffers
 
+        # active is tri-state, None means unknown
+        self.active: bool | None = None
+
     def pre_forward(self, module, *args, **kwargs):
-        if self.exclusion_set:
-            self.exclusion_set.activate(self.top)
+        if self.active is True:
+            return args, kwargs
+
+        self.active = None
+
+        self.activate_callback()
 
         dev = self.execution_device
+        meta_device = torch.device("meta")
 
         for name, param in module.named_parameters(recurse=False):
-            if param.device == torch.device("meta"):
+            if param.device == meta_device:
                 # explicitly copy, as set_module_tensor_to_device won't create
                 # a copy if the device is already correct
                 new_param = self.params[name].to(dev, copy=True)
                 set_module_tensor_to_device(module, name, dev, new_param)
 
         for name, buffer in module.named_buffers(recurse=False):
-            if buffer.device == torch.device("meta"):
+            if buffer.device == meta_device:
                 new_buffer = self.buffers[name].to(dev, copy=True)
                 set_module_tensor_to_device(module, name, dev, new_buffer)
+
+        self.active = True
 
         return (
             send_to_device(args, dev),
@@ -44,45 +57,73 @@ class CloneToGPUHook(ModelHook):
         )
 
     def reset(self, model):
+        if self.active is False:
+            return
+
+        self.active = None
+
         for name in self.params.keys():
             set_module_tensor_to_device(model, name, "meta")
         for name in self.buffers.keys():
             set_module_tensor_to_device(model, name, "meta")
 
+        self.active = False
+
 
 class GPUExclusionSet:
     def __init__(self, max_activated=-1):
-        self.sets = []
-        self.activated = []
+        self.sets: list[tuple[weakref.ref, weakref.WeakSet]] = []
+        self.activated: list[weakref.ref] = []
         self.max_activated = max_activated
 
     def add(self, top):
-        models = [
-            model
-            for _, model in top.named_modules()
-            if hasattr(model, "_hf_hook") and isinstance(model._hf_hook, CloneToGPUHook)
-        ]
+        modules = weakref.WeakSet(
+            [
+                module
+                for _, module in top.named_modules()
+                if has_hook(module, CloneToGPUHook)
+            ]
+        )
 
-        self.sets.append((top, models))
+        self.sets.append((weakref.ref(top, self.clean_sets), modules))
+
+    def clean_sets(self, _):
+        self.sets = [
+            (topref, *remainder)
+            for topref, *remainder in self.sets
+            if topref() is not None
+        ]
 
     def reset(self, exclude=[]):
         exclude = list(exclude)
 
-        for top, models in self.sets:
-            if top in exclude:
+        for topref, modules in self.sets:
+            if topref in exclude:
                 continue
 
-            for model in models:
-                model._hf_hook.reset(model)
+            for module in modules:
+                hook = get_hook(module, CloneToGPUHook)
+                if hook is not False:
+                    hook.reset(module)
 
-    def activate(self, top):
+    def activate_for(self, top):
+        topref = weakref.ref(top)
+        return functools.partial(self.activate, topref)
+
+    def activate(self, topref):
         # No-op if top is already the most recently activated
-        if self.activated and self.activated[0] is top:
+        if self.activated and self.activated[0] is topref:
             return
 
+        logger.debug(f"Activating {topref().__class__.__name__}")
+
         # Update the LRU activated queue
-        self.activated = [model for model in self.activated if model is not top]
-        self.activated.insert(0, top)
+        self.activated = [
+            model
+            for model in self.activated
+            if model is not topref and model() is not None
+        ]
+        self.activated.insert(0, topref)
         self.activated = self.activated[: self.max_activated]
 
         self.reset(exclude=self.activated)
@@ -145,9 +186,6 @@ def clone_model(
             dest.register_buffer(name, buffer)
 
     if clone_tensors != "share":
-        if exclusion_set:
-            exclusion_set.add(clone)
-
         for (model_name, dest) in clone.named_modules():
             model_params, model_buffers = cache[model_name]
 
@@ -160,7 +198,10 @@ def clone_model(
                 add_hook_to_module(
                     dest,
                     CloneToGPUHook(
-                        clone_tensors, exclusion_set, clone, model_params, model_buffers
+                        clone_tensors,
+                        exclusion_set.activate_for(clone),
+                        model_params,
+                        model_buffers,
                     ),
                 )
             else:
@@ -171,6 +212,9 @@ def clone_model(
                     new_buffer = buffer.to(clone_tensors, copy=True)
                     set_module_tensor_to_device(dest, name, clone_tensors, new_buffer)
 
+        if exclusion_set:
+            exclusion_set.add(clone)
+
     return clone
 
 
@@ -178,15 +222,22 @@ def is_hooked(module):
     return hasattr(module, "_hf_hook")
 
 
-def has_hook(module, hook_class):
+def get_hook(module, hook_class):
     if hasattr(module, "_hf_hook"):
         if isinstance(module._hf_hook, SequentialHook):
-            return any((isinstance(hook, hook_class) for hook in module._hf_hook.hooks))
+            for hook in module._hf_hook.hooks:
+                if isinstance(hook, hook_class):
+                    return hook
 
         else:
-            return isinstance(module._hf_hook, hook_class)
+            if isinstance(module._hf_hook, hook_class):
+                return module._hf_hook
 
     return False
+
+
+def has_hook(module, hook_class):
+    return get_hook(module, hook_class) is not False
 
 
 def remove_hook(module, hook_class):

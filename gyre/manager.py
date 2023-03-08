@@ -38,6 +38,7 @@ from transformers import CLIPModel, PreTrainedModel
 from gyre import ckpt_utils
 from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
+from gyre.pipeline.controlnet import ControlNetModel
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
 from gyre.pipeline.samplers import build_sampler_set
 from gyre.pipeline.unified_pipeline import (
@@ -300,7 +301,13 @@ class PipelineWrapper:
         hintset_manager = getattr(self._pipeline, "hintset_manager", None)
         self._previous_hintset_manager = hintset_manager
         if hintset_manager:
-            self._pipeline.hintset_manager = hintset_manager.on(device)
+            self._pipeline.hintset_manager = hintset_manager.with_aligner(
+                lambda hint: clone_model(
+                    hint,
+                    device,
+                    exclusion_set=exclusion_set if self._delay("hint", hint) else None,
+                )
+            )
 
     def deactivate(self):
         if self._previous is None:
@@ -370,7 +377,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
         if self.mode.all_exclusion:
             return True
         elif self.mode.allexceptclip_exclusion:
-            if not isinstance(module, CLIPModel):
+            if not isinstance(module, (CLIPModel, ControlNetModel)):
                 return True
         elif self.mode.unet_exclusion:
             if isinstance(module, UNet2DConditionModel):
@@ -505,6 +512,8 @@ class GeneratePipelineWrapper(PipelineWrapper):
                 del pipeline_args[k]
 
         images = self._pipeline(**pipeline_args)
+
+        gc.collect()
 
         return images
 

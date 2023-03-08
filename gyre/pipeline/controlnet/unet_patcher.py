@@ -121,9 +121,12 @@ def patch_unet(unet):
 
             # If any of the unet modules already take down_block_additional_residuals
             # this is Diffusers >= 0.14.0 and we don't need to patch
-            unet_keys = inspect.signature(module.forward).parameters.keys()
-            if "down_block_additional_residuals" in unet_keys:
-                logger.info("Unet2DConditionModel already suppports ControlNet")
-                return
+
+            # TODO: Disbled as the built-in support breaks CLIP guidance
+            if False:
+                unet_keys = inspect.signature(module.forward).parameters.keys()
+                if "down_block_additional_residuals" in unet_keys:
+                    logger.info("Unet2DConditionModel already suppports ControlNet")
+                    return
 
             patch_unet_2D_condition_model(module)
