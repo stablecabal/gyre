@@ -431,8 +431,6 @@ class ParameterExtractor:
                     }
                 )
 
-                print(hint_images[-1]["image"].shape)
-
         return hint_images
 
     def lora(self):
@@ -629,7 +627,6 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                         logargs["token_embeddings"].keys()
                     )
 
-                print()
                 print(f"Generating {repr(logargs)}")
 
                 recorder.store("pipe.generate calls", kwargs)
