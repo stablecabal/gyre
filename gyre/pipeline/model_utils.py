@@ -16,6 +16,18 @@ from accelerate.utils import send_to_device, set_module_tensor_to_device
 logger = logging.getLogger(__name__)
 
 
+def model_size(model) -> int:
+    total = 0
+
+    for name, param in model.named_parameters(recurse=True):
+        total += param.numel() * param.element_size()
+
+    for name, buffer in model.named_buffers(recurse=True):
+        total += buffer.numel() * buffer.element_size()
+
+    return total
+
+
 class CloneToGPUHook(ModelHook):
     def __init__(self, execution_device, activate_callback, params, buffers):
         self.execution_device = execution_device
@@ -71,10 +83,11 @@ class CloneToGPUHook(ModelHook):
 
 
 class GPUExclusionSet:
-    def __init__(self, max_activated=-1):
+    def __init__(self, max_activated=-1, mem_limit=-1):
         self.sets: list[tuple[weakref.ref, weakref.WeakSet]] = []
-        self.activated: list[weakref.ref] = []
+        self.activated: list[tuple[weakref.ref, int]] = []
         self.max_activated = max_activated
+        self.mem_limit = mem_limit
 
     def add(self, top):
         modules = weakref.WeakSet(
@@ -94,7 +107,7 @@ class GPUExclusionSet:
             if topref() is not None
         ]
 
-    def reset(self, exclude=[]):
+    def reset(self, exclude: list[weakref.ref] = []):
         exclude = list(exclude)
 
         for topref, modules in self.sets:
@@ -108,25 +121,46 @@ class GPUExclusionSet:
 
     def activate_for(self, top):
         topref = weakref.ref(top)
-        return functools.partial(self.activate, topref)
+        return functools.partial(self.activate, topref, model_size(top))
 
-    def activate(self, topref):
+    def activate(self, topref, size):
         # No-op if top is already the most recently activated
-        if self.activated and self.activated[0] is topref:
+        if self.activated and self.activated[0][0] is topref:
             return
 
-        logger.debug(f"Activating {topref().__class__.__name__}")
+        cur_activated = [*self.activated]
+        new_activated = [(topref, size)]
+        total = size
 
-        # Update the LRU activated queue
-        self.activated = [
-            model
-            for model in self.activated
-            if model is not topref and model() is not None
-        ]
-        self.activated.insert(0, topref)
-        self.activated = self.activated[: self.max_activated]
+        while cur_activated:
+            othertopref, othersize = cur_activated[0]
 
-        self.reset(exclude=self.activated)
+            if othertopref is topref or othertopref() is None:
+                cur_activated.pop(0)
+                continue
+
+            if self.max_activated > 0 and len(new_activated) >= self.max_activated:
+                break
+
+            if self.mem_limit > 0 and (total + cur_activated[0][1]) > self.mem_limit:
+                break
+
+            othertopref, othersize = cur_activated.pop(0)
+            new_activated.append((othertopref, othersize))
+            total += othersize
+
+        log_str = f"Activating {topref().__class__.__name__}"
+        if cur_activated:
+            log_str += f", removing {', '.join([x[0]().__class__.__name__ for x in cur_activated])}"
+        logger.debug(log_str)
+
+        logger.debug(
+            f"New set {len(new_activated)}, {total//1024//1024}MB, of {self.max_activated}, {self.mem_limit // 1024 // 1024}MB max"
+        )
+
+        self.activated = new_activated
+
+        self.reset(exclude=[x[0] for x in self.activated])
 
 
 def clone_model(

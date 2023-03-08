@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 import generation_pb2
 import huggingface_hub
+import pynvml
 import torch
 import yaml
 from diffusers import ModelMixin, UNet2DConditionModel, pipelines
@@ -147,16 +148,36 @@ class EngineMode(object):
         return self.device == "cuda" and self._vramO > 1 and not self._force_fp32
 
     @property
-    def unet_exclusion(self):
+    def gpu_offload(self):
         return self.device == "cuda" and self._vramO > 2
 
     @property
-    def allexceptclip_exclusion(self):
-        return self.device == "cuda" and self._vramO > 3
+    def model_vram_limit(self):
+        if not self.gpu_offload:
+            return -1
+
+        GB = 1024 * 1024 * 1024
+
+        try:
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            vram_total = pynvml.nvmlDeviceGetMemoryInfo(handle).total
+        except:
+            vram_total = 4 * GB
+
+        if self._vramO <= 3:
+            return max(2 * GB, vram_total * 0.5)
+        elif self._vramO <= 4:
+            return min(3 * GB, vram_total - 2 * GB)
+        else:
+            return min(2 * GB, vram_total - 2 * GB)
 
     @property
-    def all_exclusion(self):
-        return self.device == "cuda" and self._vramO > 4
+    def model_max_limit(self):
+        if not self.gpu_offload:
+            return -1
+
+        return 1 if self._vramO >= 5 else -1
 
 
 class BatchMode:
@@ -274,16 +295,11 @@ class PipelineWrapper:
                 if isinstance(module, torch.nn.Module):
                     yield name, module
 
-    def _delay(self, name, module):
-        return False
-
-    def activate(self, device):
+    def activate(self, device, exclusion_set=None):
         if self._previous is not None:
             raise Exception("Activate called without previous deactivate")
 
         self._previous = {}
-
-        exclusion_set = GPUExclusionSet(1)
 
         for name, module in self.pipeline_modules():
             self._previous[name] = module
@@ -292,7 +308,7 @@ class PipelineWrapper:
             cloned = clone_model(
                 module,
                 device,
-                exclusion_set=exclusion_set if self._delay(name, module) else None,
+                exclusion_set=exclusion_set,
             )
 
             # And set it on the pipeline
@@ -305,7 +321,7 @@ class PipelineWrapper:
                 lambda hint: clone_model(
                     hint,
                     device,
-                    exclusion_set=exclusion_set if self._delay("hint", hint) else None,
+                    exclusion_set=exclusion_set,
                 )
             )
 
@@ -372,18 +388,16 @@ class GeneratePipelineWrapper(PipelineWrapper):
 
         return scheduler
 
-    def _delay(self, name, module):
-        # Should we delay moving this to CUDA until forward is called?
-        if self.mode.all_exclusion:
-            return True
-        elif self.mode.allexceptclip_exclusion:
-            if not isinstance(module, (CLIPModel, ControlNetModel)):
-                return True
-        elif self.mode.unet_exclusion:
-            if isinstance(module, UNet2DConditionModel):
-                return True
-
-        return False
+    def activate(self, device):
+        super().activate(
+            device,
+            GPUExclusionSet(
+                max_activated=self.mode.model_max_limit,
+                mem_limit=self.mode.model_vram_limit,
+            )
+            if self.mode.gpu_offload
+            else None,
+        )
 
     def get_samplers(self):
         return self._samplers
