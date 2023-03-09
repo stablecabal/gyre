@@ -45,6 +45,9 @@ class JSONAPIController(resource.Resource):
             )
 
     def _render_common(self, request, handler, input):
+        # Set CORS headers
+        self._cors_headers(request)
+
         if not handler:
             return NoResource().render(request)
 
@@ -74,11 +77,6 @@ class JSONAPIController(resource.Resource):
             print(f"Exception in JSON controller {self.__class__.__name__}. ", e)
             return ErrorPage(500, b"Internal Error", b"").render(request)
 
-        # Handle when a controller returns NOT_DONE_YET because it's
-        # still working in the background
-        if response is NOT_DONE_YET:
-            return NOT_DONE_YET
-
         # Convert dict or object instances into json strings
         if isinstance(response, dict):
             response = json.dumps(response)
@@ -87,11 +85,11 @@ class JSONAPIController(resource.Resource):
         if isinstance(response, str):
             response = response.encode("utf-8")
 
-        # Set CORS headers
-        self._cors_headers(request)
-
         # And return response
         request.setHeader("content-type", return_type)
+
+        # Note: controller could have returned NOT_DONE_YET because it's
+        # still working in the background
         return response
 
     def render_GET(self, request):
