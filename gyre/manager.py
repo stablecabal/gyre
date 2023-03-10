@@ -112,6 +112,10 @@ class ProgressBarWrapper(object):
         )
 
 
+def clip(val, minval, maxval):
+    return max(min(val, maxval), minval)
+
+
 class EngineMode(object):
     def __init__(
         self,
@@ -166,11 +170,11 @@ class EngineMode(object):
             vram_total = 4 * GB
 
         if self._vramO <= 3:
-            return max(2 * GB, vram_total * 0.5)
+            return clip(vram_total * 0.5, 2 * GB, vram_total - 2 * GB)
         elif self._vramO <= 4:
-            return min(3 * GB, vram_total - 2 * GB)
+            return clip(3 * GB, 2 * GB, vram_total - 2 * GB)
         else:
-            return min(2 * GB, vram_total - 2 * GB)
+            return clip(2 * GB, 2 * GB, vram_total - 2 * GB)
 
     @property
     def model_max_limit(self):

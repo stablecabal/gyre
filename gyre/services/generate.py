@@ -8,7 +8,7 @@ import uuid
 from math import sqrt
 from queue import Empty, Queue
 from types import SimpleNamespace as SN
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 import generation_pb2
 import generation_pb2_grpc
@@ -17,9 +17,10 @@ import torch
 from google.protobuf import json_format as pb_json_format
 
 from gyre import constants, images
+from gyre.cache import CacheKeyError
 from gyre.debug_recorder import DebugNullRecorder
 from gyre.manager import EngineNotFoundError
-from gyre.protobuf_safetensors import deserialize_safetensors
+from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
 from gyre.protobuf_tensors import deserialize_tensor
 from gyre.services.exception_to_grpc import exception_to_grpc
 from gyre.utils import artifact_to_image, image_to_artifact
@@ -111,9 +112,10 @@ class ParameterExtractor:
     memo-ise the result.
     """
 
-    def __init__(self, manager, request):
+    def __init__(self, manager, request, tensor_cache):
         self._manager = manager
         self._request = request
+        self._tensor_cache = tensor_cache
         # Add a cache to self.get to prevent multiple requests from recalculating
         # self.get = functools.cache(self.get)
 
@@ -125,6 +127,27 @@ class ParameterExtractor:
             f"{constants.debug_path}/debug-adjustments-{debugCtr}.png", "wb"
         ) as f:
             f.write(images.toPngBytes(tensor)[0])
+
+    def _cache_tensors(self, artifact, tensors, metadata=None):
+        if not artifact.HasField("cache_control"):
+            return
+
+        self._tensor_cache.set(
+            artifact.cache_control.cache_id,
+            tensors=tensors,
+            metadata=metadata,
+            max_age=artifact.cache_control.max_age,
+        )
+
+    def _cache_safetensors(self, artifact, safetensors):
+        self._cache_tensors(artifact, safetensors.tensors(), safetensors.metadata())
+
+    def _from_cache(self, cache_id):
+        return (self._tensor_cache.get(cache_id), self._tensor_cache.metadata(cache_id))
+
+    def _safetensors_from_cache(self, cache_id):
+        tensors, metadata = self._from_cache(cache_id)
+        return UserSafetensors(tensors=tensors, metadata=metadata)
 
     def _apply_image_adjustment(self, tensor, adjustments):
         if not adjustments:
@@ -252,6 +275,46 @@ class ParameterExtractor:
 
         image = self._apply_image_adjustment(image, artifact.postAdjustments)
         return image
+
+    def _lora_from_artifact_cache(self, artifact: generation_pb2.Artifact):
+        return self._safetensors_from_cache(artifact.cache_id)
+
+    def _lora_from_artifact_lora(self, artifact: generation_pb2.Artifact):
+        return deserialize_safetensors(artifact.lora.lora)
+
+    def _lora_from_artifact(self, artifact: generation_pb2.Artifact):
+        if artifact.WhichOneof("data") == "cache_id":
+            lora = self._lora_from_artifact_cache(artifact)
+        elif artifact.WhichOneof("data") == "lora":
+            lora = self._lora_from_artifact_lora(artifact)
+        else:
+            raise ValueError(
+                f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an LoRA"
+            )
+
+        self._cache_safetensors(artifact, lora)
+        return lora
+
+    def _token_embedding_from_artifact_cache(self, artifact: generation_pb2.Artifact):
+        tensors, metadata = self._from_cache(artifact.cache_id)
+        return metadata["text"], tensors
+
+    def _token_embedding_from_artifact_te(self, artifact: generation_pb2.Artifact):
+        embedding = artifact.token_embedding
+        return embedding.text, deserialize_tensor(embedding.tensor)
+
+    def _token_embedding_from_artifact(self, artifact: generation_pb2.Artifact):
+        if artifact.WhichOneof("data") == "cache_id":
+            text, embedding = self._token_embedding_from_artifact_cache(artifact)
+        elif artifact.WhichOneof("data") == "token_embedding":
+            text, embedding = self._token_embedding_from_artifact_te(artifact)
+        else:
+            raise ValueError(
+                f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an token embedding"
+            )
+
+        self._cache_tensors(artifact, embedding, {"text": text})
+        return text, embedding
 
     def _image_stepparameter(self, field):
         if self._request.WhichOneof("params") != "image":
@@ -437,24 +500,27 @@ class ParameterExtractor:
         loras = []
 
         for prompt in self._prompt_of_artifact_type(generation_pb2.ARTIFACT_LORA):
-            safetensors = deserialize_safetensors(prompt.artifact.lora.lora)
+            safetensors = self._lora_from_artifact(prompt.artifact)
             weights = {}
-            for weight in prompt.artifact.lora.weights:
-                weights[weight.model_name] = weight.weight
+
+            if prompt.HasField("parameters"):
+                if prompt.parameters.HasField("weight"):
+                    weights["*"] = prompt.parameters.weight
+                for named_weight in prompt.parameters.named_weights:
+                    weights[named_weight.name] = named_weight.weight
 
             loras.append((safetensors, weights))
 
         return loras if loras else None
 
     def token_embeddings(self):
-        embeddings = {}
+        embeddings: dict[str, dict[str, torch.Tensor]] = {}
 
         for prompt in self._prompt_of_artifact_type(
             generation_pb2.ARTIFACT_TOKEN_EMBEDDING
         ):
-            embeddings[prompt.artifact.token_embedding.text] = deserialize_tensor(
-                prompt.artifact.token_embedding.tensor
-            )
+            text, embedding = self._token_embedding_from_artifact(prompt.artifact)
+            embeddings[text] = embedding
 
         return embeddings
 
@@ -512,11 +578,13 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
     def __init__(
         self,
         manager,
+        tensor_cache,
         supress_metadata=False,
         debug_recorder=DebugNullRecorder(),
         ram_monitor=None,
     ):
         self._manager = manager
+        self._tensor_cache = tensor_cache
         self._supress_metadata = supress_metadata
         self._debug_recorder = debug_recorder
         self._ram_monitor = ram_monitor
@@ -565,6 +633,11 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
         {
             EngineNotFoundError: grpc.StatusCode.NOT_FOUND,
             NotImplementedError: grpc.StatusCode.UNIMPLEMENTED,
+            CacheKeyError: lambda e, d: (
+                grpc.StatusCode.FAILED_PRECONDITION,
+                e.args[0],
+                f"Cache miss, key {e.args[0]}",
+            ),
         }
     )
     def Generate(self, request, context):
@@ -578,7 +651,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
             ):
                 self.unimp("Generation of anything except images")
 
-            extractor = ParameterExtractor(self._manager, request)
+            extractor = ParameterExtractor(self._manager, request, self._tensor_cache)
             kwargs = {}
 
             for field in extractor.fields():

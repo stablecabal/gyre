@@ -1,4 +1,5 @@
 import inspect
+import logging
 import os
 import re
 import traceback
@@ -7,27 +8,28 @@ import grpc
 
 return_traceback = os.environ.get("SD_ENV", "dev").lower().startswith("dev")
 
+logger = logging.getLogger(__name__)
+
 
 def _handle_exception(func, e, context, mappings):
-    stack = [f"Exception in handler {func.__name__}. "]
+    details = [f"Exception in handler {func.__name__}. "]
 
     for block in traceback.format_exception(e):
-        stack.append(block)
+        details.append(block)
 
-    stack = "".join(stack)
-    print(stack, end=None)
+    details = "".join(details)
 
     code, message = grpc.StatusCode.INTERNAL, "Internal Error"
     for exception_class, grpc_code in mappings.items():
         if isinstance(e, exception_class):
-            code = grpc_code
-            message = str(e)
+            if callable(grpc_code):
+                code, message, details = grpc_code(e, details)
+            else:
+                code, message = grpc_code, str(e)
             break
 
-    context.abort(
-        code,
-        stack if return_traceback else message,
-    )
+    logger.error(details)
+    context.abort(code, details if return_traceback else message)
 
 
 def _exception_to_grpc_generator(func, mappings):

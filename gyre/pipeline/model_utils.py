@@ -84,37 +84,28 @@ class CloneToGPUHook(ModelHook):
 
 class GPUExclusionSet:
     def __init__(self, max_activated=-1, mem_limit=-1):
-        self.sets: list[tuple[weakref.ref, weakref.WeakSet]] = []
+        self.tops: list[weakref.ref] = []
         self.activated: list[tuple[weakref.ref, int]] = []
         self.max_activated = max_activated
         self.mem_limit = mem_limit
 
     def add(self, top):
-        modules = weakref.WeakSet(
-            [
-                module
-                for _, module in top.named_modules()
-                if has_hook(module, CloneToGPUHook)
-            ]
-        )
-
-        self.sets.append((weakref.ref(top, self.clean_sets), modules))
+        self.tops.append(weakref.ref(top, self.clean_sets))
 
     def clean_sets(self, _):
-        self.sets = [
-            (topref, *remainder)
-            for topref, *remainder in self.sets
-            if topref() is not None
-        ]
+        self.tops = [topref for topref in self.tops if topref() is not None]
 
     def reset(self, exclude: list[weakref.ref] = []):
         exclude = list(exclude)
 
-        for topref, modules in self.sets:
+        for topref in self.tops:
             if topref in exclude:
                 continue
 
-            for module in modules:
+            if (top := topref()) is None:
+                continue
+
+            for _, module in top.named_modules():
                 hook = get_hook(module, CloneToGPUHook)
                 if hook is not False:
                     hook.reset(module)
@@ -256,22 +247,45 @@ def is_hooked(module):
     return hasattr(module, "_hf_hook")
 
 
-def get_hook(module, hook_class):
+def get_hooks(module, hook_class):
     if hasattr(module, "_hf_hook"):
         if isinstance(module._hf_hook, SequentialHook):
             for hook in module._hf_hook.hooks:
                 if isinstance(hook, hook_class):
-                    return hook
+                    yield hook
 
         else:
             if isinstance(module._hf_hook, hook_class):
-                return module._hf_hook
+                yield module._hf_hook
+
+
+def get_hook(module, hook_class, error_if_multiple=True):
+    hooks = list(get_hooks(module, hook_class))
+
+    if hooks:
+        if len(hooks) > 1 and error_if_multiple:
+            raise RuntimeError(f"Found more than one {hook_class.__name__}")
+        return hooks[0]
 
     return False
 
 
 def has_hook(module, hook_class):
-    return get_hook(module, hook_class) is not False
+    return any(get_hooks(module, hook_class))
+
+
+def add_hook(module, hook, replace=False):
+    append = not replace
+
+    if (
+        append
+        and hasattr(module, "_hf_hook")
+        and isinstance(module._hf_hook, SequentialHook)
+    ):
+        module = hook.init_hook(module)
+        module._hf_hook.hooks = (*module._hf_hook.hooks, hook)
+    else:
+        add_hook_to_module(module, hook, append=append)
 
 
 def remove_hook(module, hook_class):

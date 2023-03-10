@@ -67,7 +67,7 @@ from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
 from gyre.pipeline.text_embedding.text_encoder_alt_layer import TextEncoderAltLayer
-from gyre.pipeline.textual_inversion import apply_ti_token
+from gyre.pipeline.textual_inversion import apply_ti_token, match_encoder_to_tokenizer
 from gyre.pipeline.unet.cfg import CFGChildUnets, CFGUnet
 from gyre.pipeline.unet.clipguided import (
     CLIP_GUIDANCE_BASE,
@@ -1598,26 +1598,31 @@ class UnifiedPipeline(DiffusionPipeline):
 
         self.set_tiling_mode(tiling)
 
+        # Reset any hooks that were left over from previous call (we don't try
+        # and clean up after generation ends, just on next generation start)
+        remove_lora_from_pipe(self)
+        match_encoder_to_tokenizer(self.tokenizer, self.text_encoder)
+
+        if not token_embeddings:
+            token_embeddings = {}
+
         if lora:
-            # TODO: Handle more than one lora
-            lora = lora[0]
-            safeloras, weights = lora
+            for _id, (safeloras, weights) in enumerate(lora):
+                apply_lora_to_pipe(self, safeloras, _id)
+                token_embeddings.update(parse_safeloras_embeds(safeloras))
 
-            apply_lora_to_pipe(self, safeloras)
-
-            if not token_embeddings:
-                token_embeddings = {}
-            token_embeddings.update(parse_safeloras_embeds(safeloras))
-
-            for key, weight in weights.items():
-                set_lora_scale(getattr(self, key), weight)
-        else:
-            remove_lora_from_pipe(self)
+                for key, weight in weights.items():
+                    if key == "*":
+                        set_lora_scale(self.unet, _id, weight)
+                        set_lora_scale(self.text_encoder, _id, weight)
+                    else:
+                        set_lora_scale(getattr(self, key), _id, weight)
 
         tokenizer = self.tokenizer
         clip_tokenizer = self.clip_tokenizer
 
         if token_embeddings:
+            # Deepcopying so tokens we add will only affect this call
             tokenizer = deepcopy(tokenizer)
 
             logger.info(

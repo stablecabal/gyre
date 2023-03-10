@@ -7,6 +7,7 @@
 #   - Supports negative prompt by setting a prompt with negative weight
 #   - Supports sending key to machines on local network over HTTP (not HTTPS)
 
+import hashlib
 import io
 import json
 import logging
@@ -23,6 +24,7 @@ from itertools import zip_longest
 from typing import Any, Dict, Generator, List, Literal, Optional, Sequence, Tuple, Union
 
 import grpc
+import machineid
 import torch
 from google.protobuf.json_format import MessageToDict, MessageToJson
 from PIL import Image, ImageOps
@@ -216,28 +218,61 @@ def ref_to_prompt(ref_uuid, type, stage=generation.ARTIFACT_AFTER_ADJUSTMENTS):
     )
 
 
-def lora_to_prompt(path, weights):
-    ext = os.path.splitext(path)[1]
+def sha256sum(filename):
+    h = hashlib.sha256()
+    b = bytearray(128 * 1024)
+    mv = memoryview(b)
+    with open(filename, "rb", buffering=0) as f:
+        while n := f.readinto(mv):
+            h.update(mv[:n])
+    return h.hexdigest()
 
-    if ext in {".bin", ".pt"}:
-        tensordict = torch.load(path, "cpu")
-        lora = generation.Lora(lora=serialize_safetensor_from_dict(tensordict))
+
+def cache_id(path):
+    system_id = machineid.hashed_id("gyre-client")
+    file_hash = sha256sum(path)
+    return f"{system_id}-{file_hash}"
+
+
+def lora_to_prompt(path, weights, from_cache=True):
+    parameters = generation.PromptParameters()
+
+    if weights and len(weights) == 1:
+        parameters.weight = weights[0]
+    elif weights and len(weights) == 2:
+        parameters.named_weights.append(
+            generation.NamedWeight(name="unet", weight=weights[0])
+        )
+        parameters.named_weights.append(
+            generation.NamedWeight(name="text_encoder", weight=weights[1])
+        )
+
+    if from_cache:
+        return generation.Prompt(
+            artifact=generation.Artifact(
+                type=generation.ARTIFACT_LORA, cache_id=cache_id(path)
+            ),
+            parameters=parameters,
+        )
+
     else:
-        safetensors = safe_open(path, framework="pt", device="cpu")
-        lora = generation.Lora(lora=serialize_safetensor(safetensors))
+        ext = os.path.splitext(path)[1]
 
-    for model_name in ["unet", "text_encoder"]:
-        if weights:
-            lora.weights.append(
-                generation.LoraWeight(model_name=model_name, weight=weights.pop(0))
-            )
+        if ext in {".bin", ".pt"}:
+            tensordict = torch.load(path, "cpu")
+            lora = generation.Lora(lora=serialize_safetensor_from_dict(tensordict))
+        else:
+            safetensors = safe_open(path, framework="pt", device="cpu")
+            lora = generation.Lora(lora=serialize_safetensor(safetensors))
 
-    return generation.Prompt(
-        artifact=generation.Artifact(
-            type=generation.ARTIFACT_LORA,
-            lora=lora,
-        ),
-    )
+        return generation.Prompt(
+            artifact=generation.Artifact(
+                type=generation.ARTIFACT_LORA,
+                lora=lora,
+                cache_control=generation.CacheControl(cache_id=cache_id(path)),
+            ),
+            parameters=parameters,
+        )
 
 
 def ti_to_prompts(path, override_tokens):
@@ -423,6 +458,7 @@ class StabilityInference:
         lora: list[tuple[str, list[float]]] | None = None,
         ti: list[tuple[str, list[str]]] | None = None,
         as_async=False,
+        from_cache=True,
     ) -> Generator[generation.Answer, None, None]:
         """
         Generate images from a prompt.
@@ -573,7 +609,7 @@ class StabilityInference:
 
         if lora:
             for path, weights in lora:
-                prompts += [lora_to_prompt(path, weights)]
+                prompts += [lora_to_prompt(path, weights, from_cache=from_cache)]
 
         if ti:
             for path, overrides in ti:
@@ -1073,13 +1109,37 @@ if __name__ == "__main__":
         "as_async": args.as_async,
     }
 
-    answers = stability_api.generate(args.prompt, **request)
-    artifacts = process_artifacts_from_answers(
-        args.prefix, answers, write=not args.no_store, verbose=True
-    )
-    if args.show:
-        for artifact in open_images(artifacts, verbose=True):
-            pass
-    else:
-        for artifact in artifacts:
-            pass
+    try:
+        answers = stability_api.generate(args.prompt, **request, from_cache=True)
+
+        artifacts = process_artifacts_from_answers(
+            args.prefix, answers, write=not args.no_store, verbose=True
+        )
+
+        if args.show:
+            for artifact in open_images(artifacts, verbose=True):
+                pass
+        else:
+            for artifact in artifacts:
+                pass
+    except Exception as e:
+        if isinstance(e, grpc.Call):
+            if e.code() is grpc.StatusCode.FAILED_PRECONDITION:
+                print("Cache miss, retrying")
+
+                answers = stability_api.generate(
+                    args.prompt, **request, from_cache=False
+                )
+
+                artifacts = process_artifacts_from_answers(
+                    args.prefix, answers, write=not args.no_store, verbose=True
+                )
+
+                if args.show:
+                    for artifact in open_images(artifacts, verbose=True):
+                        pass
+                else:
+                    for artifact in artifacts:
+                        pass
+        else:
+            raise e

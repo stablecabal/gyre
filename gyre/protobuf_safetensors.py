@@ -1,3 +1,5 @@
+import torch
+
 from gyre.generated.generation_pb2 import (
     Safetensors,
     SafetensorsMeta,
@@ -33,8 +35,8 @@ def serialize_safetensor_from_dict(tensors):
     return proto_safetensors
 
 
-class FakeSafetensors:
-    def __init__(self, metadata, tensors):
+class UserSafetensors:
+    def __init__(self, metadata: dict[str, str], tensors: dict[str, torch.Tensor]):
         self._metadata = metadata
         self._tensors = tensors
 
@@ -47,6 +49,13 @@ class FakeSafetensors:
     def get_tensor(self, key):
         return self._tensors[key]
 
+    # Extension to Safetensors
+    def tensors(self):
+        return self._tensors
+
+    def items(self):
+        return self._tensors.items()
+
 
 def deserialize_safetensors(proto_safetensors):
     metadata = {}
@@ -58,4 +67,4 @@ def deserialize_safetensors(proto_safetensors):
     for tensor in proto_safetensors.tensors:
         tensors[tensor.key] = deserialize_tensor(tensor.tensor)
 
-    return FakeSafetensors(metadata, tensors)
+    return UserSafetensors(metadata, tensors)

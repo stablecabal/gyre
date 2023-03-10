@@ -46,7 +46,9 @@ dependencies = [
   "accept-types ~= 0.4.1",
   "gdown ~= 4.6.2",
   "colorama ~= 0.4.6",
-   # For Tests
+  # For client
+  "py-machineid ~= 0.3.0",
+  # For Tests
   "pynvml ~= 11.4.1",
 ]
 

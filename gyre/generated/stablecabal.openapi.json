@@ -185,7 +185,7 @@
                     },
                     {
                         "name": "image.transform.diffusion",
-                        "description": " - SAMPLER_DPMSOLVERPP_2S_ANCESTRAL: Deprecated - use the official value above\n - SAMPLER_DPMSOLVERPP_SDE: Deprecated - use the official value above\n - SAMPLER_DPMSOLVERPP_2M: Deprecated - use the official value above",
+                        "description": " - SAMPLER_DPMSOLVERPP_2S_ANCESTRAL: Next three deprecated - use the official values above",
                         "in": "query",
                         "required": false,
                         "schema": {
@@ -646,7 +646,7 @@
                     },
                     {
                         "name": "image.transform.diffusion",
-                        "description": " - SAMPLER_DPMSOLVERPP_2S_ANCESTRAL: Deprecated - use the official value above\n - SAMPLER_DPMSOLVERPP_SDE: Deprecated - use the official value above\n - SAMPLER_DPMSOLVERPP_2M: Deprecated - use the official value above",
+                        "description": " - SAMPLER_DPMSOLVERPP_2S_ANCESTRAL: Next three deprecated - use the official values above",
                         "in": "query",
                         "required": false,
                         "schema": {
@@ -1013,6 +1013,14 @@
                     "tokenEmbedding": {
                         "$ref": "#/components/schemas/TokenEmbedding"
                     },
+                    "url": {
+                        "type": "string",
+                        "title": "A url (which must be allowed by the server)"
+                    },
+                    "cacheId": {
+                        "type": "string",
+                        "title": "An ID to load from cache (previously set with cache_info)"
+                    },
                     "index": {
                         "type": "integer",
                         "format": "int64",
@@ -1052,6 +1060,9 @@
                     "hintImageType": {
                         "type": "string",
                         "title": "Indicate the sort of control for image types"
+                    },
+                    "cacheControl": {
+                        "$ref": "#/components/schemas/CacheControl"
                     }
                 },
                 "description": "A tangible Artifact, such as an image, video, or text that is used for input\nor output."
@@ -1195,6 +1206,23 @@
                     "AT_BUFFER"
                 ],
                 "default": "AT_PARAMETER"
+            },
+            "CacheControl": {
+                "type": "object",
+                "properties": {
+                    "cacheId": {
+                        "type": "string",
+                        "title": "The ID to store it under"
+                    },
+                    "maxAge": {
+                        "type": "integer",
+                        "format": "int64",
+                        "title": "If > 0, the number of seconds before it self-purges from cache"
+                    },
+                    "stage": {
+                        "$ref": "#/components/schemas/ArtifactStage"
+                    }
+                }
             },
             "ChannelSource": {
                 "type": "string",
@@ -1359,7 +1387,7 @@
                     "SAMPLER_DPMSOLVERPP_2M"
                 ],
                 "default": "SAMPLER_DDIM",
-                "description": "DiffusionSampler identifies which sampler to use for Diffusion, and represents\nthe internal set of supported samplers.\n\n - SAMPLER_DPMSOLVERPP_2S_ANCESTRAL: Deprecated - use the official value above\n - SAMPLER_DPMSOLVERPP_SDE: Deprecated - use the official value above\n - SAMPLER_DPMSOLVERPP_2M: Deprecated - use the official value above"
+                "description": "DiffusionSampler identifies which sampler to use for Diffusion, and represents\nthe internal set of supported samplers.\n\n - SAMPLER_DPMSOLVERPP_2S_ANCESTRAL: Next three deprecated - use the official values above"
             },
             "Dtype": {
                 "type": "string",
@@ -1889,6 +1917,18 @@
                 ],
                 "default": "MODEL_ARCHITECTURE_NONE"
             },
+            "NamedWeight": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "weight": {
+                        "type": "number",
+                        "format": "float"
+                    }
+                }
+            },
             "OnStatus": {
                 "type": "object",
                 "properties": {
@@ -1936,6 +1976,12 @@
                     "weight": {
                         "type": "number",
                         "format": "float"
+                    },
+                    "namedWeights": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/NamedWeight"
+                        }
                     }
                 },
                 "description": "A set of parameters for each individual Prompt."

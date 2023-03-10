@@ -52,6 +52,7 @@ import dashboard_pb2_grpc
 import engines_pb2_grpc
 import generation_pb2_grpc
 
+from gyre import cache
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.engines_yaml import EnginesYaml
 from gyre.http.grpc_gateway import GrpcGatewayRouter
@@ -400,6 +401,7 @@ def main():
     )
 
     generation_opts = parser.add_argument_group("generation")
+    resource_opts = parser.add_argument_group("resource management")
     logging_opts = parser.add_argument_group("logging")
     networking_opts = parser.add_argument_group("networking")
     util_opts = parser.add_argument_group("utility")
@@ -489,6 +491,19 @@ def main():
     )
     generation_opts.add_argument(
         "--enable_mps", action="store_true", help="Use MPS on MacOS where available"
+    )
+
+    resource_opts.add_argument(
+        "--cache_ram",
+        type=int,
+        default=os.environ.get("SD_CACHE_RAM", 500),
+        help="How much ram to allocate to the internal uploaded resource cache, in MB",
+    )
+    resource_opts.add_argument(
+        "--cache_disk",
+        type=int,
+        default=os.environ.get("SD_CACHE_DISK", 5000),
+        help="How much ram to allocate to the internal uploaded resource cache, in MB",
     )
 
     logging_opts.add_argument(
@@ -676,6 +691,10 @@ def main():
         enginecfg_path = os.path.normpath(args.enginecfg)
         EnginesYaml.check_and_update(os.path.dirname(enginecfg_path))
 
+    tensor_cache = cache.TensorLRUCache_Dual(
+        memlimit=args.cache_ram * cache.MB, disklimit=args.cache_disk * cache.MB
+    )
+
     if xformers_mea_available():
         print("Xformers defaults to on")
 
@@ -718,6 +737,7 @@ def main():
 
         generation_servicer = GenerationServiceServicer(
             manager,
+            tensor_cache=tensor_cache,
             supress_metadata=args.supress_metadata,
             debug_recorder=debug_recorder,
             ram_monitor=ram_monitor,

@@ -4,14 +4,16 @@ import sys
 import types
 from typing import Literal
 
-from accelerate.hooks import (
-    ModelHook,
-    SequentialHook,
-    add_hook_to_module,
-    remove_hook_from_module,
-)
 from safetensors import safe_open
 from torch import nn
+
+from gyre.pipeline.model_utils import (
+    ModelHook,
+    add_hook,
+    get_hook,
+    get_hooks,
+    remove_hook,
+)
 
 # Nasty hack - detect if fire is installed, and if not, prevent lora import from failing
 
@@ -81,7 +83,8 @@ class LoraHook(ModelHook):
     unet or text_encoder has a CloneToGPUHook attached.
     """
 
-    def __init__(self, up_weight, down_weight, r=4, alpha=None, scale=1.0):
+    def __init__(self, id, up_weight, down_weight, r=4, alpha=None, scale=1.0):
+        self.id = id
         self._up_weight = up_weight
         self._down_weight = down_weight
         self._r = r
@@ -137,25 +140,15 @@ class LoraHook(ModelHook):
         self._scale = value
 
 
-def apply_lora_to_module(module, up_weight, down_weight, r, alpha=None):
-    add_hook_to_module(
+def apply_lora_to_module(module, id, up_weight, down_weight, r, alpha=None):
+    add_hook(
         module,
-        LoraHook(up_weight=up_weight, down_weight=down_weight, r=r, alpha=alpha),
-        append=True,
+        LoraHook(id=id, up_weight=up_weight, down_weight=down_weight, r=r, alpha=alpha),
     )
 
 
 def remove_lora_from_module(module):
-    if hasattr(module, "_hf_hook"):
-        if isinstance(module._hf_hook, SequentialHook):
-            module._hf_hook.hooks = [
-                hook for hook in module._hf_hook.hooks if not isinstance(hook, LoraHook)
-            ]
-            if not module._hf_hook.hooks:
-                remove_hook_from_module(module)
-
-        elif isinstance(module._hf_hook, LoraHook):
-            remove_hook_from_module(module)
+    remove_hook(module, LoraHook)
 
 
 def remove_lora_from_pipe(pipe):
@@ -165,37 +158,27 @@ def remove_lora_from_pipe(pipe):
         remove_lora_from_module(module)
 
 
-def set_lora_scale(module, scale=1.0):
+def set_lora_scale(module, id, scale=1.0):
     for child in module.modules():
-        lora_hook = None
-
-        if hasattr(child, "_hf_hook"):
-            if isinstance(child._hf_hook, SequentialHook):
-                lora_hook = [
-                    hook for hook in child._hf_hook.hooks if isinstance(hook, LoraHook)
-                ][0]
-
-            elif isinstance(child._hf_hook, LoraHook):
-                lora_hook = child._hf_hook
-
-        if lora_hook:
-            lora_hook.scale = scale
+        for lora_hook in get_hooks(child, LoraHook):
+            if lora_hook.id == id:
+                lora_hook.scale = scale
 
 
-def apply_lora_to_pipe(pipe, lora):
-    remove_lora_from_pipe(pipe)
+def apply_lora_to_pipe(pipe, lora, id):
+    # remove_lora_from_pipe(pipe)
 
     lora_type = detect_lora_type(lora)
 
     if lora_type == "cloneofsimo":
-        apply_cloneofsimo_to_pipe(pipe, lora)
+        apply_cloneofsimo_to_pipe(pipe, lora, id)
     elif lora_type == "diffusers":
-        apply_diffusers_to_pipe(pipe, lora)
+        apply_diffusers_to_pipe(pipe, lora, id)
     elif lora_type == "kohya-ss":
-        apply_kohya_to_pipe(pipe, lora)
+        apply_kohya_to_pipe(pipe, lora, id)
 
 
-def apply_cloneofsimo_to_pipe(pipe, lora):
+def apply_cloneofsimo_to_pipe(pipe, lora, id):
     loras = parse_safeloras(lora)
 
     logger.debug(f"Loading cloneofsimo Lora with {loras.keys()} models")
@@ -217,11 +200,11 @@ def apply_cloneofsimo_to_pipe(pipe, lora):
             down_weight = lora.pop(0)
 
             apply_lora_to_module(
-                _child_module, up_weight=up_weight, down_weight=down_weight, r=r
+                _child_module, id=id, up_weight=up_weight, down_weight=down_weight, r=r
             )
 
 
-def apply_diffusers_to_pipe(pipe, lora):
+def apply_diffusers_to_pipe(pipe, lora, id):
     wrapped = _Wrapper(lora)
 
     logger.debug(f"Loading diffusers Lora (unet only)")
@@ -247,10 +230,12 @@ def apply_diffusers_to_pipe(pipe, lora):
         up_weight = wrapped.tensor(key.replace(".down.weight", ".up.weight"))
         r = down_weight.size()[0]
 
-        apply_lora_to_module(module, up_weight=up_weight, down_weight=down_weight, r=r)
+        apply_lora_to_module(
+            module, id=id, up_weight=up_weight, down_weight=down_weight, r=r
+        )
 
 
-def apply_kohya_to_pipe(pipe, lora):
+def apply_kohya_to_pipe(pipe, lora, id):
     wrapped = _Wrapper(lora)
 
     has_unet = any((x.startswith("lora_unet_") for x in wrapped.keys()))
@@ -293,5 +278,10 @@ def apply_kohya_to_pipe(pipe, lora):
         r = down_weight.size()[0]
 
         apply_lora_to_module(
-            module, up_weight=up_weight, down_weight=down_weight, r=r, alpha=alpha
+            module,
+            id=id,
+            up_weight=up_weight,
+            down_weight=down_weight,
+            r=r,
+            alpha=alpha,
         )
