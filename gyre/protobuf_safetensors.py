@@ -24,7 +24,7 @@ def serialize_safetensor(safetensors):
     return proto_safetensors
 
 
-def serialize_safetensor_from_dict(tensors):
+def serialize_safetensor_from_dict(tensors, metadata={}):
     proto_safetensors = Safetensors()
 
     for k, v in tensors.items():
@@ -32,11 +32,17 @@ def serialize_safetensor_from_dict(tensors):
             SafetensorsTensor(key=k, tensor=serialize_tensor(v))
         )
 
+    if metadata:
+        for k, v in metadata.items():
+            proto_safetensors.metadata.append(SafetensorsMeta(key=k, value=v))
+
     return proto_safetensors
 
 
 class UserSafetensors:
-    def __init__(self, metadata: dict[str, str], tensors: dict[str, torch.Tensor]):
+    def __init__(
+        self, metadata: dict[str, str] = {}, tensors: dict[str, torch.Tensor] = {}
+    ):
         self._metadata = metadata
         self._tensors = tensors
 

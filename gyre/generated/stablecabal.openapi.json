@@ -1004,22 +1004,25 @@
                     "tensor": {
                         "$ref": "#/components/schemas/Tensor"
                     },
-                    "lora": {
-                        "$ref": "#/components/schemas/Lora"
-                    },
                     "ref": {
                         "$ref": "#/components/schemas/ArtifactReference"
-                    },
-                    "tokenEmbedding": {
-                        "$ref": "#/components/schemas/TokenEmbedding"
                     },
                     "url": {
                         "type": "string",
                         "title": "A url (which must be allowed by the server)"
                     },
+                    "safetensors": {
+                        "$ref": "#/components/schemas/Safetensors"
+                    },
                     "cacheId": {
                         "type": "string",
                         "title": "An ID to load from cache (previously set with cache_info)"
+                    },
+                    "lora": {
+                        "$ref": "#/components/schemas/Lora"
+                    },
+                    "tokenEmbedding": {
+                        "$ref": "#/components/schemas/TokenEmbedding"
                     },
                     "index": {
                         "type": "integer",
@@ -1982,6 +1985,12 @@
                         "items": {
                             "$ref": "#/components/schemas/NamedWeight"
                         }
+                    },
+                    "tokenOverrides": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TokenOverride"
+                        }
                     }
                 },
                 "description": "A set of parameters for each individual Prompt."
@@ -2267,6 +2276,17 @@
                     },
                     "tensor": {
                         "$ref": "#/components/schemas/Tensor"
+                    }
+                }
+            },
+            "TokenOverride": {
+                "type": "object",
+                "properties": {
+                    "token": {
+                        "type": "string"
+                    },
+                    "originalToken": {
+                        "type": "string"
                     }
                 }
             },

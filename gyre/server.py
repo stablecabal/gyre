@@ -60,6 +60,7 @@ from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
 from gyre.logging import LOG_LEVELS, configure_logging
 from gyre.manager import BatchMode, EngineManager, EngineMode
+from gyre.resources import ResourceProvider
 from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
 from gyre.services.generate import GenerationServiceServicer
@@ -393,6 +394,29 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         return NoResource().render(request)
 
 
+def environ_list(key):
+    """
+    For mapping an argument that might be called mutiple times to environment variables
+    we support two options (can be mixed):
+
+    - Prefix multiple environment variables, i.e. SD_PATH_1="/path1", SD_PATH_2="/path2"
+    - Comma seperated values, ie SD_PATH="/path1, /path2"
+
+    (The second format is not appropriate where the values themselves might contain commas)
+    """
+
+    result = []
+
+    if key in os.environ:
+        result += re.split(r"\s*,\s*", os.environ.get(key).strip())
+
+    for candidate_key in os.environ.keys():
+        if candidate_key.startswith(key + "_"):
+            result.append(os.environ.get(candidate_key).strip())
+
+    return result
+
+
 def main():
     start_time = time.time()
 
@@ -505,6 +529,23 @@ def main():
         default=os.environ.get("SD_CACHE_DISK", 5000),
         help="How much ram to allocate to the internal uploaded resource cache, in MB",
     )
+    resource_opts.add_argument(
+        "--no_default_whitelist",
+        type=bool,
+        help="Do not use the default resources whitelist (so everything not covered by an explicit --whitelist will be blocked)",
+    )
+    resource_opts.add_argument(
+        "--whitelist",
+        action="append",
+        default=environ_list("SD_WHITELIST"),
+        help="Add a line to the resources whitelist, in python argument format (i.e. \"source='civitai', format='safetensor'\")",
+    )
+    resource_opts.add_argument(
+        "--local_resource",
+        action="append",
+        default=environ_list("SD_LOCAL_RESOURCE"),
+        help=f"Add a path that local resources are loaded from, in path, type{os.pathsep}path or type{os.pathsep}url_prefix{os.pathsep}path format",
+    )
 
     logging_opts.add_argument(
         "--log_level",
@@ -614,6 +655,9 @@ def main():
     logging.getLogger().setLevel(args.dep_log_level)
     logging.getLogger("gyre").setLevel(args.log_level)
 
+    # Now we can start using logger
+    logger = logging.getLogger(__name__)
+
     debug_recorder = DebugNullRecorder()
 
     if args.enable_debug_recording:
@@ -695,6 +739,41 @@ def main():
         memlimit=args.cache_ram * cache.MB, disklimit=args.cache_disk * cache.MB
     )
 
+    if args.no_default_whitelist:
+        resource_provider = ResourceProvider(cache=tensor_cache, whitelist=[])
+    else:
+        resource_provider = ResourceProvider(cache=tensor_cache)
+
+    for line in args.whitelist:
+        line_dict = yaml.load(
+            "{" + line.replace("=", ": ") + "}", Loader=yaml.SafeLoader
+        )
+        # Note: This is obviously not safe, but anyone that can
+        resource_provider.add_whitelist_line(line_dict)
+
+    logger.debug(f"Whitelist {resource_provider.whitelist}")
+
+    for pathspec in args.local_resource:
+        parts = pathspec.split(os.pathsep)
+
+        restype, url_prefix = "*", ""
+        if len(parts) == 3:
+            restype, url_prefix, path = parts
+        elif len(parts) == 2:
+            restype, path = parts
+        elif len(parts) == 1:
+            path = parts[0]
+        else:
+            raise ValueError(f"Resource path {pathspec} not correctly formatted")
+
+        if not os.path.isabs(path):
+            path = os.path.abspath(os.path.join(args.weight_root, path))
+
+        logger.debug(
+            f"Adding local resources for type {restype}, file://{url_prefix} => {path}"
+        )
+        resource_provider.add_local_path(url_prefix, path, restype)
+
     if xformers_mea_available():
         print("Xformers defaults to on")
 
@@ -738,6 +817,7 @@ def main():
         generation_servicer = GenerationServiceServicer(
             manager,
             tensor_cache=tensor_cache,
+            resource_provider=resource_provider,
             supress_metadata=args.supress_metadata,
             debug_recorder=debug_recorder,
             ram_monitor=ram_monitor,

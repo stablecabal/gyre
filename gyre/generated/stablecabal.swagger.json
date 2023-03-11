@@ -847,26 +847,30 @@
           "$ref": "#/definitions/Tensor",
           "title": "torch.Tensor:"
         },
-        "lora": {
-          "$ref": "#/definitions/Lora",
-          "description": "A Lora embedding",
-          "title": "RGB tensor (C,H,W)\n   VAE latent (C,H//8,W//8, assuming VAE-f8)"
-        },
         "ref": {
           "$ref": "#/definitions/ArtifactReference",
-          "title": "A reference to a previous Artifact"
-        },
-        "tokenEmbedding": {
-          "$ref": "#/definitions/TokenEmbedding",
-          "title": "A textual inversion embedding or similar"
+          "description": "A reference to a previous Artifact",
+          "title": "RGB tensor (C,H,W)\n   VAE latent (C,H//8,W//8, assuming VAE-f8)"
         },
         "url": {
           "type": "string",
           "title": "A url (which must be allowed by the server)"
         },
+        "safetensors": {
+          "$ref": "#/definitions/Safetensors",
+          "title": "A safetensors format set of tensors and metadata"
+        },
         "cacheId": {
           "type": "string",
           "title": "An ID to load from cache (previously set with cache_info)"
+        },
+        "lora": {
+          "$ref": "#/definitions/Lora",
+          "title": "A Lora embedding - deprecated, use safetensors + named_weighs"
+        },
+        "tokenEmbedding": {
+          "$ref": "#/definitions/TokenEmbedding",
+          "title": "A textual inversion embedding or similar - deprecated, use safetensors + token_overrides"
         },
         "index": {
           "type": "integer",
@@ -1837,6 +1841,12 @@
           "items": {
             "$ref": "#/definitions/NamedWeight"
           }
+        },
+        "tokenOverrides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenOverride"
+          }
         }
       },
       "description": "A set of parameters for each individual Prompt."
@@ -2122,6 +2132,17 @@
         },
         "tensor": {
           "$ref": "#/definitions/Tensor"
+        }
+      }
+    },
+    "TokenOverride": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        },
+        "originalToken": {
+          "type": "string"
         }
       }
     },

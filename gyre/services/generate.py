@@ -1,5 +1,6 @@
 import functools
 import json
+import logging
 import random
 import threading
 import time
@@ -24,6 +25,8 @@ from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
 from gyre.protobuf_tensors import deserialize_tensor
 from gyre.services.exception_to_grpc import exception_to_grpc
 from gyre.utils import artifact_to_image, image_to_artifact
+
+logger = logging.getLogger(__name__)
 
 
 def buildDefaultMaskPostAdjustments():
@@ -112,10 +115,12 @@ class ParameterExtractor:
     memo-ise the result.
     """
 
-    def __init__(self, manager, request, tensor_cache):
+    def __init__(self, manager, request, tensor_cache, resource_provider):
         self._manager = manager
         self._request = request
         self._tensor_cache = tensor_cache
+        self._resource_provider = resource_provider
+
         # Add a cache to self.get to prevent multiple requests from recalculating
         # self.get = functools.cache(self.get)
 
@@ -280,13 +285,24 @@ class ParameterExtractor:
         return self._safetensors_from_cache(artifact.cache_id)
 
     def _lora_from_artifact_lora(self, artifact: generation_pb2.Artifact):
+        logger.warn("artifact.lora is deprecated, use artifact.safetensors instead")
         return deserialize_safetensors(artifact.lora.lora)
+
+    def _lora_from_artifact_safetensors(self, artifact: generation_pb2.Artifact):
+        return deserialize_safetensors(artifact.safetensors)
+
+    def _lora_from_artifact_url(self, artifact: generation_pb2.Artifact):
+        return self._resource_provider.get("lora", artifact.url)
 
     def _lora_from_artifact(self, artifact: generation_pb2.Artifact):
         if artifact.WhichOneof("data") == "cache_id":
             lora = self._lora_from_artifact_cache(artifact)
         elif artifact.WhichOneof("data") == "lora":
             lora = self._lora_from_artifact_lora(artifact)
+        elif artifact.WhichOneof("data") == "safetensors":
+            lora = self._lora_from_artifact_safetensors(artifact)
+        elif artifact.WhichOneof("data") == "url":
+            lora = self._lora_from_artifact_url(artifact)
         else:
             raise ValueError(
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an LoRA"
@@ -296,25 +312,40 @@ class ParameterExtractor:
         return lora
 
     def _token_embedding_from_artifact_cache(self, artifact: generation_pb2.Artifact):
-        tensors, metadata = self._from_cache(artifact.cache_id)
-        return metadata["text"], tensors
+        return self._safetensors_from_cache(artifact.cache_id)
 
     def _token_embedding_from_artifact_te(self, artifact: generation_pb2.Artifact):
-        embedding = artifact.token_embedding
-        return embedding.text, deserialize_tensor(embedding.tensor)
+        logger.warn(
+            "artifact.token_embedding is deprecated, use artifact.safetensors instead"
+        )
+        text = artifact.token_embedding.text
+        tensor = deserialize_tensor(artifact.token_embedding.tensor)
+        return UserSafetensors(tensors={text: tensor})
+
+    def _token_embedding_from_artifact_safetensors(
+        self, artifact: generation_pb2.Artifact
+    ):
+        return deserialize_safetensors(artifact.safetensors)
+
+    def _token_embedding_from_artifact_url(self, artifact: generation_pb2.Artifact):
+        return self._resource_provider.get("embedding", artifact.url)
 
     def _token_embedding_from_artifact(self, artifact: generation_pb2.Artifact):
         if artifact.WhichOneof("data") == "cache_id":
-            text, embedding = self._token_embedding_from_artifact_cache(artifact)
+            embedding = self._token_embedding_from_artifact_cache(artifact)
         elif artifact.WhichOneof("data") == "token_embedding":
-            text, embedding = self._token_embedding_from_artifact_te(artifact)
+            embedding = self._token_embedding_from_artifact_te(artifact)
+        elif artifact.WhichOneof("data") == "safetensors":
+            embedding = self._token_embedding_from_artifact_safetensors(artifact)
+        elif artifact.WhichOneof("data") == "url":
+            embedding = self._token_embedding_from_artifact_url(artifact)
         else:
             raise ValueError(
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an token embedding"
             )
 
-        self._cache_tensors(artifact, embedding, {"text": text})
-        return text, embedding
+        self._cache_safetensors(artifact, embedding)
+        return embedding
 
     def _image_stepparameter(self, field):
         if self._request.WhichOneof("params") != "image":
@@ -514,13 +545,35 @@ class ParameterExtractor:
         return loras if loras else None
 
     def token_embeddings(self):
-        embeddings: dict[str, dict[str, torch.Tensor]] = {}
+        embeddings = {}
 
         for prompt in self._prompt_of_artifact_type(
             generation_pb2.ARTIFACT_TOKEN_EMBEDDING
         ):
-            text, embedding = self._token_embedding_from_artifact(prompt.artifact)
-            embeddings[text] = embedding
+            embedding = self._token_embedding_from_artifact(prompt.artifact)
+            tensors = embedding.tensors()
+
+            if prompt.HasField("parameters"):
+                free_overrides = []
+                named_overrides = {}
+
+                for override in prompt.parameters.token_overrides:
+                    if override.HasField("original_token"):
+                        named_overrides[override.original_token] = override.token
+                    else:
+                        free_overrides.append(override.token)
+
+                if free_overrides or named_overrides:
+                    tensors = {}
+                    for key, tensor in embedding.items():
+                        if key in named_overrides:
+                            tensors[named_overrides[key]] = tensor
+                        elif free_overrides:
+                            tensors[free_overrides.pop(0)] = tensor
+                        else:
+                            tensors[key] = tensor
+
+            embeddings.update(tensors)
 
         return embeddings
 
@@ -579,12 +632,14 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
         self,
         manager,
         tensor_cache,
+        resource_provider,
         supress_metadata=False,
         debug_recorder=DebugNullRecorder(),
         ram_monitor=None,
     ):
         self._manager = manager
         self._tensor_cache = tensor_cache
+        self._resource_provider = resource_provider
         self._supress_metadata = supress_metadata
         self._debug_recorder = debug_recorder
         self._ram_monitor = ram_monitor
@@ -651,7 +706,12 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
             ):
                 self.unimp("Generation of anything except images")
 
-            extractor = ParameterExtractor(self._manager, request, self._tensor_cache)
+            extractor = ParameterExtractor(
+                request=request,
+                manager=self._manager,
+                tensor_cache=self._tensor_cache,
+                resource_provider=self._resource_provider,
+            )
             kwargs = {}
 
             for field in extractor.fields():

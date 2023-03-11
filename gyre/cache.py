@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 import threading
@@ -6,6 +7,11 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from safetensors import torch as safe_torch
+
+from gyre.protobuf_safetensors import UserSafetensors
+
+logger = logging.getLogger(__name__)
+
 
 KB = 1024
 MB = 1024 * KB
@@ -50,9 +56,23 @@ class TensorLRUCache_LockBase:
         with self.lock:
             return self._metadata(key)
 
+    def get_safetensors(self, key):
+        with self.lock:
+            return UserSafetensors(metadata=self._metadata(key), tensors=self._get(key))
+
     def set(self, *args, **kwargs):
         with self.lock:
             return self._set(*args, **kwargs)
+
+    def set_safetensors(self, key, safetensors, *args, **kwargs):
+        if hasattr(safetensors, "tensors"):
+            tensors = safetensors.tensors()
+        else:
+            tensors = {k: safetensors.get_tensor(k) for k in safetensors.keys()}
+
+        self.set(
+            key=key, tensors=tensors, metadata=safetensors.metadata(), *args, **kwargs
+        )
 
     def __getitem__(self, key):
         return self.get(key)
@@ -97,11 +117,11 @@ class TensorLRUCache_Base(TensorLRUCache_LockBase):
             total += items.pop().size
 
         if items:
-            print(
+            logger.debug(
                 f"{total} bytes in cache, {len(items)} too many items in mem cache, evicting"
             )
         else:
-            print(f"{total} bytes in cache")
+            logger.debug(f"{total} bytes in cache")
 
         yield from items
 
@@ -138,7 +158,7 @@ class TensorLRUCache_Mem(TensorLRUCache_Base):
     def __evict(self):
         for item in self._needs_evicting():
             if self.on_evict is not None:
-                print(f"Evicting {item.key}")
+                logger.debug(f"Evicting {item.key}")
                 self.on_evict(item)
 
             del self.cache[item.key]
@@ -149,7 +169,7 @@ class TensorLRUCache_Disk(TensorLRUCache_Base):
         super().__init__(limit=limit, lock=lock)
         self.tempdir = tempfile.TemporaryDirectory(dir=basepath)
         self.basepath = self.tempdir.name
-        print(self.basepath)
+        logger.debug(f"Cache disk folder: {self.basepath}")
 
     def _get(self, key):
         if key in self.cache:

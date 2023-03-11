@@ -147,6 +147,8 @@ COPY server.py .
 # Set up some config files
 RUN mkdir -p /huggingface
 RUN mkdir -p /weights
+RUN mkdir -p /lora
+RUN mkdir -p /embedding
 RUN mkdir -p /config
 COPY gyre/config/. /config/
 
@@ -156,6 +158,9 @@ ENV HF_HOME=/huggingface
 ENV HF_API_TOKEN=mustset
 ENV SD_ENGINECFG=/config/engines.yaml
 ENV SD_WEIGHT_ROOT=/weights
+ENV SD_LOCAL_RESOURCE_1=embedding:/embedding
+ENV SD_LOCAL_RESOURCE_2=lora:/lora
+
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 

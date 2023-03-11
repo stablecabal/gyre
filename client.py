@@ -82,6 +82,14 @@ NOISE_TYPES: Dict[str, int] = {
 }
 
 
+def floatlike(s: str) -> bool:
+    try:
+        float(s)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def get_sampler_from_str(s: str) -> generation.DiffusionSampler:
     """
     Convert a string to a DiffusionSampler enum.
@@ -234,7 +242,10 @@ def cache_id(path):
     return f"{system_id}-{file_hash}"
 
 
-def lora_to_prompt(path, weights, from_cache=True):
+USE_DEPRECATED = False
+
+
+def lora_to_prompt(path, weights, from_cache=False):
     parameters = generation.PromptParameters()
 
     if weights and len(weights) == 1:
@@ -247,7 +258,13 @@ def lora_to_prompt(path, weights, from_cache=True):
             generation.NamedWeight(name="text_encoder", weight=weights[1])
         )
 
-    if from_cache:
+    if ":" in path:
+        return generation.Prompt(
+            artifact=generation.Artifact(type=generation.ARTIFACT_LORA, url=path),
+            parameters=parameters,
+        )
+
+    elif from_cache:
         return generation.Prompt(
             artifact=generation.Artifact(
                 type=generation.ARTIFACT_LORA, cache_id=cache_id(path)
@@ -255,7 +272,7 @@ def lora_to_prompt(path, weights, from_cache=True):
             parameters=parameters,
         )
 
-    else:
+    elif USE_DEPRECATED:
         ext = os.path.splitext(path)[1]
 
         if ext in {".bin", ".pt"}:
@@ -274,27 +291,82 @@ def lora_to_prompt(path, weights, from_cache=True):
             parameters=parameters,
         )
 
+    else:
+        ext = os.path.splitext(path)[1]
 
-def ti_to_prompts(path, override_tokens):
-    data = torch.load(path, "cpu")
+        if ext in {".bin", ".pt"}:
+            tensordict = torch.load(path, "cpu")
+            grpc_safetensors = serialize_safetensor_from_dict(tensordict)
+        else:
+            safetensors = safe_open(path, framework="pt", device="cpu")
+            grpc_safetensors = serialize_safetensor(safetensors)
 
-    if "string_to_param" in data:
-        data = data["string_to_param"]
+        return generation.Prompt(
+            artifact=generation.Artifact(
+                type=generation.ARTIFACT_LORA,
+                safetensors=grpc_safetensors,
+                cache_control=generation.CacheControl(cache_id=cache_id(path)),
+            ),
+            parameters=parameters,
+        )
 
-    # Make sure we don't have more override tokens than items in the TI
-    override_tokens = override_tokens[: len(data.keys())]
 
-    return [
-        generation.Prompt(
+def ti_to_prompts(path, override_tokens, from_cache=False):
+
+    parameters = generation.PromptParameters()
+    for token in override_tokens:
+        parameters.token_overrides.append(generation.TokenOverride(token=token))
+
+    if ":" in path:
+        prompt = generation.Prompt(
+            artifact=generation.Artifact(
+                type=generation.ARTIFACT_TOKEN_EMBEDDING, url=path
+            ),
+            parameters=parameters,
+        )
+
+    elif from_cache:
+        prompt = generation.Prompt(
+            artifact=generation.Artifact(
+                type=generation.ARTIFACT_TOKEN_EMBEDDING, cache_id=cache_id(path)
+            ),
+            parameters=parameters,
+        )
+
+    else:
+        data = torch.load(path, "cpu")
+
+        if "string_to_param" in data:
+            data = data["string_to_param"]
+
+        if USE_DEPRECATED:
+            # Make sure we don't have more override tokens than items in the TI
+            override_tokens = override_tokens[: len(data.keys())]
+
+            return [
+                generation.Prompt(
+                    artifact=generation.Artifact(
+                        type=generation.ARTIFACT_TOKEN_EMBEDDING,
+                        token_embedding=generation.TokenEmbedding(
+                            text=override or token, tensor=serialize_tensor(tensor)
+                        ),
+                    )
+                )
+                for (token, tensor), override in zip_longest(
+                    data.items(), override_tokens
+                )
+            ]
+
+        prompt = generation.Prompt(
             artifact=generation.Artifact(
                 type=generation.ARTIFACT_TOKEN_EMBEDDING,
-                token_embedding=generation.TokenEmbedding(
-                    text=override or token, tensor=serialize_tensor(tensor)
-                ),
-            )
+                safetensors=serialize_safetensor_from_dict(data),
+                cache_control=generation.CacheControl(cache_id=cache_id(path)),
+            ),
+            parameters=parameters,
         )
-        for (token, tensor), override in zip_longest(data.items(), override_tokens)
-    ]
+
+    return [prompt]
 
 
 def process_artifacts_from_answers(
@@ -613,7 +685,7 @@ class StabilityInference:
 
         if ti:
             for path, overrides in ti:
-                prompts += ti_to_prompts(path, overrides)
+                prompts += ti_to_prompts(path, overrides, from_cache=from_cache)
 
         if guidance_prompt:
             if isinstance(guidance_prompt, str):
@@ -1031,14 +1103,27 @@ if __name__ == "__main__":
     lora = []
     if args.lora:
         for path in args.lora:
-            path, *weights = path.split(":")
-            weights = [float(weight) for weight in weights]
+            parts = path.split(":")
+
+            path_parts = []
+            while parts and not floatlike(parts[0]):
+                path_parts += [parts.pop(0)]
+            path = ":".join(path_parts)
+
+            weights = [float(weight) for weight in parts]
+
+            print("Lora", path, weights)
             lora.append((path, weights))
 
     ti = []
     if args.ti:
         for path in args.ti:
-            path, *tokens = path.split(":")
+            parts = path.split(":")
+            if parts[0] == "https":
+                path, tokens = parts[0] + ":" + parts[1], parts[2:]
+            else:
+                path, tokens = parts[0], parts[1:]
+
             ti.append((path, tokens))
 
     def parse_hint(hint, path, converter):

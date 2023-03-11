@@ -117,8 +117,8 @@ def apply_ti_token(tokenizer, text_encoder, token, tensor):
         new_embedding = text_encoder.resize_token_embeddings(len(tokenizer))
 
         # Transfer any hooks
-        if is_hooked(orig_embedding):
-            add_hook(new_embedding, orig_embedding._hf_hook)
+        if new_embedding is not orig_embedding and is_hooked(orig_embedding):
+            add_hook(new_embedding, orig_embedding._hf_hook, replace=True)
 
         # Add a hook to re-apply if e're copied to GPU from Meta
         if has_hook(orig_embedding, CloneToGPUHook):
@@ -154,5 +154,5 @@ def match_encoder_to_tokenizer(tokenizer, text_encoder):
         # Resize the token embeddings
         new_embedding = text_encoder.resize_token_embeddings(tokenizer_len)
         # Transfer any hooks
-        if is_hooked(orig_embedding):
-            add_hook(new_embedding, orig_embedding._hf_hook)
+        if new_embedding is not orig_embedding and is_hooked(orig_embedding):
+            add_hook(new_embedding, orig_embedding._hf_hook, replace=True)

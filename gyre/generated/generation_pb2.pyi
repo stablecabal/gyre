@@ -878,11 +878,12 @@ class Artifact(google.protobuf.message.Message):
     TOKENS_FIELD_NUMBER: builtins.int
     CLASSIFIER_FIELD_NUMBER: builtins.int
     TENSOR_FIELD_NUMBER: builtins.int
-    LORA_FIELD_NUMBER: builtins.int
     REF_FIELD_NUMBER: builtins.int
-    TOKEN_EMBEDDING_FIELD_NUMBER: builtins.int
     URL_FIELD_NUMBER: builtins.int
+    SAFETENSORS_FIELD_NUMBER: builtins.int
     CACHE_ID_FIELD_NUMBER: builtins.int
+    LORA_FIELD_NUMBER: builtins.int
+    TOKEN_EMBEDDING_FIELD_NUMBER: builtins.int
     INDEX_FIELD_NUMBER: builtins.int
     FINISH_REASON_FIELD_NUMBER: builtins.int
     SEED_FIELD_NUMBER: builtins.int
@@ -911,21 +912,24 @@ class Artifact(google.protobuf.message.Message):
     def tensor(self) -> tensors_pb2.Tensor:
         """torch.Tensor:"""
     @property
-    def lora(self) -> global___Lora:
+    def ref(self) -> global___ArtifactReference:
         """   RGB tensor (C,H,W)
            VAE latent (C,H//8,W//8, assuming VAE-f8)
-        A Lora embedding
+        A reference to a previous Artifact
         """
-    @property
-    def ref(self) -> global___ArtifactReference:
-        """A reference to a previous Artifact"""
-    @property
-    def token_embedding(self) -> global___TokenEmbedding:
-        """A textual inversion embedding or similar"""
     url: builtins.str
     """A url (which must be allowed by the server)"""
+    @property
+    def safetensors(self) -> global___Safetensors:
+        """A safetensors format set of tensors and metadata"""
     cache_id: builtins.str
     """An ID to load from cache (previously set with cache_info)"""
+    @property
+    def lora(self) -> global___Lora:
+        """A Lora embedding - deprecated, use safetensors + named_weighs"""
+    @property
+    def token_embedding(self) -> global___TokenEmbedding:
+        """A textual inversion embedding or similar - deprecated, use safetensors + token_overrides"""
     index: builtins.int
     """Index of this artifact in input/output list"""
     finish_reason: global___FinishReason.ValueType
@@ -959,11 +963,12 @@ class Artifact(google.protobuf.message.Message):
         tokens: global___Tokens | None = ...,
         classifier: global___ClassifierParameters | None = ...,
         tensor: tensors_pb2.Tensor | None = ...,
-        lora: global___Lora | None = ...,
         ref: global___ArtifactReference | None = ...,
-        token_embedding: global___TokenEmbedding | None = ...,
         url: builtins.str = ...,
+        safetensors: global___Safetensors | None = ...,
         cache_id: builtins.str = ...,
+        lora: global___Lora | None = ...,
+        token_embedding: global___TokenEmbedding | None = ...,
         index: builtins.int = ...,
         finish_reason: global___FinishReason.ValueType = ...,
         seed: builtins.int = ...,
@@ -974,8 +979,8 @@ class Artifact(google.protobuf.message.Message):
         hint_image_type: builtins.str | None = ...,
         cache_control: global___CacheControl | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_cache_control", b"_cache_control", "_hint_image_type", b"_hint_image_type", "_magic", b"_magic", "binary", b"binary", "cache_control", b"cache_control", "cache_id", b"cache_id", "classifier", b"classifier", "data", b"data", "hint_image_type", b"hint_image_type", "lora", b"lora", "magic", b"magic", "ref", b"ref", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "url", b"url"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_cache_control", b"_cache_control", "_hint_image_type", b"_hint_image_type", "_magic", b"_magic", "adjustments", b"adjustments", "binary", b"binary", "cache_control", b"cache_control", "cache_id", b"cache_id", "classifier", b"classifier", "data", b"data", "finish_reason", b"finish_reason", "hint_image_type", b"hint_image_type", "id", b"id", "index", b"index", "lora", b"lora", "magic", b"magic", "mime", b"mime", "postAdjustments", b"postAdjustments", "ref", b"ref", "seed", b"seed", "size", b"size", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "type", b"type", "url", b"url", "uuid", b"uuid"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_cache_control", b"_cache_control", "_hint_image_type", b"_hint_image_type", "_magic", b"_magic", "binary", b"binary", "cache_control", b"cache_control", "cache_id", b"cache_id", "classifier", b"classifier", "data", b"data", "hint_image_type", b"hint_image_type", "lora", b"lora", "magic", b"magic", "ref", b"ref", "safetensors", b"safetensors", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "url", b"url"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_cache_control", b"_cache_control", "_hint_image_type", b"_hint_image_type", "_magic", b"_magic", "adjustments", b"adjustments", "binary", b"binary", "cache_control", b"cache_control", "cache_id", b"cache_id", "classifier", b"classifier", "data", b"data", "finish_reason", b"finish_reason", "hint_image_type", b"hint_image_type", "id", b"id", "index", b"index", "lora", b"lora", "magic", b"magic", "mime", b"mime", "postAdjustments", b"postAdjustments", "ref", b"ref", "safetensors", b"safetensors", "seed", b"seed", "size", b"size", "tensor", b"tensor", "text", b"text", "token_embedding", b"token_embedding", "tokens", b"tokens", "type", b"type", "url", b"url", "uuid", b"uuid"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_cache_control", b"_cache_control"]) -> typing_extensions.Literal["cache_control"] | None: ...
     @typing.overload
@@ -983,7 +988,7 @@ class Artifact(google.protobuf.message.Message):
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_magic", b"_magic"]) -> typing_extensions.Literal["magic"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["data", b"data"]) -> typing_extensions.Literal["binary", "text", "tokens", "classifier", "tensor", "lora", "ref", "token_embedding", "url", "cache_id"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["data", b"data"]) -> typing_extensions.Literal["binary", "text", "tokens", "classifier", "tensor", "ref", "url", "safetensors", "cache_id", "lora", "token_embedding"] | None: ...
 
 global___Artifact = Artifact
 
@@ -1006,6 +1011,26 @@ class NamedWeight(google.protobuf.message.Message):
 global___NamedWeight = NamedWeight
 
 @typing_extensions.final
+class TokenOverride(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TOKEN_FIELD_NUMBER: builtins.int
+    ORIGINAL_TOKEN_FIELD_NUMBER: builtins.int
+    token: builtins.str
+    original_token: builtins.str
+    def __init__(
+        self,
+        *,
+        token: builtins.str = ...,
+        original_token: builtins.str | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_original_token", b"_original_token", "original_token", b"original_token"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_original_token", b"_original_token", "original_token", b"original_token", "token", b"token"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_original_token", b"_original_token"]) -> typing_extensions.Literal["original_token"] | None: ...
+
+global___TokenOverride = TokenOverride
+
+@typing_extensions.final
 class PromptParameters(google.protobuf.message.Message):
     """A set of parameters for each individual Prompt."""
 
@@ -1014,19 +1039,23 @@ class PromptParameters(google.protobuf.message.Message):
     INIT_FIELD_NUMBER: builtins.int
     WEIGHT_FIELD_NUMBER: builtins.int
     NAMED_WEIGHTS_FIELD_NUMBER: builtins.int
+    TOKEN_OVERRIDES_FIELD_NUMBER: builtins.int
     init: builtins.bool
     weight: builtins.float
     @property
     def named_weights(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___NamedWeight]: ...
+    @property
+    def token_overrides(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___TokenOverride]: ...
     def __init__(
         self,
         *,
         init: builtins.bool | None = ...,
         weight: builtins.float | None = ...,
         named_weights: collections.abc.Iterable[global___NamedWeight] | None = ...,
+        token_overrides: collections.abc.Iterable[global___TokenOverride] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["_init", b"_init", "_weight", b"_weight", "init", b"init", "weight", b"weight"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_init", b"_init", "_weight", b"_weight", "init", b"init", "named_weights", b"named_weights", "weight", b"weight"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_init", b"_init", "_weight", b"_weight", "init", b"init", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_init", b"_init"]) -> typing_extensions.Literal["init"] | None: ...
     @typing.overload
