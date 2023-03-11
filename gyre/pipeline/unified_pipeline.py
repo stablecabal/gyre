@@ -67,7 +67,7 @@ from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
 from gyre.pipeline.text_embedding.text_encoder_alt_layer import TextEncoderAltLayer
-from gyre.pipeline.textual_inversion import apply_ti_token, match_encoder_to_tokenizer
+from gyre.pipeline.textual_inversion import apply_ti_tokens, match_encoder_to_tokenizer
 from gyre.pipeline.unet.cfg import CFGChildUnets, CFGUnet
 from gyre.pipeline.unet.clipguided import (
     CLIP_GUIDANCE_BASE,
@@ -1624,13 +1624,11 @@ class UnifiedPipeline(DiffusionPipeline):
         if token_embeddings:
             # Deepcopying so tokens we add will only affect this call
             tokenizer = deepcopy(tokenizer)
+            apply_ti_tokens(tokenizer, self.text_encoder, token_embeddings)
 
             logger.info(
                 f"Available token embeddings: {', '.join(token_embeddings.keys())}"
             )
-
-            for token, tensor in token_embeddings.items():
-                apply_ti_token(tokenizer, self.text_encoder, token, tensor)
 
         latent_debugger = LatentDebugger(
             vae=self.vae,

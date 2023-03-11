@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 class ApplyEmbeddingHook(ModelHook):
-    def __init__(self, token_id, tensor):
-        self.additions: dict[int, torch.Tensor] = {token_id: tensor}
+    def __init__(self):
+        self.additions: dict[int, torch.Tensor] = {}
 
     # If we're using a GPU hook, then we need to modify the embedding parameter _after_
     # it's been copied to the GPU - editing it beforehand would change the shared copy
@@ -85,53 +85,59 @@ def remove_multidim_handler(tokenizer):
             pass
 
 
-def apply_multidim_ti_token(tokenizer, text_encoder, token, tensor):
-    subtokens = []
+def apply_ti_tokens(tokenizer, text_encoder, tensors: dict[str, torch.Tensor]):
 
-    for i in range(0, tensor.shape[0]):
-        subtoken = f"{token}-{i}"
-        apply_ti_token(tokenizer, text_encoder, subtoken, tensor[i])
-        subtokens.append(subtoken)
+    # Pre-process any multidim tokens
 
-    attach_multidim_handler(tokenizer)
-    tokenizer._multidim_mappings[token] = " ".join(subtokens)
+    flattened = {}
 
+    for token, tensor in tensors.items():
+        if len(tensor.shape) == 2:
+            if not hasattr(tokenizer, "_multidim_mappings"):
+                attach_multidim_handler(tokenizer)
 
-def apply_ti_token(tokenizer, text_encoder, token, tensor):
-    # cast to dtype of text_encoder
+            subbase = token.lstrip("<").rstrip(">")
+            subtokens = [f"<{subbase}{i:02x}>" for i in range(0, tensor.shape[0])]
+
+            for i, subtoken in enumerate(subtokens):
+                flattened[subtoken] = tensor[i]
+
+            tokenizer._multidim_mappings[token] = " ".join(subtokens)
+
+        else:
+            flattened[token] = tensor
+
+    # Add the flattened tokens to the tokenizer
+
+    # Note - must be a converted to a list or add_tokens will treat it like a single token
+    if tokenizer.add_tokens(list(flattened.keys())) != len(flattened.keys()):
+        logger.debug(f"Tokenizer token overlap when loading textual inversion")
+
+    # Set up the text_encoder to accept the new embeddings
+
+    orig_embedding = text_encoder.get_input_embeddings()
+    new_embedding = text_encoder.resize_token_embeddings(len(tokenizer))
+
+    if new_embedding is not orig_embedding and is_hooked(orig_embedding):
+        add_hook(new_embedding, orig_embedding._hf_hook, replace=True)
+
+    embedding_hook = None
+    if has_hook(orig_embedding, CloneToGPUHook):
+        embedding_hook = get_hook(new_embedding, ApplyEmbeddingHook)
+        if embedding_hook is False:
+            embedding_hook = ApplyEmbeddingHook()
+            add_hook(new_embedding, embedding_hook)
+
+    # Now add them to the embedding
+
     dtype = text_encoder.get_input_embeddings().weight.dtype
 
-    if len(tensor.shape) == 2:
-        logger.debug("Multi-dimensional")
-        apply_multidim_ti_token(tokenizer, text_encoder, token, tensor)
-
-    else:
-        if tokenizer.add_tokens(token) == 0:
-            logger.debug(
-                f"Tokenizer already contains the token {token} when loading textual inversion"
-            )
-
-        # get the id for the token
+    for token, tensor in flattened.items():
         token_id = tokenizer.convert_tokens_to_ids(token)
-        orig_embedding = text_encoder.get_input_embeddings()
-        new_embedding = text_encoder.resize_token_embeddings(len(tokenizer))
 
-        # Transfer any hooks
-        if new_embedding is not orig_embedding and is_hooked(orig_embedding):
-            add_hook(new_embedding, orig_embedding._hf_hook, replace=True)
+        if embedding_hook:
+            embedding_hook.additions[token_id] = tensor.to(dtype)
 
-        # Add a hook to re-apply if e're copied to GPU from Meta
-        if has_hook(orig_embedding, CloneToGPUHook):
-            embedding_hook = get_hook(new_embedding, ApplyEmbeddingHook)
-            if embedding_hook is False:
-                add_hook(
-                    new_embedding,
-                    ApplyEmbeddingHook(token_id, tensor.to(dtype)),
-                )
-            else:
-                embedding_hook.additions[token_id] = tensor.to(dtype)
-
-        # And apply straight away unless we're on meta
         if new_embedding.weight.device != torch.device("meta"):
             # resize the token embeddings
             new_embedding.weight.data[token_id] = tensor.to(
