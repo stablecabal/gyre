@@ -179,7 +179,7 @@ def add_converter_to_hint_image_prompt(prompt, converter):
 
     hint_type = prompt.artifact.hint_image_type
 
-    if hint_type == "depth":
+    if "depth" in hint_type:
         depth_estimate = generation.ImageAdjustment(
             depth=generation.ImageAdjustment_Depth()
         )
@@ -187,6 +187,14 @@ def add_converter_to_hint_image_prompt(prompt, converter):
             depth_estimate.depth.depth_engine_hint.extend(converter)
 
         prompt.artifact.adjustments.append(depth_estimate)
+    elif "canny" in hint_type:
+        canny_edge = generation.ImageAdjustment(
+            canny_edge=generation.ImageAdjustment_CannyEdge(
+                low_threshold=100, high_threshold=200
+            )
+        )
+
+        prompt.artifact.adjustments.append(canny_edge)
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
 

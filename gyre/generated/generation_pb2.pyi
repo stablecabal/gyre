@@ -656,6 +656,24 @@ class ImageAdjustment_Depth(google.protobuf.message.Message):
 global___ImageAdjustment_Depth = ImageAdjustment_Depth
 
 @typing_extensions.final
+class ImageAdjustment_CannyEdge(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    LOW_THRESHOLD_FIELD_NUMBER: builtins.int
+    HIGH_THRESHOLD_FIELD_NUMBER: builtins.int
+    low_threshold: builtins.float
+    high_threshold: builtins.float
+    def __init__(
+        self,
+        *,
+        low_threshold: builtins.float = ...,
+        high_threshold: builtins.float = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["high_threshold", b"high_threshold", "low_threshold", b"low_threshold"]) -> None: ...
+
+global___ImageAdjustment_CannyEdge = ImageAdjustment_CannyEdge
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -666,6 +684,7 @@ class ImageAdjustment(google.protobuf.message.Message):
     RESCALE_FIELD_NUMBER: builtins.int
     CROP_FIELD_NUMBER: builtins.int
     DEPTH_FIELD_NUMBER: builtins.int
+    CANNY_EDGE_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
     @property
@@ -680,6 +699,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     def crop(self) -> global___ImageAdjustment_Crop: ...
     @property
     def depth(self) -> global___ImageAdjustment_Depth: ...
+    @property
+    def canny_edge(self) -> global___ImageAdjustment_CannyEdge: ...
     def __init__(
         self,
         *,
@@ -690,10 +711,11 @@ class ImageAdjustment(google.protobuf.message.Message):
         rescale: global___ImageAdjustment_Rescale | None = ...,
         crop: global___ImageAdjustment_Crop | None = ...,
         depth: global___ImageAdjustment_Depth | None = ...,
+        canny_edge: global___ImageAdjustment_CannyEdge | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "channels", b"channels", "crop", b"crop", "depth", b"depth", "invert", b"invert", "levels", b"levels", "rescale", b"rescale"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "channels", b"channels", "crop", b"crop", "depth", b"depth", "invert", b"invert", "levels", b"levels", "rescale", b"rescale"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth"] | None: ...
+    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "invert", b"invert", "levels", b"levels", "rescale", b"rescale"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "invert", b"invert", "levels", b"levels", "rescale", b"rescale"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 

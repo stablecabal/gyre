@@ -237,6 +237,13 @@ class ParameterExtractor:
                 with self._manager.with_engine(id=id, task="depth") as estimator:
                     tensor = estimator(tensor)
 
+            elif which == "canny_edge":
+                tensor = images.canny_edge(
+                    tensor,
+                    adjustment.canny_edge.low_threshold,
+                    adjustment.canny_edge.high_threshold,
+                )
+
             else:
                 raise ValueError(f"Unkown image adjustment {which}")
 

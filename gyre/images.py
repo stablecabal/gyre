@@ -38,9 +38,18 @@ def toPIL(tensor):
 
 
 def fromCV(bgrHWC):
-    bgrBCHW = bgrHWC[None].transpose(0, 3, 1, 2)
-    channels = [2, 1, 0, 3][bgrBCHW.shape[1]]
-    return torch.from_numpy(bgrBCHW)[:, channels].to(torch.float32) / 255.0
+    # Handle mono (either no channels at all, or exactly one channel)
+    if bgrHWC.ndim == 2 or bgrHWC.shape[-1] == 1:
+        tensor = torch.from_numpy(bgrHWC).to(torch.float32) / 255.0
+        while tensor.ndim < 4:
+            tensor = tensor.unsqueeze(dim=0)
+        return tensor
+
+    # Handle color
+    else:
+        bgrBCHW = bgrHWC[None].transpose(0, 3, 1, 2)
+        channels = [2, 1, 0, 3][: bgrBCHW.shape[1]]
+        return torch.from_numpy(bgrBCHW)[:, channels].to(torch.float32) / 255.0
 
 
 def toCV(tensor):
@@ -177,7 +186,10 @@ def rescale(
 
     # Do the resize
     tensor = resize_right(
-        tensor, [scale_h, scale_w], interp_method=interp_methods.lanczos2
+        tensor,
+        [scale_h, scale_w],
+        interp_method=interp_methods.lanczos2,
+        antialiasing=False,
     ).clamp(0, 1)
 
     # Get the result height and width
@@ -196,3 +208,15 @@ def rescale(
     pad += [err_h, height - err_h] if err_h > 0 else [0, 0]
 
     return torch.nn.functional.pad(tensor, pad, pad_mode)
+
+
+def canny_edge(tensor, low_threshold, high_threshold):
+    cvi = toCV(tensor)
+    res = []
+
+    for i in range(cvi.shape[0]):
+        cvii = cvi[i]
+        edges = cv.Canny(cvii, low_threshold, high_threshold)
+        res.append(fromCV(edges))
+
+    return torch.cat(res, dim=0)

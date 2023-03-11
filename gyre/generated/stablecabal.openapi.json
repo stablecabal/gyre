@@ -1677,6 +1677,22 @@
                     },
                     "depth": {
                         "$ref": "#/components/schemas/ImageAdjustment_Depth"
+                    },
+                    "cannyEdge": {
+                        "$ref": "#/components/schemas/ImageAdjustment_CannyEdge"
+                    }
+                }
+            },
+            "ImageAdjustment_CannyEdge": {
+                "type": "object",
+                "properties": {
+                    "lowThreshold": {
+                        "type": "number",
+                        "format": "float"
+                    },
+                    "highThreshold": {
+                        "type": "number",
+                        "format": "float"
                     }
                 }
             },
