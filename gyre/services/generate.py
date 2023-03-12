@@ -244,6 +244,14 @@ class ParameterExtractor:
                     adjustment.canny_edge.high_threshold,
                 )
 
+            elif which == "edge_detection":
+                with self._manager.with_engine(task="edge_detection") as estimator:
+                    tensor = estimator(tensor)
+
+            elif which == "segmentation":
+                with self._manager.with_engine(task="segmentation") as estimator:
+                    tensor = estimator(tensor)
+
             else:
                 raise ValueError(f"Unkown image adjustment {which}")
 

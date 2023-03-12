@@ -1680,6 +1680,12 @@
                     },
                     "cannyEdge": {
                         "$ref": "#/components/schemas/ImageAdjustment_CannyEdge"
+                    },
+                    "edgeDetection": {
+                        "$ref": "#/components/schemas/ImageAdjustment_EdgeDetection"
+                    },
+                    "segmentation": {
+                        "$ref": "#/components/schemas/ImageAdjustment_Segmentation"
                     }
                 }
             },
@@ -1746,6 +1752,9 @@
                     }
                 }
             },
+            "ImageAdjustment_EdgeDetection": {
+                "type": "object"
+            },
             "ImageAdjustment_Gaussian": {
                 "type": "object",
                 "properties": {
@@ -1803,6 +1812,9 @@
                         }
                     }
                 }
+            },
+            "ImageAdjustment_Segmentation": {
+                "type": "object"
             },
             "ImageParameters": {
                 "type": "object",
@@ -1982,6 +1994,9 @@
                     },
                     "artifact": {
                         "$ref": "#/components/schemas/Artifact"
+                    },
+                    "includeInAnswer": {
+                        "type": "boolean"
                     }
                 },
                 "description": "A Prompt is a special type of Artifact that is used to generate an output.\nThere can be multiple Prompts that affect the same output. Currently, the\nonly Prompts supported are:\n  - Text (singular)\n  - Init Image (singular, optional, type ARTIFACT_IMAGE, with init=true)\n  - Mask (singular, optional, Artifact type ARTIFACT_MASK)\n."

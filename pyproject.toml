@@ -32,6 +32,8 @@ dependencies = [
   "torchsde ~= 0.2.5",
   # For MiDaS
   "imutils ~= 0.5.4",
+  # For Hinters
+  "kornia ~= 0.6.10",
   # For Server
   "protobuf ~= 3.20",
   "grpcio ~= 1.48.1",

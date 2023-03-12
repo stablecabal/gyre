@@ -52,6 +52,7 @@ class T2iAdapter:
         if torch_dtype != "auto":
             adapter.to(torch_dtype)
 
+        adapter.eval()
         return adapter
 
 

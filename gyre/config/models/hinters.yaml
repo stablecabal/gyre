@@ -1,0 +1,33 @@
+- model_id: "hinters-dexined"
+  model: "halffried/gyre_hinters"
+  subfolder: "dexined"
+  type: "module"
+  class: "DexiNed(pretrained=False)"
+
+- id: "hinters-dexined"
+  task: "edge_detection"
+  default: True
+  class: "DexinedPipeline"
+  model: "@empty"
+  overrides:
+    module: "@hinters-dexined"
+
+- model_id: "hinters-uniformer-base"
+  model: "halffried/gyre_hinters"
+  subfolder: "uniformer_base"
+  type: "module"
+  class: MmsegLoader/load
+
+- model_id: "hinters-uniformer-small"
+  model: "halffried/gyre_hinters"
+  subfolder: "uniformer_small"
+  type: "module"
+  class: MmsegLoader/load
+
+- id: "hinters-uniformer"
+  task: "segmentation"
+  default: True
+  class: "MmsegPipeline"
+  model: "@empty"
+  overrides:
+    module: "@hinters-uniformer-small"

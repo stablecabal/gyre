@@ -42,15 +42,17 @@ def resize_nearest(latents, scale_factor=1):
     return T.functional.resize(latents, [hs, ws], T.InterpolationMode.NEAREST)
 
 
-def scale_into(latents, scale, target=None, target_shape=None):
-    latents = resize_right.resize(
-        latents,
-        scale_factors=scale,
-        interp_method=resize_right.interp_methods.lanczos2,
-        pad_mode="replicate",
-        antialiasing=False,
-    )
-    # latents = resize_nearest(latents, scale)
+def scale_into(latents, scale, target=None, target_shape=None, mode="lanczos"):
+    if mode == "nearest":
+        latents = resize_nearest(latents, scale)
+    else:
+        latents = resize_right.resize(
+            latents,
+            scale_factors=scale,
+            interp_method=resize_right.interp_methods.lanczos2,
+            pad_mode="replicate",
+            antialiasing=False,
+        )
 
     if target is not None and target_shape is not None:
         raise ValueError("Only provide one of target or target_shape")
@@ -134,7 +136,7 @@ class HiresUnetWrapper(GenericSchedulerUNet):
         self.natural_size = natural_size
         self.oos_fraction = oos_fraction
 
-        self.easing = Easing(floor=0, start=0, end=0.4, easing="sine")
+        self.easing = Easing(floor=0, start=0, end=0.667, easing="cubic")
         self.latent_debugger = latent_debugger
 
     def __call__(self, latents: XtTensor, __step, u: float) -> PX0Tensor | XtTensor:

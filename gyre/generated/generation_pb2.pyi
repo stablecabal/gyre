@@ -674,6 +674,26 @@ class ImageAdjustment_CannyEdge(google.protobuf.message.Message):
 global___ImageAdjustment_CannyEdge = ImageAdjustment_CannyEdge
 
 @typing_extensions.final
+class ImageAdjustment_EdgeDetection(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___ImageAdjustment_EdgeDetection = ImageAdjustment_EdgeDetection
+
+@typing_extensions.final
+class ImageAdjustment_Segmentation(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___ImageAdjustment_Segmentation = ImageAdjustment_Segmentation
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -685,6 +705,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     CROP_FIELD_NUMBER: builtins.int
     DEPTH_FIELD_NUMBER: builtins.int
     CANNY_EDGE_FIELD_NUMBER: builtins.int
+    EDGE_DETECTION_FIELD_NUMBER: builtins.int
+    SEGMENTATION_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
     @property
@@ -701,6 +723,10 @@ class ImageAdjustment(google.protobuf.message.Message):
     def depth(self) -> global___ImageAdjustment_Depth: ...
     @property
     def canny_edge(self) -> global___ImageAdjustment_CannyEdge: ...
+    @property
+    def edge_detection(self) -> global___ImageAdjustment_EdgeDetection: ...
+    @property
+    def segmentation(self) -> global___ImageAdjustment_Segmentation: ...
     def __init__(
         self,
         *,
@@ -712,10 +738,12 @@ class ImageAdjustment(google.protobuf.message.Message):
         crop: global___ImageAdjustment_Crop | None = ...,
         depth: global___ImageAdjustment_Depth | None = ...,
         canny_edge: global___ImageAdjustment_CannyEdge | None = ...,
+        edge_detection: global___ImageAdjustment_EdgeDetection | None = ...,
+        segmentation: global___ImageAdjustment_Segmentation | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "invert", b"invert", "levels", b"levels", "rescale", b"rescale"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "invert", b"invert", "levels", b"levels", "rescale", b"rescale"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge"] | None: ...
+    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "levels", b"levels", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "levels", b"levels", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 
@@ -1102,6 +1130,7 @@ class Prompt(google.protobuf.message.Message):
     TEXT_FIELD_NUMBER: builtins.int
     TOKENS_FIELD_NUMBER: builtins.int
     ARTIFACT_FIELD_NUMBER: builtins.int
+    INCLUDE_IN_ANSWER_FIELD_NUMBER: builtins.int
     @property
     def parameters(self) -> global___PromptParameters: ...
     text: builtins.str
@@ -1109,6 +1138,7 @@ class Prompt(google.protobuf.message.Message):
     def tokens(self) -> global___Tokens: ...
     @property
     def artifact(self) -> global___Artifact: ...
+    include_in_answer: builtins.bool
     def __init__(
         self,
         *,
@@ -1116,9 +1146,10 @@ class Prompt(google.protobuf.message.Message):
         text: builtins.str = ...,
         tokens: global___Tokens | None = ...,
         artifact: global___Artifact | None = ...,
+        include_in_answer: builtins.bool = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "include_in_answer", b"include_in_answer", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_parameters", b"_parameters"]) -> typing_extensions.Literal["parameters"] | None: ...
     @typing.overload

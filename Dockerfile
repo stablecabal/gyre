@@ -31,6 +31,29 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | b
     && nvm use default
 
 
+# ----- Build MMCV -----
+
+FROM regularbase AS mmcvbase
+ARG MMCV_REPO=https://github.com/open-mmlab/mmcv.git
+ARG MMCV_REF=v1.7.1
+ARG MAX_JOBS=8
+COPY docker_support/cuda_archs.sh /
+
+WORKDIR /
+RUN git clone $MMCV_REPO
+
+WORKDIR /mmcv
+RUN git checkout $MMCV_REF
+RUN git submodule update --init --recursive
+RUN /bin/micromamba -r /env -n gyre run pip install ninja psutil
+
+ENV FORCE_CUDA=1
+ENV MMCV_WITH_OPS=1
+ENV MAX_JOBS=$MAX_JOBS
+RUN TORCH_CUDA_ARCH_LIST="`/cuda_archs.sh`" /bin/micromamba -r /env -n gyre run pip install .
+
+RUN tar cvjf /mmcv.tbz /env/envs/gyre/lib/python3.*/site-packages/mmcv*
+
 # ----- Build bitsandbytes -----
 
 
@@ -130,6 +153,13 @@ COPY --from=regularbase /env/envs /env/envs/
 RUN mkdir -p /nvm
 COPY --from=regularbase /nvm /nvm/
 
+COPY --from=mmcvbase /mmcv.tbz /
+RUN tar xvjf /mmcv.tbz
+COPY --from=mmcvbase /mmcv/requirements/runtime.txt /
+RUN /bin/micromamba -r /env -n gyre run pip install -r runtime.txt
+RUN rm runtime.txt
+
+
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
 ENV NODE_VERSION=16.18.0
@@ -196,6 +226,12 @@ COPY --from=regularbase /env/envs /env/envs/
 RUN mkdir -p /nvm
 COPY --from=regularbase /nvm /nvm/
 
+COPY --from=mmcvbase /mmcv.tbz /
+RUN tar xvjf /mmcv.tbz
+COPY --from=mmcvbase /mmcv/requirements/runtime.txt /
+RUN /bin/micromamba -r /env -n gyre run pip install -r runtime.txt
+RUN rm runtime.txt
+
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
 ENV NODE_VERSION=16.18.0
@@ -222,6 +258,8 @@ ENV HF_HOME=/huggingface
 ENV HF_API_TOKEN=mustset
 ENV SD_ENGINECFG=/config/engines.yaml
 ENV SD_WEIGHT_ROOT=/weights
+ENV SD_LOCAL_RESOURCE_1=embedding:/embedding
+ENV SD_LOCAL_RESOURCE_2=lora:/lora
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 

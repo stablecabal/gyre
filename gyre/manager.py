@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import generation_pb2
 import huggingface_hub
 import pynvml
+import safetensors.torch
 import torch
 import yaml
 from diffusers import ModelMixin, UNet2DConditionModel, pipelines
@@ -36,7 +37,7 @@ from huggingface_hub.file_download import http_get
 from tqdm.auto import tqdm
 from transformers import CLIPModel, PreTrainedModel
 
-from gyre import ckpt_utils
+from gyre import ckpt_utils, torch_safe_unpickler
 from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
 from gyre.pipeline.controlnet import ControlNetModel
@@ -60,6 +61,10 @@ DEFAULT_LIBRARIES = {
     "MidasModelWrapper": "gyre.pipeline.depth.midas_model_wrapper",
     "T2iAdapter": "gyre.pipeline.t2i_adapter",
     "ControlNetModel": "gyre.pipeline.controlnet",
+    "DexiNed": "kornia.filters",
+    "DexinedPipeline": "gyre.pipeline.hinters.dexined_pipeline",
+    "MmsegLoader": "gyre.pipeline.hinters.mmseg_loader",
+    "MmsegPipeline": "gyre.pipeline.hinters.mmseg_pipeline",
 }
 
 
@@ -1184,6 +1189,82 @@ class EngineManager(object):
 
         return class_obj
 
+    def _load_module_fallback(
+        self,
+        path,
+        class_obj,
+        torch_dtype="auto",
+        low_cpu_mem_usage=False,
+        allow_patterns=[],
+        ignore_patterns=[],
+        **config,
+    ):
+        paths = []
+        for pattern in ["*.safetensors", "*.pt", "*.pth"]:
+            paths += glob.glob(pattern, root_dir=path)
+
+        paths = list(
+            huggingface_hub.utils.filter_repo_objects(
+                paths,
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
+            )
+        )
+
+        if not paths:
+            raise RuntimeError(f"No model found for {class_obj.__name__} at {path}")
+        elif len(paths) > 1:
+            raise RuntimeError(
+                f"Too many posible models found for {class_obj.__name__} at {path}. "
+                "Try adding an allow_patterns or ignore_patterns to your model spec."
+            )
+
+        model_path = os.path.join(path, paths[0])
+
+        adapter = class_obj(**config)
+        if model_path.endswith(".safetensors"):
+            state_dict = safetensors.torch.load_file(model_path)
+        else:
+            state_dict = torch.load(model_path, pickle_module=torch_safe_unpickler)
+
+        adapter.load_state_dict(state_dict)
+
+        if torch_dtype != "auto":
+            adapter.to(torch_dtype)
+
+        adapter.eval()
+        return adapter
+
+    def _parse_class_details(self, fqclass_name):
+        factory_name = None
+        args = {}
+
+        if fqclass_name:
+            if isinstance(fqclass_name, str):
+                base_name = fqclass_name
+            else:
+                base_name = fqclass_name[1]
+
+            # Extract out any arguments in the class name
+            if base_name.endswith(")"):
+                base_name, argstr = base_name.split("(", 1)
+                argstr = argstr[:-1]
+
+                args = yaml.load(
+                    "{" + argstr.replace("=", ": ") + "}", Loader=yaml.SafeLoader
+                )
+
+            # Extract out any loader method override in the class name (must be classmethod)
+            if "/" in base_name:
+                base_name, factory_name = base_name.split("/", 1)
+
+            if isinstance(fqclass_name, str):
+                fqclass_name = base_name
+            else:
+                fqclass_name = (fqclass_name[0], base_name)
+
+        return fqclass_name, factory_name, args
+
     def _load_model_from_weights(
         self,
         weight_path: str,
@@ -1193,16 +1274,12 @@ class EngineManager(object):
         ignore_patterns=None,
         allow_patterns=None,
     ):
-        parts = name.split("/")
-        name = parts.pop(0)
-        subtype = parts.pop(0) if parts else None
-        args = parts.pop(0) if parts else None
+        assert "/" not in name
 
-        if args:
-            args = {
-                arg.split("=")[0]: yaml.load(arg.split("=")[1], Loader=yaml.Loader)
-                for arg in args.split(";")
-            }
+        fqclass_name, factory_name, args = self._parse_class_details(fqclass_name)
+        load_method_names = (
+            [factory_name] if factory_name else ["from_pretrained", "from_config"]
+        )
 
         if fqclass_name is None:
             fqclass_name = TYPE_CLASSES.get(name, None)
@@ -1217,13 +1294,20 @@ class EngineManager(object):
 
         class_obj = self._import_class(fqclass_name)
 
-        load_method_names = (
-            [f"from_{subtype}"] if subtype else ["from_pretrained", "from_config"]
-        )
         load_candidates = [getattr(class_obj, name, None) for name in load_method_names]
-        load_method = [m for m in load_candidates if m is not None][0]
+        load_candidates = [m for m in load_candidates if m is not None]
 
+        load_method = None
         loading_kwargs = args or {}
+
+        if load_candidates:
+            load_method = load_candidates[0]
+        elif issubclass(class_obj, torch.nn.Module):
+            load_method = self._load_module_fallback
+            loading_kwargs["class_obj"] = class_obj
+
+        if not load_method:
+            raise RuntimeError(f"No load method found for model {class_obj.__name__}")
 
         init_params = inspect.signature(load_method).parameters
 
@@ -1675,6 +1759,7 @@ class EngineManager(object):
 
     def _instantiate_pipeline(self, engine, model, extra_kwargs):
         fqclass_name = engine.get("class", "UnifiedPipeline")
+        fqclass_name, factory_name, args = self._parse_class_details(fqclass_name)
         class_obj = self._import_class(fqclass_name)
 
         available = set(model.keys())
@@ -1697,6 +1782,7 @@ class EngineManager(object):
                 if param.default is inspect._empty
                 and name != "self"
                 and name != "safety_checker"
+                and name not in args
             ]
         )
 
@@ -1723,7 +1809,7 @@ class EngineManager(object):
         if "hintset_manager" in expected and engine.hintset:
             extra_kwargs["hintset_manager"] = self._hintsets[engine.hintset]
 
-        modules = {**modules, **extra_kwargs}
+        modules = {**args, **modules, **extra_kwargs}
         return class_obj(**modules)
 
     def _build_pipeline_for_engine(self, spec: EngineSpec):

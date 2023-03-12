@@ -195,6 +195,16 @@ def add_converter_to_hint_image_prompt(prompt, converter):
         )
 
         prompt.artifact.adjustments.append(canny_edge)
+    elif "hed" in hint_type or "sketch" in hint_type or "scribble" in hint_type:
+        hed = generation.ImageAdjustment(
+            edge_detection=generation.ImageAdjustment_EdgeDetection()
+        )
+        prompt.artifact.adjustments.append(hed)
+    elif "segment" in hint_type:
+        segmentation = generation.ImageAdjustment(
+            segmentation=generation.ImageAdjustment_Segmentation()
+        )
+        prompt.artifact.adjustments.append(segmentation)
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
 
