@@ -20,7 +20,6 @@ def stub_dependancy(module_name):
             short_name = parts.pop(0)
             full_name = parent + "." + short_name if parent else short_name
             m = types.ModuleType(full_name, f"Fake {module_name} stub")
-            print(full_name)
             sys.modules[full_name] = m
             parent = full_name
 
