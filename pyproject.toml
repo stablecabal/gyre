@@ -34,6 +34,9 @@ dependencies = [
   "imutils ~= 0.5.4",
   # For Hinters
   "kornia ~= 0.6.10",
+  # For mmsegmentation
+  "mmcv-full ~= 1.7.1",
+  "prettytable ~= 3.6.0",
   # For Server
   "protobuf ~= 3.20",
   "grpcio ~= 1.48.1",
