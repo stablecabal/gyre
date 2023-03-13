@@ -1968,10 +1968,12 @@ class UnifiedPipeline(DiffusionPipeline):
 
             hints = leaf.opts.get("hints")
             if hints:
+                grouped = {}
                 for hint in hints:
                     hint.to(self.execution_device, latents_dtype)
+                    grouped.setdefault(type(hint), []).append(hint)
 
-                for cls, ghints in itertools.groupby(hints, lambda hint: type(hint)):
+                for cls, ghints in grouped.items():
                     cls.patch_unet(leaf.opts["unet"])
                     unet = cls.wrap_unet(unet, list(ghints))
 
