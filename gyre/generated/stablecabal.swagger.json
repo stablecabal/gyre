@@ -1851,7 +1851,7 @@
         "artifact": {
           "$ref": "#/definitions/Artifact"
         },
-        "includeInAnswer": {
+        "echoBack": {
           "type": "boolean"
         }
       },

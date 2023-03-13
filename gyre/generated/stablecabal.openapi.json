@@ -1995,7 +1995,7 @@
                     "artifact": {
                         "$ref": "#/components/schemas/Artifact"
                     },
-                    "includeInAnswer": {
+                    "echoBack": {
                         "type": "boolean"
                     }
                 },

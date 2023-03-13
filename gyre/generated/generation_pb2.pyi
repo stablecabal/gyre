@@ -1130,7 +1130,7 @@ class Prompt(google.protobuf.message.Message):
     TEXT_FIELD_NUMBER: builtins.int
     TOKENS_FIELD_NUMBER: builtins.int
     ARTIFACT_FIELD_NUMBER: builtins.int
-    INCLUDE_IN_ANSWER_FIELD_NUMBER: builtins.int
+    ECHO_BACK_FIELD_NUMBER: builtins.int
     @property
     def parameters(self) -> global___PromptParameters: ...
     text: builtins.str
@@ -1138,7 +1138,7 @@ class Prompt(google.protobuf.message.Message):
     def tokens(self) -> global___Tokens: ...
     @property
     def artifact(self) -> global___Artifact: ...
-    include_in_answer: builtins.bool
+    echo_back: builtins.bool
     def __init__(
         self,
         *,
@@ -1146,10 +1146,10 @@ class Prompt(google.protobuf.message.Message):
         text: builtins.str = ...,
         tokens: global___Tokens | None = ...,
         artifact: global___Artifact | None = ...,
-        include_in_answer: builtins.bool = ...,
+        echo_back: builtins.bool = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "include_in_answer", b"include_in_answer", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "echo_back", b"echo_back", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_parameters", b"_parameters"]) -> typing_extensions.Literal["parameters"] | None: ...
     @typing.overload

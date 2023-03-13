@@ -121,7 +121,7 @@ class ParameterExtractor:
         self._tensor_cache = tensor_cache
         self._resource_provider = resource_provider
 
-        self._additional_answers = []
+        self._echo = None
 
         # Add a cache to self.get to prevent multiple requests from recalculating
         # self.get = functools.cache(self.get)
@@ -501,15 +501,33 @@ class ParameterExtractor:
 
         return None
 
+    def _add_to_echo(self, prompt: generation_pb2.Prompt, image):
+        if prompt.echo_back:
+            if self._echo is None:
+                answer = generation_pb2.Answer()
+                answer.request_id = self._request.request_id
+                answer.answer_id = "echo"
+                self._echo = answer
+
+            artifact = image_to_artifact(image, artifact_type=prompt.artifact.type)
+            artifact.index = len(self._echo.artifacts) + 1
+            self._echo.artifacts.append(artifact)
+
+        return image
+
     def init_image(self):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_IMAGE:
-                return self._image_from_artifact(prompt.artifact)
+                return self._add_to_echo(
+                    prompt, self._image_from_artifact(prompt.artifact)
+                )
 
     def mask_image(self):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_MASK:
-                return self._image_from_artifact(prompt.artifact)
+                return self._add_to_echo(
+                    prompt, self._image_from_artifact(prompt.artifact)
+                )
 
     def outmask_image(self):
         for prompt in self._prompt_of_type("artifact"):
@@ -521,7 +539,9 @@ class ParameterExtractor:
     def depth_map(self):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
-                return self._image_from_artifact(prompt.artifact)
+                return self._add_to_echo(
+                    prompt, self._image_from_artifact(prompt.artifact)
+                )
 
     def hint_images(self):
         hint_images = []
@@ -534,9 +554,13 @@ class ParameterExtractor:
                 ):
                     weight = prompt.parameters.weight
 
+                hint_image = self._add_to_echo(
+                    prompt, self._image_from_artifact(prompt.artifact)
+                )
+
                 hint_images.append(
                     {
-                        "image": self._image_from_artifact(prompt.artifact),
+                        "image": hint_image,
                         "hint_type": prompt.artifact.hint_image_type,
                         "weight": weight,
                     }
@@ -735,6 +759,9 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 val = extractor.get(field)
                 if val is not None:
                     kwargs[field] = val
+
+            if extractor._echo is not None:
+                yield extractor._echo
 
             if self._ram_monitor:
                 print("Arguments processed")

@@ -221,6 +221,7 @@ def hint_image_to_prompt(
     artifact_uuid = str(uuid.uuid4())
 
     prompt = generation.Prompt(
+        echo_back=converter is not None,
         artifact=generation.Artifact(
             type=generation.ARTIFACT_HINT_IMAGE,
             uuid=artifact_uuid,
@@ -409,7 +410,11 @@ def process_artifacts_from_answers(
     for resp in answers:
         for artifact in resp.artifacts:
             artifact_p = f"{prefix}-{resp.request_id}-{resp.answer_id}-{idx}"
-            if artifact.type == generation.ARTIFACT_IMAGE:
+            if artifact.type in {
+                generation.ARTIFACT_IMAGE,
+                generation.ARTIFACT_MASK,
+                generation.ARTIFACT_HINT_IMAGE,
+            }:
                 ext = mimetypes.guess_extension(artifact.mime)
                 contents = artifact.binary
             elif artifact.type == generation.ARTIFACT_CLASSIFICATIONS:
@@ -688,6 +693,7 @@ class StabilityInference:
                         type=generation.ARTIFACT_HINT_IMAGE,
                     )
 
+                    hint_prompt.echo_back = True
                     hint_prompt.artifact.hint_image_type = hint["hint_type"]
                     hint_prompt.parameters.weight = hint["weight"]
 
