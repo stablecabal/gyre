@@ -121,6 +121,8 @@ class ParameterExtractor:
         self._tensor_cache = tensor_cache
         self._resource_provider = resource_provider
 
+        self._additional_answers = []
+
         # Add a cache to self.get to prevent multiple requests from recalculating
         # self.get = functools.cache(self.get)
 

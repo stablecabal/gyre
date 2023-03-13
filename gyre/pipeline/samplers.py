@@ -3,8 +3,8 @@ import inspect
 
 import generation_pb2
 from diffusers import DPMSolverMultistepScheduler, LMSDiscreteScheduler, PNDMScheduler
+from k_diffusion import sampling as k_sampling
 
-from gyre.k_diffusion import sampling as k_sampling
 from gyre.pipeline.kschedulers import (
     DPM2AncestralDiscreteScheduler,
     DPM2DiscreteScheduler,

@@ -43,6 +43,10 @@ from gyre.sonora.wsgi import grpcWSGI
 generatedPath = os.path.join(os.path.dirname(__file__), "generated")
 sys.path.append(generatedPath)
 
+from gyre.src import inject_src_paths
+
+inject_src_paths()
+
 # Inject the nonfree projects if they exist
 nonfree_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "nonfree")
 if os.path.exists(nonfree_path):

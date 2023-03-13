@@ -2,6 +2,7 @@ import glob
 import os
 from typing import Callable, List, Literal, NewType, Optional, Tuple, Union
 
+import k_diffusion as K
 import numpy as np
 import PIL
 import torch
@@ -12,7 +13,6 @@ from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.schedulers.scheduling_utils import SchedulerMixin
 from transformers import CLIPTextModel, CLIPTokenizer
 
-import gyre.k_diffusion as K
 from gyre.pipeline.kschedulers import *
 from gyre.pipeline.text_embedding import *
 from gyre.pipeline.unified_pipeline import (

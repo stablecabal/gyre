@@ -9,7 +9,10 @@
         "gyre/pipeline/schedulers"
     ],
     "python.analysis.extraPaths": [
-        "gyre/generated"
+        "gyre/generated",
+        "gyre/src/k-diffusion",
+        "gyre/src/midas",
+        "gyre/src/mmsegmentation"
     ],
     "python.formatting.provider": "black",
     "python.linting.enabled": true,

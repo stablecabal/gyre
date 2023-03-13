@@ -4,9 +4,9 @@ from typing import Callable, Literal, cast
 import numpy as np
 import torch
 import torchvision.transforms as T
+from k_diffusion import utils as k_utils
 
 from gyre import resize_right
-from gyre.k_diffusion import utils as k_utils
 from gyre.pipeline.common_scheduler import DiffusersKScheduler, DiffusersSchedulerBase
 from gyre.pipeline.unet.cfg import CFGChildUnets
 from gyre.pipeline.unet.types import (

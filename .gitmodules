@@ -21,3 +21,6 @@
 [submodule "gyre/src/picklemagic"]
 	path = gyre/src/picklemagic
 	url = https://github.com/CensoredUsername/picklemagic
+[submodule "gyre/src/mmsegmentation"]
+	path = gyre/src/mmsegmentation
+	url = https://github.com/open-mmlab/mmsegmentation.git
