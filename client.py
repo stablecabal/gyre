@@ -881,13 +881,15 @@ class StabilityInference:
 
         while True:
             answers = self.stub.AsyncResult(handle)
+
             for answer in answers.answer:
                 yield answer
 
             if answers.complete:
                 print("Done")
+                break
 
-            time.sleep(5)
+            time.sleep(1)
 
 
 if __name__ == "__main__":

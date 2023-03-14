@@ -45,6 +45,10 @@ def _exception_to_grpc_generator(func, mappings):
             # Allow grpc / whatever-called-Servicer to receive RpcError
             raise e
         except Exception as e:
+            # Pass through any errors raised by context.abort (why doesn't it use RpcError? Good question!)
+            if type(e) is Exception and context.code() is not None:
+                raise e
+
             _handle_exception(func, e, context, mappings)
 
     return wrapper
@@ -63,6 +67,10 @@ def _exception_to_grpc_unary(func, mappings):
             # Allow grpc / whatever-called-Servicer to receive RpcError
             raise e
         except Exception as e:
+            # Pass through any errors raised by context.abort (same passive-agressive moan as above :p)
+            if type(e) is Exception and context.code() is not None:
+                raise e
+
             _handle_exception(func, e, context, mappings)
 
     return wrapper

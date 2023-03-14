@@ -922,17 +922,20 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
         assert async_context  # context.abort will raise an exception
 
         async_answer = generation_pb2.AsyncAnswer(complete=False)
+        wait_args = dict(block=True, timeout=0.5)
 
         try:
             while True:
-                answer = async_context.queue.get(timeout=2)
+                answer = async_context.queue.get(**wait_args)
+
                 if answer == "DONE":
                     async_answer.complete = True
                     async_answer.status.code = async_context.code.value[0]
                     async_answer.status.message = async_context.message
                     break
-                else:
-                    async_answer.answer.append(answer)
+
+                async_answer.answer.append(answer)
+                wait_args = dict(block=False, timeout=0)
         except Empty:
             pass
 
