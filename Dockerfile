@@ -2,42 +2,25 @@ ARG CUDA_VER=118
 ARG CUDA_FULLVER=11.8.0
 
 
-# ----- Build the core "dist image" base -----
-
-
-FROM ghcr.io/stablecabal/gyre-devbase:pytorch112-cuda${CUDA_VER}-latest AS regularbase
-
-# Install dependancies
-ENV FLIT_ROOT_INSTALL=1
-RUN /bin/micromamba -r /env -n gyre install -c defaults flit
-
-# We copy only the minimum for flit to run so avoid cache invalidation on code changes
-COPY pyproject.toml .
-COPY gyre/__init__.py gyre/
-RUN touch README.md
-RUN /bin/micromamba -r /env -n gyre run flit install --pth-file
-RUN /bin/micromamba -r /env -n gyre run pip cache purge
-
-# Setup NVM & Node for Localtunnel
-ENV NVM_DIR=/nvm
-ENV NODE_VERSION=16.18.0
-
-RUN mkdir -p $NVM_DIR
-
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash \
-    && . $NVM_DIR/nvm.sh \
-    && nvm install $NODE_VERSION \
-    && nvm alias default $NODE_VERSION \
-    && nvm use default
-
-
 # ----- Build MMCV -----
 
-FROM regularbase AS mmcvbase
+FROM ghcr.io/stablecabal/gyre-devbase:pytorch112-cuda${CUDA_VER}-latest AS mmcvbase
 ARG MMCV_REPO=https://github.com/open-mmlab/mmcv.git
 ARG MMCV_REF=v1.7.1
 ARG MAX_JOBS=8
 COPY docker_support/cuda_archs.sh /
+
+# Install dependancies
+ENV FLIT_ROOT_INSTALL=1
+RUN /bin/micromamba -r /env -n gyre run pip install "flit~=3.8.0"
+
+# We copy only the minimum for flit to run so avoid cache invalidation on code changes
+COPY pyproject.toml /pyproject.toml.in
+RUN cat /pyproject.toml.in | sed -e /mmcv/d > /pyproject.toml
+COPY gyre/__init__.py gyre/
+RUN touch README.md
+RUN /bin/micromamba -r /env -n gyre run flit install --only-deps
+RUN /bin/micromamba -r /env -n gyre run pip cache purge
 
 WORKDIR /
 RUN git clone $MMCV_REPO
@@ -52,7 +35,24 @@ ENV MMCV_WITH_OPS=1
 ENV MAX_JOBS=$MAX_JOBS
 RUN TORCH_CUDA_ARCH_LIST="`/cuda_archs.sh`" /bin/micromamba -r /env -n gyre run pip install .
 
-RUN tar cvjf /mmcv.tbz /env/envs/gyre/lib/python3.*/site-packages/mmcv*
+
+# ----- Build the core "dist image" base -----
+
+
+FROM mmcvbase AS regularbase
+
+# Setup NVM & Node for Localtunnel
+ENV NVM_DIR=/nvm
+ENV NODE_VERSION=16.18.0
+
+RUN mkdir -p $NVM_DIR
+
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash \
+    && . $NVM_DIR/nvm.sh \
+    && nvm install $NODE_VERSION \
+    && nvm alias default $NODE_VERSION \
+    && nvm use default
+
 
 # ----- Build bitsandbytes -----
 
@@ -153,13 +153,6 @@ COPY --from=regularbase /env/envs /env/envs/
 RUN mkdir -p /nvm
 COPY --from=regularbase /nvm /nvm/
 
-COPY --from=mmcvbase /mmcv.tbz /
-RUN tar xvjf /mmcv.tbz
-COPY --from=mmcvbase /mmcv/requirements/runtime.txt /
-RUN /bin/micromamba -r /env -n gyre run pip install -r runtime.txt
-RUN rm runtime.txt
-
-
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
 ENV NODE_VERSION=16.18.0
@@ -225,12 +218,6 @@ RUN mkdir -p /env/envs
 COPY --from=regularbase /env/envs /env/envs/
 RUN mkdir -p /nvm
 COPY --from=regularbase /nvm /nvm/
-
-COPY --from=mmcvbase /mmcv.tbz /
-RUN tar xvjf /mmcv.tbz
-COPY --from=mmcvbase /mmcv/requirements/runtime.txt /
-RUN /bin/micromamba -r /env -n gyre run pip install -r runtime.txt
-RUN rm runtime.txt
 
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
