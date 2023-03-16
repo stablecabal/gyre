@@ -63,8 +63,9 @@ DEFAULT_LIBRARIES = {
     "ControlNetModel": "gyre.pipeline.controlnet",
     "DexiNed": "kornia.filters",
     "DexinedPipeline": "gyre.pipeline.hinters.dexined_pipeline",
-    "MmsegLoader": "gyre.pipeline.hinters.mmseg_loader",
+    "MmLoader": "gyre.pipeline.hinters.mm_loader",
     "MmsegPipeline": "gyre.pipeline.hinters.mmseg_pipeline",
+    "MmposePipeline": "gyre.pipeline.hinters.mmpose_pipeline",
 }
 
 

@@ -254,6 +254,14 @@ class ParameterExtractor:
                 with self._manager.with_engine(task="segmentation") as estimator:
                     tensor = estimator(tensor)
 
+            elif which == "keypose":
+                with self._manager.with_engine(task="pose") as estimator:
+                    tensor = estimator(tensor, output_format="keypose")
+
+            elif which == "openpose":
+                with self._manager.with_engine(task="pose") as estimator:
+                    tensor = estimator(tensor, output_format="openpose")
+
             else:
                 raise ValueError(f"Unkown image adjustment {which}")
 

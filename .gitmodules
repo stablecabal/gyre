@@ -30,3 +30,6 @@
 [submodule "gyre/src/mmdetection"]
 	path = gyre/src/mmdetection
 	url = https://github.com/open-mmlab/mmdetection.git
+[submodule "gyre/src/xtcocoapi"]
+	path = gyre/src/xtcocoapi
+	url = https://github.com/jin-s13/xtcocoapi.git

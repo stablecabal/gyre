@@ -9,10 +9,10 @@
     aliases: "depth"
     model: "@t2i-adapter-depth"
   t2i/keypose:
-    aliases: "pose/hrnet"
+    aliases: ["keypose", "pose/keypose"]
     model: "@t2i-adapter-keypose"
   t2i/openpose:
-    aliases: ["pose", "pose/openpose"]
+    aliases: ["pose", "openpose", "pose/openpose"]
     model: "@t2i-adapter-openpose"
   t2i/seg:
     aliases: ["segmentation", "segmentation/coco"]
@@ -43,8 +43,9 @@
     aliases: "normal"
     model: "@controlnet-normal"
   controlnet/openpose:
-    aliases: ["pose", "pose/openpose"]
+    aliases: ["pose", "openpose", "pose/openpose"]
     model: "@controlnet-openpose"
+    priority: 200
   controlnet/scribble:
     aliases: ["sketch", "scribble"]
     priority: 50
@@ -54,8 +55,10 @@
     model: "@controlnet-seg"
 
 - hintset_id: "hintset-sd15-common"
-  "@hintset-sd15-t2i": ["t2i/depth", "t2i/openpose", "t2i/sketch"]
-  "@hintset-sd15-controlnet": ["controlnet/canny", "controlnet/seg"]
+  "@hintset-sd15-t2i":
+    ["t2i/depth", "t2i/keypose", "t2i/openpose", "t2i/sketch"]
+  "@hintset-sd15-controlnet":
+    ["controlnet/canny", "controlnet/hed", "controlnet/seg"]
 
 - hintset_id: "hintset-sd15-complete"
   "@hintset-sd15-t2i": "*"

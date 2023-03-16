@@ -694,6 +694,26 @@ class ImageAdjustment_Segmentation(google.protobuf.message.Message):
 global___ImageAdjustment_Segmentation = ImageAdjustment_Segmentation
 
 @typing_extensions.final
+class ImageAdjustment_Keypose(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___ImageAdjustment_Keypose = ImageAdjustment_Keypose
+
+@typing_extensions.final
+class ImageAdjustment_Openpose(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___ImageAdjustment_Openpose = ImageAdjustment_Openpose
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -707,6 +727,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     CANNY_EDGE_FIELD_NUMBER: builtins.int
     EDGE_DETECTION_FIELD_NUMBER: builtins.int
     SEGMENTATION_FIELD_NUMBER: builtins.int
+    KEYPOSE_FIELD_NUMBER: builtins.int
+    OPENPOSE_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
     @property
@@ -727,6 +749,10 @@ class ImageAdjustment(google.protobuf.message.Message):
     def edge_detection(self) -> global___ImageAdjustment_EdgeDetection: ...
     @property
     def segmentation(self) -> global___ImageAdjustment_Segmentation: ...
+    @property
+    def keypose(self) -> global___ImageAdjustment_Keypose: ...
+    @property
+    def openpose(self) -> global___ImageAdjustment_Openpose: ...
     def __init__(
         self,
         *,
@@ -740,10 +766,12 @@ class ImageAdjustment(google.protobuf.message.Message):
         canny_edge: global___ImageAdjustment_CannyEdge | None = ...,
         edge_detection: global___ImageAdjustment_EdgeDetection | None = ...,
         segmentation: global___ImageAdjustment_Segmentation | None = ...,
+        keypose: global___ImageAdjustment_Keypose | None = ...,
+        openpose: global___ImageAdjustment_Openpose | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "levels", b"levels", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "levels", b"levels", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation"] | None: ...
+    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 

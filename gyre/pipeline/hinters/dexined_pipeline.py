@@ -1,5 +1,6 @@
 from typing import Literal
 
+import kornia
 import torch
 from diffusers.models import modeling_utils
 
@@ -29,7 +30,11 @@ class DexinedPipeline:
         r_max = torch.amax(tensor, dim=[1, 2, 3], keepdim=True)
 
         # tensor = (tensor - r_min) / (r_max - r_min)
-        return tensor.clamp(0, 1)
+        tensor = tensor.clamp(0, 1)
+        # tensor = kornia.enhance.adjust_gamma(tensor, 5.0)
+        # tensor = torch.nn.functional.threshold(tensor, 0.2, 0)
+
+        return tensor
 
     @torch.no_grad()
     def __call__(self, tensor):

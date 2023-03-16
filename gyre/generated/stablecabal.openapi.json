@@ -1686,6 +1686,12 @@
                     },
                     "segmentation": {
                         "$ref": "#/components/schemas/ImageAdjustment_Segmentation"
+                    },
+                    "keypose": {
+                        "$ref": "#/components/schemas/ImageAdjustment_Keypose"
+                    },
+                    "openpose": {
+                        "$ref": "#/components/schemas/ImageAdjustment_Openpose"
                     }
                 }
             },
@@ -1770,6 +1776,9 @@
             "ImageAdjustment_Invert": {
                 "type": "object"
             },
+            "ImageAdjustment_Keypose": {
+                "type": "object"
+            },
             "ImageAdjustment_Levels": {
                 "type": "object",
                 "properties": {
@@ -1790,6 +1799,9 @@
                         "format": "float"
                     }
                 }
+            },
+            "ImageAdjustment_Openpose": {
+                "type": "object"
             },
             "ImageAdjustment_Rescale": {
                 "type": "object",

@@ -1,0 +1,1 @@
+These are all unmodified third-party dependancies that we don't want to install through flit / pyproject.toml for some reason (usually to avoid loading nested dependancies we don't need for our specific usage, sometimes because it isn't on pypi)

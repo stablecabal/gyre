@@ -653,7 +653,9 @@ def main():
 
     if args.reload:
         # start_reloader will only return in a monitored subprocess
-        reloader = hupper.start_reloader("gyre.server.main", reload_interval=10)
+        reloader = hupper.start_reloader(
+            "gyre.server.main", reload_interval=10, ignore_files=["*/src/*"]
+        )
 
     configure_logging()
     logging.getLogger().setLevel(args.dep_log_level)

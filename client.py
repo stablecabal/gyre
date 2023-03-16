@@ -205,6 +205,16 @@ def add_converter_to_hint_image_prompt(prompt, converter):
             segmentation=generation.ImageAdjustment_Segmentation()
         )
         prompt.artifact.adjustments.append(segmentation)
+    elif "keypose" in hint_type:
+        keypose = generation.ImageAdjustment(
+            keypose=generation.ImageAdjustment_Keypose()
+        )
+        prompt.artifact.adjustments.append(keypose)
+    elif "openpose" in hint_type:
+        openpose = generation.ImageAdjustment(
+            openpose=generation.ImageAdjustment_Openpose()
+        )
+        prompt.artifact.adjustments.append(openpose)
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
 

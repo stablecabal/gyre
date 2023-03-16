@@ -34,9 +34,12 @@ dependencies = [
   "imutils ~= 0.5.4",
   # For Hinters
   "kornia ~= 0.6.10",
-  # For mmsegmentation
+  # For mmXXX
   "mmcv-full ~= 1.7.1",
+  "json-tricks ~= 3.16.1",
   "prettytable ~= 3.6.0",
+  "terminaltables ~= 3.1.10",
+  "munkres ~= 1.1.4",
   # For Server
   "protobuf ~= 3.20",
   "grpcio ~= 1.48.1",
@@ -58,7 +61,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["black ~= 22.10.0", "flake8 ~= 6.0.0", "flake8-pyproject ~= 1.2.1"]
+# These are used by the VSCode configuration to format the python code consistently
+dev = [
+  "black ~= 22.10.0", 
+  "flake8 ~= 6.0.0", 
+  "flake8-pyproject ~= 1.2.1"
+]
+# This is used by the Dockerfile as a minimal install for building mmcv
+core = [
+  "torch ~= 1.12.1",
+  "einops ~= 0.5.0",
+  "torchvision ~= 0.13.1",
+  "numpy ~= 1.23.3",
+  "opencv-python-headless ~= 4.6.0.66",
+  "scipy ~= 1.9.1",
+]
 
 [project.urls]
 Home = "https://github.com/stablecabal/gyre"

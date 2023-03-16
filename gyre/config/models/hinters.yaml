@@ -16,13 +16,13 @@
   model: "halffried/gyre_hinters"
   subfolder: "uniformer_base"
   type: "module"
-  class: MmsegLoader/load
+  class: MmLoader/load_mmseg
 
 - model_id: "hinters-uniformer-small"
   model: "halffried/gyre_hinters"
   subfolder: "uniformer_small"
   type: "module"
-  class: MmsegLoader/load
+  class: MmLoader/load_mmseg
 
 - id: "hinters-uniformer"
   task: "segmentation"
@@ -30,4 +30,37 @@
   class: "MmsegPipeline"
   model: "@empty"
   overrides:
-    module: "@hinters-uniformer-small"
+    module: "@hinters-uniformer-base"
+
+- model_id: "hinters-keypose-detector-r50"
+  model: "halffried/gyre_hinters"
+  subfolder: "keypose_mmdet_fasterrcnn_r50"
+  type: "module"
+  class: MmLoader/load_mmdet
+
+- model_id: "hinters-keypose-detector-x101"
+  model: "halffried/gyre_hinters"
+  subfolder: "keypose_mmdet_fasterrcnn_x101"
+  type: "module"
+  class: MmLoader/load_mmdet
+
+- model_id: "hinters-keypose-posemodel"
+  model: "halffried/gyre_hinters"
+  subfolder: "keypose_mmpose_hrnet"
+  type: "module"
+  class: MmLoader/load_mmpose
+
+- model_id: "hinters-keypose-posemodel-384"
+  model: "halffried/gyre_hinters"
+  subfolder: "keypose_mmpose_hrnet_384"
+  type: "module"
+  class: MmLoader/load_mmpose
+
+- id: "hinters-pose"
+  task: "pose"
+  default: True
+  class: "MmposePipeline"
+  model: "@empty"
+  overrides:
+    detector: "@hinters-keypose-detector-x101"
+    posemodel: "@hinters-keypose-posemodel-384"

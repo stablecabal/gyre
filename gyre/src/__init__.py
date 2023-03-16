@@ -4,7 +4,13 @@ import os
 import sys
 import types
 
-SRC_MODULES = ["midas", "mmsegmentation"]
+SRC_MODULES = [
+    "xtcocoapi",
+    "midas",
+    "mmsegmentation",
+    "mmdetection",
+    "mmpose",
+]
 
 src_dir = os.path.dirname(__file__)
 
@@ -19,9 +25,12 @@ def stub_dependancy(module_name):
         while parts:
             short_name = parts.pop(0)
             full_name = parent + "." + short_name if parent else short_name
-            m = types.ModuleType(full_name, f"Fake {module_name} stub")
-            sys.modules[full_name] = m
+            if full_name not in sys.modules:
+                m = types.ModuleType(full_name, f"Fake {module_name} stub")
+                sys.modules[full_name] = m
             parent = full_name
+
+    return sys.modules[module_name]
 
 
 def kdiffusion_direct_import(name):
@@ -40,6 +49,49 @@ def kdiffusion_direct_import(name):
     spec.loader.exec_module(module)
 
 
+def fix_mmpose_version_constraint():
+    """
+    mmpose v0.29.0 has a constraint of <= 1.7.0 (and v1.0.0rc0 is >=v2.0.0).
+    Rather than dealing with cross-version hell between various mmXXX packages,
+    we just trick mmpose into thinking we have the right mmcv version
+    """
+    import mmcv
+
+    if mmcv.__version__ == "1.7.1":
+        mmcv.__actual_version__ = mmcv.__version__
+        mmcv.__version__ = "1.7.0"
+
+
+class ClassStub:
+    def __getattr__(self, k):
+        return self
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+
+class CocotoolsRewriter:
+    """
+    This has two purposes:
+    - Rewrite pycocotools to use xtcocotools
+    - Replace xtcocotools.mask (and pycocotools.mask) with a stub (would otherwise require
+    a compiled C module)
+    """
+
+    def find_module(self, fullname, path=None):
+        if fullname in {"xtcocotools.mask", "pycocotools.mask"}:
+            return ClassStub()
+
+        if fullname.startswith("pycocotools"):
+            return self
+
+    def load_module(self, name):
+        if name.startswith("pycocotools"):
+            spec = importlib.util.find_spec("xt" + name[2:])
+            sys.modules[name] = module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+
 __injected = False
 
 
@@ -54,10 +106,19 @@ def inject_src_paths():
     for name in ["utils", "sampling", "external"]:
         kdiffusion_direct_import(name)
 
+    # Rewrite some problematic imports to do with pycocotools / xtcocotools
+    sys.meta_path.insert(0, CocotoolsRewriter())
+
     # Stub out mmsegmentation libraries we don't use
     stub_dependancy("matplotlib.pyplot")
+    stub_dependancy("matplotlib.collections.PatchCollection")
+    stub_dependancy("matplotlib.patches.Polygon")
 
+    # Add names to path
     for name in SRC_MODULES:
         sys.path.append(os.path.join(src_dir, name))
+
+    # Hack around mmpose version constraint
+    fix_mmpose_version_constraint()
 
     __injected = True

@@ -76,7 +76,10 @@ class T2iAdapter_main(Adapter, T2iAdapter, ModelMixin, ConfigMixin):
         ksize=3,
         sk=False,
         use_conv=True,
+        autoinvert=False,
     ):
+        self.autoinvert = autoinvert
+
         super().__init__(
             channels=channels,
             nums_rb=nums_rb,
@@ -85,6 +88,14 @@ class T2iAdapter_main(Adapter, T2iAdapter, ModelMixin, ConfigMixin):
             sk=sk,
             use_conv=use_conv,
         )
+
+    def forward(self, x):
+        if self.autoinvert:
+            # If sample is more than 2/3 white, assume it needs inverting
+            if x.mean() > 0.66:
+                x = 1 - x
+
+        return super().forward(x)
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):

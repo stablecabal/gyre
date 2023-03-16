@@ -45,7 +45,7 @@
   subfolder: "models"
   allow_patterns: "t2iadapter_sketch_sd14v1.pth"
   type: "t2i_adapter"
-  class: "T2iAdapter/from_state_dict(cin=64)"
+  class: "T2iAdapter/from_state_dict(cin=64,autoinvert=True)"
 
 - model_id: "t2i-adapter-style"
   model: "TencentARC/T2I-Adapter"
