@@ -154,6 +154,29 @@ RESCALE_CONTAIN_REFLECT: RescaleMode.ValueType  # 5
 """Fit the complete source image into the rescale height and width, maintaining aspect ratio, background to be filled with the image mirrored"""
 global___RescaleMode = RescaleMode
 
+class _BackgroundRemovalMode:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _BackgroundRemovalModeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_BackgroundRemovalMode.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    ALPHA: _BackgroundRemovalMode.ValueType  # 0
+    """Apply to alpha channel"""
+    SOLID: _BackgroundRemovalMode.ValueType  # 1
+    """Matte over a solid color"""
+    BLUR: _BackgroundRemovalMode.ValueType  # 2
+    """Matte over a blurred version of the input"""
+
+class BackgroundRemovalMode(_BackgroundRemovalMode, metaclass=_BackgroundRemovalModeEnumTypeWrapper): ...
+
+ALPHA: BackgroundRemovalMode.ValueType  # 0
+"""Apply to alpha channel"""
+SOLID: BackgroundRemovalMode.ValueType  # 1
+"""Matte over a solid color"""
+BLUR: BackgroundRemovalMode.ValueType  # 2
+"""Matte over a blurred version of the input"""
+global___BackgroundRemovalMode = BackgroundRemovalMode
+
 class _ArtifactStage:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -714,6 +737,60 @@ class ImageAdjustment_Openpose(google.protobuf.message.Message):
 global___ImageAdjustment_Openpose = ImageAdjustment_Openpose
 
 @typing_extensions.final
+class ImageAdjustment_Normal(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    BACKGROUND_THRESHOLD_FIELD_NUMBER: builtins.int
+    PREBLUR_FIELD_NUMBER: builtins.int
+    POSTBLUR_FIELD_NUMBER: builtins.int
+    SMOOTHING_FIELD_NUMBER: builtins.int
+    background_threshold: builtins.float
+    """0 .. 1, the higher the more background is removed"""
+    preblur: builtins.int
+    """Must be an odd integer if supplied. How much to blur depth map before calculating normal map: Recommended: 0"""
+    postblur: builtins.int
+    """Must be an odd integer if supplied. How much to blur normal map. Recommended: 5"""
+    smoothing: builtins.float
+    """Normal range 0..1. The higher the smoother. Recoomened: 0.8"""
+    def __init__(
+        self,
+        *,
+        background_threshold: builtins.float | None = ...,
+        preblur: builtins.int | None = ...,
+        postblur: builtins.int | None = ...,
+        smoothing: builtins.float | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_background_threshold", b"_background_threshold", "_postblur", b"_postblur", "_preblur", b"_preblur", "_smoothing", b"_smoothing", "background_threshold", b"background_threshold", "postblur", b"postblur", "preblur", b"preblur", "smoothing", b"smoothing"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_background_threshold", b"_background_threshold", "_postblur", b"_postblur", "_preblur", b"_preblur", "_smoothing", b"_smoothing", "background_threshold", b"background_threshold", "postblur", b"postblur", "preblur", b"preblur", "smoothing", b"smoothing"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_background_threshold", b"_background_threshold"]) -> typing_extensions.Literal["background_threshold"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_postblur", b"_postblur"]) -> typing_extensions.Literal["postblur"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_preblur", b"_preblur"]) -> typing_extensions.Literal["preblur"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_smoothing", b"_smoothing"]) -> typing_extensions.Literal["smoothing"] | None: ...
+
+global___ImageAdjustment_Normal = ImageAdjustment_Normal
+
+@typing_extensions.final
+class ImageAdjustment_BackgroundRemoval(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    MODE_FIELD_NUMBER: builtins.int
+    mode: global___BackgroundRemovalMode.ValueType
+    def __init__(
+        self,
+        *,
+        mode: global___BackgroundRemovalMode.ValueType | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_mode", b"_mode", "mode", b"mode"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_mode", b"_mode", "mode", b"mode"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_mode", b"_mode"]) -> typing_extensions.Literal["mode"] | None: ...
+
+global___ImageAdjustment_BackgroundRemoval = ImageAdjustment_BackgroundRemoval
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -729,6 +806,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     SEGMENTATION_FIELD_NUMBER: builtins.int
     KEYPOSE_FIELD_NUMBER: builtins.int
     OPENPOSE_FIELD_NUMBER: builtins.int
+    NORMAL_FIELD_NUMBER: builtins.int
+    BACKGROUND_REMOVAL_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
     @property
@@ -753,6 +832,10 @@ class ImageAdjustment(google.protobuf.message.Message):
     def keypose(self) -> global___ImageAdjustment_Keypose: ...
     @property
     def openpose(self) -> global___ImageAdjustment_Openpose: ...
+    @property
+    def normal(self) -> global___ImageAdjustment_Normal: ...
+    @property
+    def background_removal(self) -> global___ImageAdjustment_BackgroundRemoval: ...
     def __init__(
         self,
         *,
@@ -768,10 +851,12 @@ class ImageAdjustment(google.protobuf.message.Message):
         segmentation: global___ImageAdjustment_Segmentation | None = ...,
         keypose: global___ImageAdjustment_Keypose | None = ...,
         openpose: global___ImageAdjustment_Openpose | None = ...,
+        normal: global___ImageAdjustment_Normal | None = ...,
+        background_removal: global___ImageAdjustment_BackgroundRemoval | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose"] | None: ...
+    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 

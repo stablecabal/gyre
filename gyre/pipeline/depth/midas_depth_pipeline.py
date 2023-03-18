@@ -17,7 +17,7 @@ class MidasDepthPipeline:
         return [("midas_depth_estimator", self.midas_depth_estimator)]
 
     @torch.no_grad()
-    def __call__(self, tensor):
+    def __call__(self, tensor, normalise=True):
         sample = tensor
 
         # Get device and dtype of model
@@ -46,8 +46,9 @@ class MidasDepthPipeline:
         )
 
         # Normalise
-        depth_min = torch.amin(depth_map, dim=[1, 2, 3], keepdim=True)
-        depth_max = torch.amax(depth_map, dim=[1, 2, 3], keepdim=True)
-        depth_map = (depth_map - depth_min) / (depth_max - depth_min)
+        if normalise:
+            depth_min = torch.amin(depth_map, dim=[1, 2, 3], keepdim=True)
+            depth_max = torch.amax(depth_map, dim=[1, 2, 3], keepdim=True)
+            depth_map = (depth_map - depth_min) / (depth_max - depth_min)
 
         return depth_map.to(tensor.device, tensor.dtype)

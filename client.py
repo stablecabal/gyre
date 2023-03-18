@@ -26,6 +26,7 @@ from typing import Any, Dict, Generator, List, Literal, Optional, Sequence, Tupl
 import grpc
 import machineid
 import torch
+import yaml
 from google.protobuf.json_format import MessageToDict, MessageToJson
 from PIL import Image, ImageOps
 from safetensors.torch import safe_open
@@ -165,17 +166,26 @@ def image_to_prompt(
     if depth:
         type = generation.ARTIFACT_DEPTH
 
-    return generation.Prompt(
+    prompt = generation.Prompt(
         artifact=generation.Artifact(
             type=type, uuid=artifact_uuid, binary=buf.getvalue()
         ),
         parameters=generation.PromptParameters(init=init),
     )
 
+    return prompt
 
-def add_converter_to_hint_image_prompt(prompt, converter):
+
+def add_converter_to_hint_image_prompt(prompt, converter, args):
     if converter is None or converter is False:
         return
+
+    bgremove = generation.ImageAdjustment(
+        background_removal=generation.ImageAdjustment_BackgroundRemoval(
+            mode=generation.BackgroundRemovalMode.SOLID
+        )
+    )
+    prompt.artifact.adjustments.append(bgremove)
 
     hint_type = prompt.artifact.hint_image_type
 
@@ -188,10 +198,10 @@ def add_converter_to_hint_image_prompt(prompt, converter):
 
         prompt.artifact.adjustments.append(depth_estimate)
     elif "canny" in hint_type:
+        args = {"low_threshold": 100, "high_threshold": 200, **args}
+
         canny_edge = generation.ImageAdjustment(
-            canny_edge=generation.ImageAdjustment_CannyEdge(
-                low_threshold=100, high_threshold=200
-            )
+            canny_edge=generation.ImageAdjustment_CannyEdge(**args)
         )
 
         prompt.artifact.adjustments.append(canny_edge)
@@ -215,6 +225,13 @@ def add_converter_to_hint_image_prompt(prompt, converter):
             openpose=generation.ImageAdjustment_Openpose()
         )
         prompt.artifact.adjustments.append(openpose)
+    elif "normal" in hint_type:
+        args = {"preblur": 0, "postblur": 0, **args}
+
+        normal = generation.ImageAdjustment(
+            normal=generation.ImageAdjustment_Normal(**args)
+        )
+        prompt.artifact.adjustments.append(normal)
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
 
@@ -222,7 +239,7 @@ def add_converter_to_hint_image_prompt(prompt, converter):
 
 
 def hint_image_to_prompt(
-    image, hint_type, weight=1.0, converter=None
+    image, hint_type, weight=1.0, converter=None, args={}
 ) -> generation.Prompt:
     buf = io.BytesIO()
     image.save(buf, format="PNG")
@@ -241,7 +258,7 @@ def hint_image_to_prompt(
         parameters=generation.PromptParameters(weight=weight),
     )
 
-    add_converter_to_hint_image_prompt(prompt, converter)
+    add_converter_to_hint_image_prompt(prompt, converter, args)
 
     return prompt
 
@@ -559,7 +576,6 @@ class StabilityInference:
         hires_oos_fraction: float | None = None,
         tiling: str = "no",
         hint_images: list[dict[str, str | float]] | None = None,
-        hints_from_init: list[dict[str, str | float]] | None = None,
         lora: list[tuple[str, list[float]]] | None = None,
         ti: list[tuple[str, list[str]]] | None = None,
         as_async=False,
@@ -707,7 +723,9 @@ class StabilityInference:
                     hint_prompt.artifact.hint_image_type = hint["hint_type"]
                     hint_prompt.parameters.weight = hint["weight"]
 
-                    add_converter_to_hint_image_prompt(hint_prompt, hint["converter"])
+                    add_converter_to_hint_image_prompt(
+                        hint_prompt, hint["converter"], hint["args"]
+                    )
                 else:
                     hint_prompt = hint_image_to_prompt(**hint)
 
@@ -1163,6 +1181,16 @@ if __name__ == "__main__":
             ti.append((path, tokens))
 
     def parse_hint(hint, path, converter):
+        args = {}
+
+        if hint.endswith(")"):
+            hint, argstr = hint.split("(", 1)
+            argstr = argstr[:-1]
+
+            args = yaml.load(
+                "{" + argstr.replace("=", ": ") + "}", Loader=yaml.SafeLoader
+            )
+
         parts = hint.split(":")
 
         try:
@@ -1171,7 +1199,7 @@ if __name__ == "__main__":
         except ValueError:
             weight = 1.0
 
-        hint_info = {"hint_type": parts.pop(0), "weight": weight}
+        hint_info = {"hint_type": parts.pop(0), "weight": weight, "args": args}
 
         if path:
             if not parts:

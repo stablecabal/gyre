@@ -14,7 +14,6 @@ from typing import Any, Callable, Iterable
 import generation_pb2
 import generation_pb2_grpc
 import grpc
-import torch
 from google.protobuf import json_format as pb_json_format
 
 from gyre import constants, images
@@ -239,6 +238,27 @@ class ParameterExtractor:
                 with self._manager.with_engine(id=id, task="depth") as estimator:
                     tensor = estimator(tensor)
 
+            elif which == "normal":
+                with self._manager.with_engine(task="background-removal") as estimator:
+                    mask = estimator(tensor, mode="mask")
+
+                id = self._manager.find_by_hint(
+                    list(adjustment.depth.depth_engine_hint), task="depth"
+                )
+                print("Selected depth estimation engine", id)
+                with self._manager.with_engine(id=id, task="depth") as estimator:
+                    tensor = estimator(tensor, normalise=False)
+
+                kwargs = dict(
+                    background_threshold=0, preblur=0, postblur=5, smoothing=0.8
+                )
+
+                for f in kwargs.keys():
+                    if adjustment.normal.HasField(f):
+                        kwargs[f] = getattr(adjustment.normal, f)
+
+                tensor = images.normalmap_from_depthmap(tensor, mask=mask, **kwargs)
+
             elif which == "canny_edge":
                 tensor = images.canny_edge(
                     tensor,
@@ -261,6 +281,18 @@ class ParameterExtractor:
             elif which == "openpose":
                 with self._manager.with_engine(task="pose") as estimator:
                     tensor = estimator(tensor, output_format="openpose")
+
+            elif which == "background_removal":
+                with self._manager.with_engine(task="background-removal") as estimator:
+                    mode = "alpha"
+                    BRM = generation_pb2.BackgroundRemovalMode
+                    if adjustment.background_removal.HasField("mode"):
+                        if adjustment.background_removal.mode == BRM.SOLID:
+                            mode = "solid"
+                        elif adjustment.background_removal.mode == BRM.BLUR:
+                            mode = "blur"
+
+                    tensor = estimator(tensor, mode=mode)
 
             else:
                 raise ValueError(f"Unkown image adjustment {which}")

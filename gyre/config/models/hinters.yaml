@@ -1,3 +1,5 @@
+# Dexined (edge detector)
+
 - model_id: "hinters-dexined"
   model: "halffried/gyre_hinters"
   subfolder: "dexined"
@@ -11,6 +13,8 @@
   model: "@empty"
   overrides:
     module: "@hinters-dexined"
+
+# Uniformer (segmenter)
 
 - model_id: "hinters-uniformer-base"
   model: "halffried/gyre_hinters"
@@ -30,7 +34,9 @@
   class: "MmsegPipeline"
   model: "@empty"
   overrides:
-    module: "@hinters-uniformer-base"
+    module: "@hinters-uniformer-small"
+
+# Mmdet / Mmpose (pose estimator)
 
 - model_id: "hinters-keypose-detector-r50"
   model: "halffried/gyre_hinters"
@@ -64,3 +70,29 @@
   overrides:
     detector: "@hinters-keypose-detector-x101"
     posemodel: "@hinters-keypose-posemodel-384"
+
+# InSPyReNet (background remover)
+
+- model_id: "inspyrenet"
+  model: "halffried/gyre_hinters"
+  subfolder: "inspyrenet_base"
+  type: "module"
+  fp16: "prevent"
+  # Config from https://github.com/plemeri/transparent-background/blob/main/transparent_background/Remover.py#L26
+  class: "InSPyReNet_SwinB(depth=64, pretrained=False, base_size=[1024, 1024], threshold=None)"
+
+- model_id: "inspyrenet-fast"
+  model: "halffried/gyre_hinters"
+  subfolder: "inspyrenet_fast"
+  type: "module"
+  fp16: "prevent"
+  # Config from https://github.com/plemeri/transparent-background/blob/main/transparent_background/Remover.py#L32
+  class: "InSPyReNet_SwinB(depth=64, pretrained=False, base_size=[384, 384], threshold=512)"
+
+- id: "inspyrenet"
+  task: "background-removal"
+  default: True
+  class: InSPyReNetPipeline
+  model: "@empty"
+  overrides:
+    module: "@inspyrenet"

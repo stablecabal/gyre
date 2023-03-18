@@ -796,6 +796,7 @@ def main():
                 force_fp32=args.force_fp32,
                 enable_cuda=True,
                 enable_mps=args.enable_mps,
+                vram_fraction=args.vram_fraction,
             ),
             batchMode=BatchMode(
                 autodetect=args.batch_autodetect,

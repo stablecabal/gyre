@@ -66,6 +66,8 @@ DEFAULT_LIBRARIES = {
     "MmLoader": "gyre.pipeline.hinters.mm_loader",
     "MmsegPipeline": "gyre.pipeline.hinters.mmseg_pipeline",
     "MmposePipeline": "gyre.pipeline.hinters.mmpose_pipeline",
+    "InSPyReNet_SwinB": "gyre.pipeline.hinters.inspyrenet.InSPyReNet",
+    "InSPyReNetPipeline": "gyre.pipeline.hinters.inspyrenet_pipeline",
 }
 
 
@@ -129,11 +131,13 @@ class EngineMode(object):
         force_fp32=False,
         enable_cuda=True,
         enable_mps=False,
+        vram_fraction=1.0,
     ):
         self._vramO = vram_optimisation_level
         self._force_fp32 = force_fp32
         self._enable_cuda = enable_cuda
         self._enable_mps = enable_mps
+        self._vram_fraction = vram_fraction
 
     @property
     def device(self):
@@ -174,6 +178,8 @@ class EngineMode(object):
             vram_total = pynvml.nvmlDeviceGetMemoryInfo(handle).total
         except:
             vram_total = 4 * GB
+
+        vram_total = vram_total * self._vram_fraction
 
         if self._vramO <= 3:
             return clip(vram_total * 0.5, 2 * GB, vram_total - 2 * GB)
@@ -1254,6 +1260,7 @@ class EngineManager(object):
                 args = yaml.load(
                     "{" + argstr.replace("=", ": ") + "}", Loader=yaml.SafeLoader
                 )
+                args = {k: None if v == "None" else v for k, v in args.items()}
 
             # Extract out any loader method override in the class name (must be classmethod)
             if "/" in base_name:
@@ -1276,6 +1283,11 @@ class EngineManager(object):
         allow_patterns=None,
     ):
         assert "/" not in name
+
+        def subclass_check(obj, classtype):
+            if type(obj) is not type:
+                return False
+            return issubclass(obj, classtype)
 
         fqclass_name, factory_name, args = self._parse_class_details(fqclass_name)
         load_method_names = (
@@ -1303,7 +1315,7 @@ class EngineManager(object):
 
         if load_candidates:
             load_method = load_candidates[0]
-        elif issubclass(class_obj, torch.nn.Module):
+        else:
             load_method = self._load_module_fallback
             loading_kwargs["class_obj"] = class_obj
 
@@ -1313,12 +1325,12 @@ class EngineManager(object):
         init_params = inspect.signature(load_method).parameters
 
         if fp16 and (
-            issubclass(class_obj, torch.nn.Module) or "torch_dtype" in init_params
+            subclass_check(class_obj, torch.nn.Module) or "torch_dtype" in init_params
         ):
             loading_kwargs["torch_dtype"] = torch.float16
 
-        is_diffusers_model = issubclass(class_obj, ModelMixin)
-        is_transformers_model = issubclass(class_obj, PreTrainedModel)
+        is_diffusers_model = subclass_check(class_obj, ModelMixin)
+        is_transformers_model = subclass_check(class_obj, PreTrainedModel)
 
         if (
             is_diffusers_model

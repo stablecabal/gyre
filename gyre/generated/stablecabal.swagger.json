@@ -1060,6 +1060,16 @@
       ],
       "default": "AT_PARAMETER"
     },
+    "BackgroundRemovalMode": {
+      "type": "string",
+      "enum": [
+        "ALPHA",
+        "SOLID",
+        "BLUR"
+      ],
+      "default": "ALPHA",
+      "title": "- ALPHA: Apply to alpha channel\n - SOLID: Matte over a solid color\n - BLUR: Matte over a blurred version of the input"
+    },
     "CacheControl": {
       "type": "object",
       "properties": {
@@ -1546,6 +1556,20 @@
         },
         "openpose": {
           "$ref": "#/definitions/ImageAdjustment_Openpose"
+        },
+        "normal": {
+          "$ref": "#/definitions/ImageAdjustment_Normal"
+        },
+        "backgroundRemoval": {
+          "$ref": "#/definitions/ImageAdjustment_BackgroundRemoval"
+        }
+      }
+    },
+    "ImageAdjustment_BackgroundRemoval": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/BackgroundRemovalMode"
         }
       }
     },
@@ -1651,6 +1675,31 @@
         "outputHigh": {
           "type": "number",
           "format": "float"
+        }
+      }
+    },
+    "ImageAdjustment_Normal": {
+      "type": "object",
+      "properties": {
+        "backgroundThreshold": {
+          "type": "number",
+          "format": "float",
+          "title": "0 .. 1, the higher the more background is removed"
+        },
+        "preblur": {
+          "type": "integer",
+          "format": "int64",
+          "title": "Must be an odd integer if supplied. How much to blur depth map before calculating normal map: Recommended: 0"
+        },
+        "postblur": {
+          "type": "integer",
+          "format": "int64",
+          "title": "Must be an odd integer if supplied. How much to blur normal map. Recommended: 5"
+        },
+        "smoothing": {
+          "type": "number",
+          "format": "float",
+          "title": "Normal range 0..1. The higher the smoother. Recoomened: 0.8"
         }
       }
     },

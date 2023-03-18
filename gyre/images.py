@@ -7,10 +7,12 @@ from math import ceil, sqrt
 from typing import Literal
 
 import cv2 as cv
+import kornia
 import numpy as np
 import PIL
 import torch
 import torchvision
+from tqdm import tqdm, trange
 
 from .resize_right import interp_methods
 from .resize_right import resize as resize_right
@@ -109,6 +111,12 @@ def normalise_tensor(tensor: torch.Tensor, channels: int = 3) -> torch.Tensor:
     raise ValueError(f"Unknown number of channels {channels}")
 
 
+def normalise_range(tensor: torch.Tensor) -> torch.Tensor:
+    dmin = torch.amin(tensor, dim=[1, 2, 3], keepdim=True)
+    dmax = torch.amax(tensor, dim=[1, 2, 3], keepdim=True)
+    return (tensor - dmin) / (dmax - dmin)
+
+
 # TOOD: This won't work on images with alpha
 def levels(tensor, in0, in1, out0, out1):
     c = (out1 - out0) / (in1 - in0)
@@ -170,10 +178,13 @@ def crop(tensor, top, left, height, width):
 def rescale(
     tensor,
     height,
-    width,
-    fit: Literal["strict", "cover", "contain"],
+    width=None,
+    fit: Literal["strict", "cover", "contain"] = "cover",
     pad_mode="constant",
 ):
+    if width is None:
+        width = height
+
     # Get the original height and width
     orig_h, orig_w = tensor.shape[-2], tensor.shape[-1]
     # Calculate the scaling factors to hit the target height
@@ -189,6 +200,7 @@ def rescale(
         tensor,
         [scale_h, scale_w],
         interp_method=interp_methods.lanczos2,
+        pad_mode="replicate",
         antialiasing=False,
     ).clamp(0, 1)
 
@@ -220,3 +232,114 @@ def canny_edge(tensor, low_threshold, high_threshold):
         res.append(fromCV(edges))
 
     return torch.cat(res, dim=0)
+
+
+# define the total variation denoising network
+class TVDenoise(torch.nn.Module):
+    def __init__(self, noisy_image):
+        super().__init__()
+        self.l2_term = torch.nn.MSELoss(reduction="mean")
+        self.regularization_term = kornia.losses.TotalVariation()
+        # create the variable which will be optimized to produce the noise free image
+        self.clean_image = torch.nn.Parameter(
+            data=noisy_image.clone(), requires_grad=True
+        )
+        self.noisy_image = noisy_image
+
+    def forward(self):
+        res = self.l2_term(
+            self.clean_image, self.noisy_image
+        ) + 0.0001 * self.regularization_term(self.clean_image)
+
+        return res
+
+    def get_clean_image(self):
+        return self.clean_image
+
+
+def denoise(tensor, max_loss=None, iter_min=200, iter_max=5000):
+    denoiser = TVDenoise(tensor)
+
+    # define the optimizer to optimize the 1 parameter of tv_denoiser
+    optimizer = torch.optim.SGD(denoiser.parameters(), lr=0.1, momentum=0.9)
+
+    progress = tqdm(range(iter_max))
+    for i in progress:
+        optimizer.zero_grad()
+        loss = denoiser().sum()
+        if i % 50 == 0:
+            progress.set_postfix_str(f"Loss: {loss.item():.3f}")
+        loss.backward()
+        optimizer.step()
+
+        i = i + 1
+
+        if i >= iter_max:
+            break
+        if i > iter_min and max_loss is not None and loss.item() < max_loss:
+            break
+
+    return denoiser.get_clean_image()
+
+
+def normalmap_from_depthmap(
+    depthmap: torch.Tensor,
+    mask: torch.Tensor | None = None,
+    background_threshold=0.1,
+    a=np.pi * 2.0,
+    preblur=None,
+    postblur=None,
+    smoothing=None,
+):
+    if preblur:
+        depthmap_blr = kornia.filters.median_blur(depthmap, (preblur, preblur))
+    else:
+        depthmap_blr = depthmap
+
+    edges = kornia.filters.spatial_gradient(depthmap_blr, normalized=False)
+
+    # unpack the edges
+    grad_x = edges[:, :, 0]
+    grad_y = edges[:, :, 1]
+
+    # Remove background
+    if background_threshold:
+        if mask is None:
+            mask = normalise_range(depthmap)
+        zeros = torch.zeros_like(grad_x)
+
+        grad_x = torch.where(mask < background_threshold, zeros, grad_x)
+        grad_y = torch.where(mask < background_threshold, zeros, grad_y)
+
+    elif mask is not None:
+        grad_x = grad_x * mask
+        grad_y = grad_y * mask
+
+    # Concat into single BCHW normal map
+    normalmap = torch.cat((grad_x, grad_y, torch.ones_like(grad_x) * a), dim=1)
+
+    # Normalise vector length
+    veclen = (normalmap**2.0).sum(dim=1) ** 0.5
+    normalmap = normalmap / veclen
+
+    normalmap = (normalmap + 1) / 2
+
+    if postblur:
+        normalmap = kornia.filters.median_blur(normalmap, (postblur, postblur))
+
+    if smoothing:
+        # The worst contouring occurs on surfaces that are flat & parallel to the screen
+        # Fortunately (because of vector normalisation) Z axis will be 1 when flat, and 0 when oblique
+        # So we weight the denoising by the Z axis (blurred and normalised)
+        weights = normalmap[:, [2]]
+        weights = kornia.filters.box_blur(weights, (13, 13))
+        weights = kornia.filters.median_blur(weights, (13, 13))
+        weights = normalise_range(weights)
+
+        if False:  # Debug weights
+            return weights[:, [0, 0, 0]]
+
+        denoised = denoise(normalmap)
+        normalmap = normalmap + (denoised - normalmap) * weights * smoothing
+
+    return normalmap
