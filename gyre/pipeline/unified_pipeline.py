@@ -792,7 +792,7 @@ class UnifiedPipelineHint:
     def normalise(self, channels=3):
         self.image = images.normalise_tensor(self.image, channels)
         if self.mask is not None:
-            self.mask = images.normalise_tensor(self.image, 1)
+            self.mask = images.normalise_tensor(self.mask, 1)
 
     def extend(self, callback=None, **kwargs):
         cargs = {
@@ -828,6 +828,7 @@ class UnifiedPipelineHint:
             scale,
             interp_method=images.interp_methods.lanczos2,
             antialiasing=False,
+            pad_mode="reflect",
         ).to(state.device, state.dtype)
 
     def __call__(self):
@@ -838,7 +839,7 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
     patch_unet = t2i_adapter.patch_unet
     wrap_unet = UNetWithT2I
 
-    def __init__(self, model, image, mask=None, weight=1.0):
+    def __init__(self, model, image, mask=None, weight=1.0, channels=None):
         channels = model.config.cin // 64 if "cin" in model.config else 3
         super().__init__(model, image, mask, weight, channels=channels)
 
