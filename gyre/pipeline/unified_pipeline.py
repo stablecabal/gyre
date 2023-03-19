@@ -763,21 +763,27 @@ class UnifiedPipelineHint:
     weight: float
 
     @classmethod
-    def for_model(cls, model, image, weight=1.0):
+    def for_model(cls, model, image, mask=None, weight=1.0):
         if isinstance(model, t2i_adapter.T2iAdapter):
-            return UnifiedPipelineHint_T2i(model, image, weight)
+            return UnifiedPipelineHint_T2i(model, image, mask, weight)
         elif isinstance(model, controlnet.ControlNetModel):
-            return UnifiedPipelineHint_Controlnet(model, image, weight)
+            return UnifiedPipelineHint_Controlnet(model, image, mask, weight)
 
-    def __init__(self, model, image, weight=1.0, channels=3):
+    def __init__(self, model, image, mask=None, weight=1.0, channels=3):
         if type(self) is UnifiedPipelineHint:
             raise RuntimeError(
                 "Don't construct UnifiedPipelineHint directly, use for_model"
             )
 
+        if mask is None and image.shape[1] == 4:
+            mask = image[:, [3]]
+
         self.model = model
         self.image = images.fromPIL(image) if isinstance(image, PILImage) else image
+        self.mask = images.fromPIL(mask) if isinstance(mask, PILImage) else mask
         self.weight = weight
+        self.channels = channels
+
         self.normalise(channels)
 
     def to(self, device=None, dtype=None):
@@ -785,9 +791,44 @@ class UnifiedPipelineHint:
 
     def normalise(self, channels=3):
         self.image = images.normalise_tensor(self.image, channels)
+        if self.mask is not None:
+            self.mask = images.normalise_tensor(self.image, 1)
 
-    def with_image(self, callback):
-        return self.__class__(self.model, callback(self.image), self.weight)
+    def extend(self, callback=None, **kwargs):
+        cargs = {
+            "model": self.model,
+            "image": self.image,
+            "mask": self.mask,
+            "weight": self.weight,
+            "channels": self.channels,
+        }
+
+        cargs.update(kwargs)
+
+        if callback is not None:
+            cargs.update(callback(**cargs))
+
+        return self.__class__(**cargs)
+
+    def resized_mask(self, state):
+        if self.mask is None:  # or state.shape[-1] <= 16:
+            return torch.ones_like(state)
+
+        # Mask size should be a strict integer multiple of state size
+        assert self.mask.shape[-2] % state.shape[-2] == 0
+        assert self.mask.shape[-1] % state.shape[-1] == 0
+
+        scale = (
+            state.shape[-2] / self.mask.shape[-2],
+            state.shape[-1] / self.mask.shape[-1],
+        )
+
+        return images.resize_right(
+            self.mask,
+            scale,
+            interp_method=images.interp_methods.lanczos2,
+            antialiasing=False,
+        ).to(state.device, state.dtype)
 
     def __call__(self):
         raise NotImplementedError("Sub-class needs to implement")
@@ -797,12 +838,15 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
     patch_unet = t2i_adapter.patch_unet
     wrap_unet = UNetWithT2I
 
-    def __init__(self, model, image, weight=1.0):
+    def __init__(self, model, image, mask=None, weight=1.0):
         channels = model.config.cin // 64 if "cin" in model.config else 3
-        super().__init__(model, image, weight, channels=channels)
+        super().__init__(model, image, mask, weight, channels=channels)
 
     def __call__(self):
-        return [state * self.weight for state in self.model(self.image)]
+        return [
+            state * self.weight * self.resized_mask(state)
+            for state in self.model(self.image)
+        ]
 
 
 class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
@@ -813,11 +857,20 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
         res = self.model(*args, **kwargs, controlnet_cond=self.image)
         weight = self.weight
 
+        down_block_residuals = [
+            residual * weight * self.resized_mask(residual)
+            for residual in res.down_block_res_samples
+        ]
+
+        mid_block_residual = (
+            res.mid_block_res_sample
+            * weight
+            * self.resized_mask(res.mid_block_res_sample)
+        )
+
         return SN(
-            down_block_res_samples=[
-                residual * weight for residual in res.down_block_res_samples
-            ],
-            mid_block_res_sample=res.mid_block_res_sample * weight,
+            down_block_res_samples=down_block_residuals,
+            mid_block_res_sample=mid_block_residual,
         )
 
 
@@ -1765,8 +1818,6 @@ class UnifiedPipeline(DiffusionPipeline):
                 if isinstance(image, PILImage):
                     image = images.fromPIL(image)
 
-                image = images.normalise_tensor(image, 3)
-
                 # If this model has a depth_unet, use it for preference
                 if hint_type == "depth" and can_use_depth_unet:
                     logger.debug("Using unet for depth")
@@ -1792,7 +1843,7 @@ class UnifiedPipeline(DiffusionPipeline):
 
                     if handler:
                         leaf_args["hints"].append(
-                            UnifiedPipelineHint.for_model(handler, image, weight)
+                            UnifiedPipelineHint.for_model(handler, image, None, weight)
                         )
                     else:
                         if (
@@ -1901,7 +1952,14 @@ class UnifiedPipeline(DiffusionPipeline):
                     "mask_image": image_to_natural(mask_image, torch.ones),
                     "depth_map": image_to_natural(child_opts["depth_map"]),
                     "hints": [
-                        hint.with_image(image_to_natural)
+                        hint.extend(
+                            lambda image, mask, **_: {
+                                "image": image_to_natural(image),
+                                "mask": image_to_natural(mask)
+                                if mask is not None
+                                else mask,
+                            }
+                        )
                         for hint in child_opts["hints"]
                     ],
                     # "controlnet_hints": [

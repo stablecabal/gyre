@@ -91,12 +91,14 @@ def toPngBytes(tensor):
         return []
 
 
-def normalise_tensor(tensor: torch.Tensor, channels: int = 3) -> torch.Tensor:
+def normalise_tensor(tensor: torch.Tensor, channels: int | None = 3) -> torch.Tensor:
     # Process depth map
     if tensor.ndim == 3:
         tensor = tensor[None, ...]
 
-    if channels == 1:
+    if channels is None:
+        return tensor
+    elif channels == 1:
         return tensor[:, [0]]
     elif channels == 3:
         return tensor[:, [0, 1, 2]] if tensor.shape[1] >= 3 else tensor[:, [0, 0, 0]]
@@ -104,7 +106,7 @@ def normalise_tensor(tensor: torch.Tensor, channels: int = 3) -> torch.Tensor:
         if tensor.shape[1] >= 4:
             return tensor[:, [0, 1, 2, 3]]
         else:
-            alpha = torch.zeros(tensor.shape[0], 1, *tensor.shape[2:])
+            alpha = torch.ones(tensor.shape[0], 1, *tensor.shape[2:])
             tensor = normalise_tensor(tensor, 3)
             return torch.concat((tensor, alpha), dim=1)
 
@@ -290,6 +292,7 @@ def normalmap_from_depthmap(
     preblur=None,
     postblur=None,
     smoothing=None,
+    mode: Literal["alpha", "unit", "zero"] = "alpha",
 ):
     if preblur:
         depthmap_blr = kornia.filters.median_blur(depthmap, (preblur, preblur))
@@ -301,19 +304,24 @@ def normalmap_from_depthmap(
     # unpack the edges
     grad_x = edges[:, :, 0]
     grad_y = edges[:, :, 1]
+    grad_z = torch.ones_like(grad_x) * a
 
-    # Remove background
+    # If we have a background threshold, convert (or build from depth) a binary mask
     if background_threshold:
         if mask is None:
             mask = normalise_range(depthmap)
+
+        ones = torch.ones_like(grad_x)
         zeros = torch.zeros_like(grad_x)
 
-        grad_x = torch.where(mask < background_threshold, zeros, grad_x)
-        grad_y = torch.where(mask < background_threshold, zeros, grad_y)
+        mask = torch.where(mask < background_threshold, zeros, ones)
 
-    elif mask is not None:
+    # Now, if we have a mask, apply it
+    if mask is not None:
         grad_x = grad_x * mask
         grad_y = grad_y * mask
+        if mode == "zero":
+            grad_z = grad_z * mask
 
     # Concat into single BCHW normal map
     normalmap = torch.cat((grad_x, grad_y, torch.ones_like(grad_x) * a), dim=1)
@@ -341,5 +349,8 @@ def normalmap_from_depthmap(
 
         denoised = denoise(normalmap)
         normalmap = normalmap + (denoised - normalmap) * weights * smoothing
+
+    if mode == "alpha" and mask is not None:
+        normalmap = torch.cat((normalmap, mask), dim=1)
 
     return normalmap
