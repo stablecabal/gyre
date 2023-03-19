@@ -807,6 +807,23 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 print("Arguments processed")
                 self._ram_monitor.print()
 
+            if request.engine_id == "noop":
+                init_image = kwargs.get("init_image", None)
+
+                # If there was an init image passed, return the result
+                if init_image is not None:
+                    answer = generation_pb2.Answer()
+                    answer.request_id = request.request_id
+                    answer.answer_id = "noop"
+                    artifact = image_to_artifact(
+                        init_image, artifact_type=generation_pb2.ARTIFACT_IMAGE
+                    )
+                    artifact.index = 1
+                    answer.artifacts.append(artifact)
+                    yield answer
+
+                return
+
             stop_event = threading.Event()
             context.add_callback(lambda: stop_event.set())
 

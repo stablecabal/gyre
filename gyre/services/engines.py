@@ -19,6 +19,19 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
     def ListEngines(self, request, context):
         engines = engines_pb2.Engines()
 
+        # Add the no-op engine, which is always available
+        info = engines_pb2.EngineInfo()
+        info.id = "noop"
+        info.name = "No-op engine"
+        info.description = (
+            "Does nothing, just returns the init image without further processing."
+        )
+        info.owner = "gyre"
+        info.ready = True
+        info.type = engines_pb2.EngineType.PICTURE
+        info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_IMAGE)
+        engines.engine.append(info)
+
         status = self._manager.getStatus()
         for engine in self._manager.engines:
             if not (engine.is_engine and engine.visible and engine.task == "generate"):
