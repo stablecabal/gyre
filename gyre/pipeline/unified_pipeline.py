@@ -781,6 +781,11 @@ class UnifiedPipelineHint:
         self.model = model
         self.image = images.fromPIL(image) if isinstance(image, PILImage) else image
         self.mask = images.fromPIL(mask) if isinstance(mask, PILImage) else mask
+
+        # If the mask is pure 1s, just discard it
+        if self.mask is not None and self.mask.mean() == 1.0 and self.mask.std() == 0.0:
+            self.mask = None
+
         self.weight = weight
         self.channels = channels
 

@@ -1,12 +1,9 @@
 import io
-from array import ArrayType
 
 import cv2 as cv
 import generation_pb2
-import numpy as np
 import PIL
 import torch
-from PIL import PngImagePlugin
 
 from gyre import images
 from gyre.pipeline.vae_approximator import VaeApproximator
@@ -30,15 +27,15 @@ def image_to_artifact(im, artifact_type=generation_pb2.ARTIFACT_IMAGE, meta=None
         binary = images.toPngBytes(im)[0]
     elif isinstance(im, PIL.Image.Image):
         buf = io.BytesIO()
-        info = PngImagePlugin.PngInfo()
-        if meta:
-            for k, v in meta.items():
-                info.add_text(k, v)
-        im.save(buf, format="PNG", pnginfo=info)
+        im.save(buf, format="PNG")
         buf.seek(0)
         binary = buf.getvalue()
     else:
         binary = cv.imencode(".png", im)[1]
+
+    if meta:
+        for k, v in meta.items():
+            binary = images.addTextChunkToPngBytes(binary, k, v)
 
     return generation_pb2.Artifact(type=artifact_type, binary=binary, mime="image/png")
 

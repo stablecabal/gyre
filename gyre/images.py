@@ -3,6 +3,8 @@
 # All images in are in BCHW unless specified in the variable name, as floating point 0..1
 # All functions will handle RGB or RGBA images
 
+import struct
+import zlib
 from math import ceil, sqrt
 from typing import Literal
 
@@ -89,6 +91,32 @@ def toPngBytes(tensor):
     else:
         print(f"Don't know how to save PNGs with {tensor.shape[1]} channels")
         return []
+
+
+def addTextChunkToPngBytes(binary, key: str, text: str):
+    txt_chunk = key.encode("utf-8") + b"\0" + text.encode("utf-8")
+
+    # check for last chunk
+    iend_index = binary.rindex(b"IEND") - 4
+    img_data_pre = binary[:iend_index]
+    img_data_post = binary[iend_index:]
+
+    # new chunk
+    length = struct.pack(">I", len(txt_chunk))
+    chunktype = b"tEXt"
+    chunk_crc = zlib.crc32(chunktype)
+    chunk_crc = zlib.crc32(txt_chunk, chunk_crc)
+    chunk_crc = struct.pack(">I", chunk_crc)
+
+    # return new binary with tEXt chunk injected in the middle
+    return b"".join((
+        img_data_pre,
+        length,
+        chunktype,
+        txt_chunk,
+        chunk_crc,
+        img_data_post
+    ))
 
 
 def normalise_tensor(tensor: torch.Tensor, channels: int | None = 3) -> torch.Tensor:
