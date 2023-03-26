@@ -1,20 +1,12 @@
-# You can enable any of the included but disabled-by-default engines here, by
-# uncommenting the relevant section
-
-# - id: "stable-diffusion-v1-4"
-#   enabled: True
-
-# - id: "stable-diffusion-v2-1-vpred"
-#   enabled: True
-
-# - id: "inkpunk-diffusion"
-#   enabled: True
-
-# - id: "waifu-diffusion-v1-4"
-#   enabled: True
-
-# - id: "orange-abyssmix2"
-#   enabled: True
-
-# You can include any adjustments to standard models here
-
+# Example of enabling a model that's disabled by default.
+# In this case we're enabling the old-fish model defined in fish.yaml
+- id: "old-fish"
+  enabled: True
+#
+# Example of modifying the underlying template. This would change the
+# default value of enabled from False to True.
+#
+# ---
+# !@template/stable-diffusion-v1
+# - id: "{{id}}"
+#   enabled: "{{enabled:True}}"

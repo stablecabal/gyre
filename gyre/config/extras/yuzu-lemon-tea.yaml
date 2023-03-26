@@ -1,0 +1,26 @@
+---
+!stable-diffusion-v1-5-ckpt/yuzu-milk
+name: "Yuzu Lemon Milk"
+description: "An anime-style finetune of Stable Diffusion v1.5 - semi-realistic style"
+has_vae: True
+source:
+  model: "thiros/YuzuLemonTea"
+  allow_patterns: "YuzuLemonMilk_v1.5-pruned.safetensors"
+
+---
+!stable-diffusion-v1-5-ckpt/yuzu-chailatte
+name: "Yuzu Lemon Chai Latte"
+description: "An anime-style finetune of Stable Diffusion v1.5 - semi-anime style"
+has_vae: True
+source:
+  model: "thiros/YuzuLemonTea"
+  allow_patterns: "YuzuLemonChaiLatte_v9.5-pruned.safetensors"
+
+---
+!stable-diffusion-v1-5-ckpt/yuzu-ginger
+name: "Yuzu Ginger"
+description: "An anime-style finetune of Stable Diffusion v1.5 - very anime style"
+has_vae: True
+source:
+  model: "thiros/YuzuLemonTea"
+  allow_patterns: "YuzuGinger_v4-pruned.safetensors"

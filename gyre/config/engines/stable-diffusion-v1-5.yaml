@@ -1,8 +1,8 @@
-- id: "stable-diffusion-v1-5"
-  default: True
-  name: "Stable Diffusion V1.5 w/ standard CLIP guidance"
-  description: "Stable Diffusion using the RunwayML model, CLIP guidance (standard config) and our Unified pipeline"
-  model: "@stable-diffusion-v1-5"
-  overrides:
-    clip: "@clip-common"
-  hintset: "hintset-sd15-common"
+!stable-diffusion-v1/stable-diffusion-v1-5
+name: "Stable Diffusion v1.5"
+description: "Stable Diffusion using the RunwayML v1.5 model"
+enabled: True
+source:
+  model: "runwayml/stable-diffusion-v1-5"
+inpaint_source:
+  model: "runwayml/stable-diffusion-inpainting"

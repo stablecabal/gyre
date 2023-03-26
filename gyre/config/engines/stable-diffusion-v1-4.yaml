@@ -1,8 +1,5 @@
-# And finally, here is the unmodified Stable Diffusion V1.4 model, showing how to list
-# the model inline. This is disabled by default, set enabled: True to enable it.
-- id: "stable-diffusion-v1-4"
-  enabled: False
-  name: "Stable Diffusion V1.4"
-  description: "Stable Diffusion using the CompVis model and our Unified pipeline"
+!stable-diffusion-v1/stable-diffusion-v1-4
+name: "Stable Diffusion v1.4"
+description: "Stable Diffusion using the CompVis v1.4 model"
+source:
   model: "CompVis/stable-diffusion-v1-4"
-  local_model: "./stable-diffusion-v1-4"

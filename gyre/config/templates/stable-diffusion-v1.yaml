@@ -1,0 +1,92 @@
+---
+!@template/stable-diffusion-v1
+- model_id: "{{id}}-base"
+  "{{> source}}": _
+
+- "{{#inpaint_source}}":
+    - model_id: "{{id}}-inpaint"
+      whitelist: ["unet", "text_encoder"]
+      "{{> inpaint_source}}": _
+
+- model_id: "{{id}}"
+  model: "@{{id}}-base"
+  overrides:
+    "{{#inpaint_source}}":
+      inpaint_unet: "@{{id}}-inpaint/unet"
+      inpaint_text_encoder: "@{{id}}-inpaint/text_encoder"
+
+- id: "{{id}}"
+  name: "{{name}}"
+  description: "{{description}}"
+  model: "@{{id}}"
+  enabled: "{{enabled:False}}"
+  hintset: "hintset-sd15-common"
+  overrides:
+    clip: "@clip-common"
+    vae: "@stability-vae-ema"
+
+---
+!@stable-diffusion-v1/stable-diffusion-v1-5-finetune
+- model_id: "{{id}}-base"
+  whitelist:
+    - "{{#has_unet:True}}":
+        - "unet"
+    - "{{#has_text_encoder:True}}":
+        - "text_encoder"
+    - "{{#has_vae:False}}":
+        - "vae"
+
+- "{{^inpaint_source}}":
+    - "{{#has_unet:True}}":
+        - model_id: "{{id}}-inpaint-unet"
+          type: "mix"
+          model:
+            - "@stable-diffusion-v1-5/inpaint_unet"
+            - "@{{id}}-base/unet"
+          mix:
+            type: "difference"
+            base: "@stable-diffusion-v1-5/unet"
+            alpha: 0
+
+    - "{{#has_text_encoder:True}}":
+        - model_id: "{{id}}-inpaint-text_encoder"
+          type: "mix"
+          model:
+            - "@stable-diffusion-v1-5/text_encoder"
+            - "@{{id}}-base/text_encoder"
+
+- model_id: "{{id}}"
+  model: "@stable-diffusion-v1-5"
+  overrides:
+    "{{#has_unet:True}}":
+      unet: "@{{id}}-base/unet"
+    "{{#has_text_encoder:True}}":
+      text_encoder: "@{{id}}-base/text_encoder"
+    "{{#has_vae:False}}":
+      vae: "@{{id}}-base/vae"
+    "{{^inpaint_source}}":
+      "{{#has_unet:True}}":
+        inpaint_unet: "@{{id}}-inpaint-unet"
+      "{{#has_text_encoder:True}}":
+        inpaint_text_encoder: "@{{id}}-inpaint-text_encoder"
+
+---
+!@stable-diffusion-v1-5-finetune/stable-diffusion-v1-5-ckpt
+- !params
+  source: "" # Remove the source for the {id}}-base model
+  inpaint_source: "" # Remove the inpaint_source for the {id}}-base model
+
+- model_id: "{{id}}-ckpt"
+  type: "ckpt/v1-inference"
+  whitelist:
+    - "{{#has_unet:True}}":
+        - "unet"
+    - "{{#has_text_encoder:True}}":
+        - "text_encoder"
+    - "{{#has_vae:False}}":
+        - "vae"
+  "{{> source}}": _
+
+- model_id: "{{id}}-base"
+  fallback: "@{{id}}-ckpt"
+  whitelist: !none

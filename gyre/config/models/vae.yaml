@@ -9,3 +9,19 @@
   type: "vae"
   model: "stabilityai/sd-vae-ft-mse"
   local_model: "./sd-vae-ft-mse"
+
+- model_id: "waifu-vae-anime"
+  type: "ckpt/v1-inference"
+  model: "hakurei/waifu-diffusion-v1-4"
+  subfolder: "vae"
+  allow_patterns: "kl-f8-anime.ckpt"
+  whitelist: ["vae"]
+  fp16: "prevent"
+
+- model_id: "waifu-vae-anime2"
+  type: "ckpt/v1-inference"
+  model: "hakurei/waifu-diffusion-v1-4"
+  subfolder: "vae"
+  allow_patterns: "kl-f8-anime2.ckpt"
+  whitelist: ["vae"]
+  fp16: "prevent"

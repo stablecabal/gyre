@@ -1,17 +1,36 @@
-- id: "stable-diffusion-v2-1"
-  name: "Stable Diffusion V2.1 w/ standard CLIP guidance"
-  description: "Stable Diffusion using the Stability V2.1 512x512 model, CLIP guidance (standard config) and our Unified pipeline"
-  model: "@stable-diffusion-v2-1"
-  overrides:
-    clip: "@clip-common"
+---
+!stable-diffusion-v2/stable-diffusion-v2-0
+name: "Stable Diffusion V2.0"
+description: "Stable Diffusion using the Stability V2.0 512x512 model"
+source:
+  model: "stabilityai/stable-diffusion-2-base"
+depth_source:
+  model: "stabilityai/stable-diffusion-2-depth"
+inpaint_source:
+  model: "stabilityai/stable-diffusion-2-inpainting"
 
-# This is the Stable Diffusion V2.1 768x768 model with CLIP guidance. This configuration needs quite
-# a lot of VRAM, but is faster and produces better results if you have enough.
-- id: "stable-diffusion-v2-1-vpred"
-  # If you'd like to test this engine is compatible with your hardware, set this to True.
-  enabled: False
-  name: "Stable Diffusion V2.1 VPred w/ quality CLIP guidance"
-  description: "Stable Diffusion using the Stability V2.1 768x768 model, CLIP guidance (quality config) and our Unified pipeline"
-  model: "@stable-diffusion-v2-1-vpred"
-  overrides:
-    clip: "@clip-common"
+---
+!stable-diffusion-v2/stable-diffusion-v2-1
+name: "Stable Diffusion V2.1"
+description: "Stable Diffusion using the Stability V2.1 512x512 model"
+enabled: True
+source:
+  model: "stabilityai/stable-diffusion-2-1-base"
+depth_source:
+  model: "@stable-diffusion-v2-0-depth"
+inpaint_source:
+  model: "@stable-diffusion-v2-0-inpaint"
+
+---
+!stable-diffusion-v2/stable-diffusion-v2-0-vpred
+name: "Stable Diffusion V2.0"
+description: "Stable Diffusion using the Stability V2.0 768x768 model"
+source:
+  model: "stabilityai/stable-diffusion-2"
+
+---
+!stable-diffusion-v2/stable-diffusion-v2-1-vpred
+name: "Stable Diffusion V2.1"
+description: "Stable Diffusion using the Stability V2.1 768x768 model"
+source:
+  model: "stabilityai/stable-diffusion-2-1"

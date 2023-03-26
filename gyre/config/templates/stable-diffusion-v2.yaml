@@ -1,0 +1,79 @@
+---
+!@template/stable-diffusion-v2
+- model_id: "{{id}}-base"
+  "{{> source}}": _
+
+- "{{#depth_source}}":
+    - model_id: "{{id}}-depth"
+      whitelist: ["unet", "text_encoder"]
+      "{{> depth_source}}": _
+
+- "{{#inpaint_source}}":
+    - model_id: "{{id}}-inpaint"
+      whitelist: ["unet", "text_encoder"]
+      "{{> inpaint_source}}": _
+
+- model_id: "{{id}}"
+  model: "@{{id}}-base"
+  overrides:
+    "{{#depth_source}}":
+      depth_unet: "@{{id}}-depth/unet"
+      depth_text_encoder: "@{{id}}-depth/text_encoder"
+    "{{#inpaint_source}}":
+      inpaint_unet: "@{{id}}-inpaint/unet"
+      inpaint_text_encoder: "@{{id}}-inpaint/text_encoder"
+
+- id: "{{id}}"
+  name: "{{name}}"
+  description: "{{description}}"
+  model: "@{{id}}"
+  enabled: "{{enabled:False}}"
+  hintset: "hintset-sd21-common"
+  overrides:
+    clip: "@clip-common"
+
+---
+!@stable-diffusion-v2/stable-diffusion-v2-1-finetune
+- model_id: "{{id}}-base"
+  whitelist: ["unet", "text_encoder"]
+
+- "{{^inpaint_source}}":
+    - model_id: "{{id}}-inpaint-unet"
+      type: "mix"
+      model:
+        - "@stable-diffusion-v2-0-inpaint/unet"
+        - "@{{id}}-base/unet"
+      mix:
+        type: "difference"
+        base: "@stable-diffusion-v2-1-base/unet"
+        alpha: 0
+
+    - model_id: "{{id}}-inpaint-text_encoder"
+      type: "mix"
+      model:
+        - "@stable-diffusion-v2-1-base/text_encoder"
+        - "@{{id}}-base/text_encoder"
+
+- model_id: "{{id}}"
+  model: "@stable-diffusion-v2-1"
+  overrides:
+    unet: "@{{id}}-base/unet"
+    text_encoder: "@{{id}}-base/text_encoder"
+    "{{^inpaint_source}}":
+      inpaint_unet: "@{{id}}-inpaint-unet"
+      inpaint_text_encoder: "@{{id}}-inpaint-text_encoder"
+
+---
+!@stable-diffusion-v2-1-finetune/stable-diffusion-v2-1-ckpt
+- !params
+  source: "" # Remove the source for the {id}}-base model
+  inpaint_source: "" # Remove the inpaint_source for the {id}}-base model
+
+- model_id: "{{id}}-ckpt"
+  type: "ckpt/v2-inference"
+  whitelist: ["unet", "text_encoder"]
+  "{{> source}}": _
+
+- model_id: "{{id}}-base"
+  fallback: "@{{id}}-ckpt"
+  whitelist: !none

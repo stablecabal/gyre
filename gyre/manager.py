@@ -37,7 +37,7 @@ from huggingface_hub.file_download import http_get
 from tqdm.auto import tqdm
 from transformers import CLIPModel, PreTrainedModel
 
-from gyre import ckpt_utils, torch_safe_unpickler
+from gyre import civitai, ckpt_utils, torch_safe_unpickler
 from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
 from gyre.pipeline.controlnet import ControlNetModel
@@ -866,8 +866,15 @@ class EngineManager(object):
         if not model_path:
             raise ValueError("No remote model name was provided")
 
-        require_fp16 = self.mode.fp16 and spec.fp16 == "only"
-        prefer_fp16 = self.mode.fp16 and spec.fp16 == "auto"
+        # Support providing fixed revision
+        revision = spec.revision
+
+        if revision:
+            extra_kwargs["revision"] = revision
+
+        # Handle various fp16 modes
+        require_fp16 = (not revision) and self.mode.fp16 and spec.fp16 == "only"
+        prefer_fp16 = (not revision) and self.mode.fp16 and spec.fp16 == "auto"
         has_fp16 = None
 
         subfolder = f"{spec.subfolder}/" if spec.subfolder else ""
@@ -1056,8 +1063,12 @@ class EngineManager(object):
 
         return self._get_hf_path(spec, local_only=False)
 
+    def _get_civitai_path(self, spec: EngineSpec, local_only=True):
+        ref = civitai.parse_url(spec.model)
+        return civitai.get_model(ref, local_only=local_only)
+
     def _get_url_path(self, spec: EngineSpec, local_only=True):
-        urls = spec.urls
+        urls = spec.model or spec.urls
 
         if not urls:
             raise ValueError("No URL was provided")
@@ -1126,27 +1137,31 @@ class EngineManager(object):
             )
         )
 
-        # 1st: If this model should explicitly be refreshed, try refreshing from...
-        if matches_refresh:
-            # HuggingFace
-            add_candidate(self._get_hf_path, local_only=False)
-            # Or an explicit URL
-            add_candidate(self._get_url_path, local_only=False)
+        if not model_path:
+            model_source = None
+        elif model_path.startswith("https://civitai.com"):
+            model_source = self._get_civitai_path
+        elif model_path.startswith("https://"):
+            model_source = self._get_url_path
+        else:
+            model_source = self._get_hf_path
+
+        # 1st: If this model should explicitly be refreshed, try refreshing from URL...
+        if model_source and matches_refresh:
+            add_candidate(model_source, local_only=False)
         # 2nd: If we're in fp16 mode, try loading the fp16-specific local model
         if self.mode.fp16 and spec.fp16 not in {"never", "prevent"}:
             add_candidate(self._get_local_path, fp16=True)
         # 3rd: Try loading the general local model
         if not (self.mode.fp16 and spec.fp16 == "only"):
             add_candidate(self._get_local_path, fp16=False)
-        # 4th: Try loading from the existing HuggingFace cache
-        add_candidate(self._get_hf_path, local_only=True)
-        # 5th: Try loading from an already-downloaded explicit URL
-        add_candidate(self._get_url_path, local_only=True)
-        # 6th: If this model wasn't explicitly flagged to be refreshed, try anyway
-        if not matches_refresh:
-            add_candidate(self._get_hf_path, local_only=False)
-            add_candidate(self._get_url_path, local_only=False)
-        # 7th: If configured so, try a forced empty-cache-and-reload from HuggingFace
+        # 4th: Try loading from the existing cache
+        if model_source:
+            add_candidate(model_source, local_only=True)
+        # 5th: If this model wasn't explicitly flagged to be refreshed, try anyway
+        if model_source and not matches_refresh:
+            add_candidate(model_source, local_only=False)
+        # 6th: If configured so, try a forced empty-cache-and-reload from HuggingFace
         if self._refresh_on_error:
             add_candidate(self._get_hf_forced_path)
 

@@ -1,0 +1,20 @@
+---
+!stable-diffusion-v1-5-finetune/dreamlike-diffusion
+name: "Dreamlike Diffusion"
+description: "Dreamlike Diffusion"
+source:
+  model: "dreamlike-art/dreamlike-diffusion-1.0"
+
+---
+!stable-diffusion-v1-5-finetune/dreamlike-photoreal-v2
+name: "Dreamlike Photoreal V2"
+description: "Dreamlike Photoreal V2"
+source:
+  model: "dreamlike-art/dreamlike-photoreal-2.0"
+
+---
+!stable-diffusion-v1-5-finetune/dreamlike-anime
+name: "Dreamlike Anime V1"
+description: "Dreamlike Anime V1"
+source:
+  model: "dreamlike-art/dreamlike-anime-1.0"

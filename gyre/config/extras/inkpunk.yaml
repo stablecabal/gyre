@@ -1,0 +1,6 @@
+---
+!stable-diffusion-v1-5-finetune/inkpunk
+name: "Inkpunk Diffusion"
+description: "Inkpunk Diffusion, a painterly inkpunk style finetune based on Stable Diffusion V1.5. Use nvinkpunk in the prompt to strengthen the style."
+source:
+  model: "Envvi/Inkpunk-Diffusion"

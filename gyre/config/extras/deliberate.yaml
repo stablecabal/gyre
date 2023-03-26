@@ -1,0 +1,6 @@
+---
+!stable-diffusion-v1-5-ckpt/deliberate
+name: "Deliberate"
+description: "Deliberate"
+source:
+  model: "https://civitai.com/api/download/models/15236"

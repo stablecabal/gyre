@@ -18,30 +18,20 @@
   enabled: True
   default: True
 
-# Don't use vae_cutouts during CLIP guidance, just approx cutouts
-# (default is 2 of each type)
-
-- id: "stable-diffusion-v1-5"
+---
+!@template/stable-diffusion-v1
+- id: "{{id}}"
   options:
     clip:
+      # Don't use vae_cutouts during CLIP guidance, just approx cutouts
+      # (default is 2 of each type)
       vae_cutouts: 0
 
-- id: "stable-diffusion-v2-1"
+---
+!@template/stable-diffusion-v2
+- id: "{{id}}"
   options:
     clip:
-      vae_cutouts: 0
-
-- id: "stable-diffusion-v2-1-vpred"
-  options:
-    clip:
-      vae_cutouts: 0
-
-- id: "waifu-diffusion-v1-4"
-  options:
-    clip:
-      vae_cutouts: 0
-
-- id: "inkpunk-diffusion"
-  options:
-    clip:
+      # Don't use vae_cutouts during CLIP guidance, just approx cutouts
+      # (default is 2 of each type)
       vae_cutouts: 0

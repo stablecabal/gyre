@@ -14,8 +14,17 @@
 # See _documented.yaml for documentation on the structure
 #
 
+# Core templates
+- !include templates/*
+# Core models
 - !include models/*
+# Core engines
 - !include engines/*
+# Some examples of extra engines
+- !include extras/*
+# A location to add your custom yaml files
 - !include custom/*
-- !merge limit_vram.yaml
-- !merge user_tweaks.yaml
+# Some changes to config values to reduce vram usage.
+- !include(vram4) limit_vram.yaml
+# A location to add your tweaks
+- !include user_tweaks.yaml

@@ -56,9 +56,8 @@ import dashboard_pb2_grpc
 import engines_pb2_grpc
 import generation_pb2_grpc
 
-from gyre import cache
+from gyre import cache, engines_yaml
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
-from gyre.engines_yaml import EnginesYaml
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
@@ -398,7 +397,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         return NoResource().render(request)
 
 
-def environ_list(key):
+def environ_list(key, default=[]):
     """
     For mapping an argument that might be called mutiple times to environment variables
     we support two options (can be mixed):
@@ -418,7 +417,7 @@ def environ_list(key):
         if candidate_key.startswith(key + "_"):
             result.append(os.environ.get(candidate_key).strip())
 
-    return result
+    return result if result else default
 
 
 def main():
@@ -469,8 +468,8 @@ def main():
     generation_opts.add_argument(
         "--enginecfg",
         "-E",
-        type=str,
-        default=os.environ.get("SD_ENGINECFG", "./config/engines.yaml"),
+        action="append",
+        default=environ_list("SD_ENGINECFG"),
         help="Path to the engines.yaml file, or an https URL to a zip containing an `engines.yml` file and any includes",
     )
     generation_opts.add_argument(
@@ -709,37 +708,46 @@ def main():
     prevHandler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
 
     # Handle enginecfg arg being passed as a URL
-    temp_cfg = None
-    if args.enginecfg.startswith("http"):
-        temp_cfg = tempfile.TemporaryDirectory()
-        temp_zip = os.path.join(temp_cfg.name, "config.zip")
-        temp_yaml = os.path.join(temp_cfg.name, "engines.yaml")
+    enginecfg = []
 
-        if args.enginecfg.startswith("https://drive.google.com"):
-            print("Loading config from Google Drive. Make sure you trust the source.")
-            gdown.download(url=args.enginecfg, output=temp_zip, quiet=False, fuzzy=True)
+    for cfg in args.enginecfg or ["./config/engines.yaml"]:
+        if cfg.startswith("http"):
+            temp_cfg = tempfile.TemporaryDirectory()
+            temp_zip = os.path.join(temp_cfg.name, "config.zip")
+            temp_yaml = os.path.join(temp_cfg.name, "engines.yaml")
+
+            if cfg.startswith("https://drive.google.com"):
+                print(
+                    "Loading config from Google Drive. Make sure you trust the source."
+                )
+                gdown.download(url=cfg, output=temp_zip, quiet=False, fuzzy=True)
+            else:
+                print("Loading config from a URL. Make sure you trust the source.")
+                with open(temp_zip, "wb") as zip_handle:
+                    http_get(cfg, zip_handle)
+
+            if not os.path.exists(temp_zip):
+                raise RuntimeError(f"Error downloading config from {cfg}")
+
+            with zipfile.ZipFile(temp_zip) as zip_handle:
+                zip_handle.extractall(path=temp_cfg.name)
+
+            if not os.path.exists(temp_yaml):
+                raise RuntimeError(
+                    f"Zip downloaded from {cfg} did not contain engines.yaml"
+                )
+
+            enginecfg.append(temp_yaml)
+
+        elif cfg.endswith(".yml") or cfg.endswith(".yaml"):
+            enginecfg.append(os.path.normpath(cfg))
+
         else:
-            print("Loading config from a URL. Make sure you trust the source.")
-            with open(temp_zip, "wb") as zip_handle:
-                http_get(args.enginecfg, zip_handle)
+            enginecfg.append(cfg)
 
-        if not os.path.exists(temp_zip):
-            raise RuntimeError(f"Error downloading config from {args.enginecfg}")
-
-        with zipfile.ZipFile(temp_zip) as zip_handle:
-            zip_handle.extractall(path=temp_cfg.name)
-
-        if not os.path.exists(temp_yaml):
-            raise RuntimeError(
-                f"Zip downloaded from {args.enginecfg} did not contain engines.yaml"
-            )
-
-        enginecfg_path = temp_yaml
-
-    # Otherwise enginecfg path is on the local drive
-    else:
-        enginecfg_path = os.path.normpath(args.enginecfg)
-        EnginesYaml.check_and_update(os.path.dirname(enginecfg_path))
+    # Now update, if that makes sense to
+    if enginecfg[0].endswith("engines.yaml"):
+        engines_yaml.check_and_update(os.path.dirname(enginecfg[0]))
 
     tensor_cache = cache.TensorLRUCache_Dual(
         memlimit=args.cache_ram * cache.MB, disklimit=args.cache_disk * cache.MB
@@ -783,100 +791,107 @@ def main():
     if xformers_mea_available():
         print("Xformers defaults to on")
 
-    with open(enginecfg_path, "r") as cfg:
-        engines = EnginesYaml.load(cfg)
+    engines = engines_yaml.load(
+        enginecfg,
+        {
+            "vram2": args.vram_optimisation_level >= 2,
+            "vram3": args.vram_optimisation_level >= 3,
+            "vram4": args.vram_optimisation_level >= 4,
+            "vram5": args.vram_optimisation_level >= 5,
+        },
+    )
 
-        manager = EngineManager(
-            engines,
-            weight_root=args.weight_root,
-            refresh_models=refresh_models,
-            refresh_on_error=not args.dont_refresh_on_error,
-            mode=EngineMode(
-                vram_optimisation_level=args.vram_optimisation_level,
-                force_fp32=args.force_fp32,
-                enable_cuda=True,
-                enable_mps=args.enable_mps,
-                vram_fraction=args.vram_fraction,
-            ),
-            batchMode=BatchMode(
-                autodetect=args.batch_autodetect,
-                points=args.batch_points,
-                simplemax=args.batch_max,
-                safety_margin=args.batch_autodetect_margin,
-            ),
-            nsfw_behaviour=args.nsfw_behaviour,
-            ram_monitor=ram_monitor,
-        )
+    manager = EngineManager(
+        engines,
+        weight_root=args.weight_root,
+        refresh_models=refresh_models,
+        refresh_on_error=not args.dont_refresh_on_error,
+        mode=EngineMode(
+            vram_optimisation_level=args.vram_optimisation_level,
+            force_fp32=args.force_fp32,
+            enable_cuda=True,
+            enable_mps=args.enable_mps,
+            vram_fraction=args.vram_fraction,
+        ),
+        batchMode=BatchMode(
+            autodetect=args.batch_autodetect,
+            points=args.batch_points,
+            simplemax=args.batch_max,
+            safety_margin=args.batch_autodetect_margin,
+        ),
+        nsfw_behaviour=args.nsfw_behaviour,
+        ram_monitor=ram_monitor,
+    )
 
-        http.status_controller.set_manager(manager)
+    http.status_controller.set_manager(manager)
 
-        print("Manager loaded")
+    print("Manager loaded")
 
-        if save_safetensor_patterns:
-            manager.save_engine_as_safetensor(save_safetensor_patterns)
-            shutdown_reactor_handler()
+    if save_safetensor_patterns:
+        manager.save_engine_as_safetensor(save_safetensor_patterns)
+        shutdown_reactor_handler()
 
-        if ram_monitor:
-            ram_monitor.print()
+    if ram_monitor:
+        ram_monitor.print()
 
-        # Create Generation Servicer and attach to all the servers
+    # Create Generation Servicer and attach to all the servers
 
-        generation_servicer = GenerationServiceServicer(
-            manager,
-            tensor_cache=tensor_cache,
-            resource_provider=resource_provider,
-            supress_metadata=args.supress_metadata,
-            debug_recorder=debug_recorder,
-            ram_monitor=ram_monitor,
-        )
+    generation_servicer = GenerationServiceServicer(
+        manager,
+        tensor_cache=tensor_cache,
+        resource_provider=resource_provider,
+        supress_metadata=args.supress_metadata,
+        debug_recorder=debug_recorder,
+        ram_monitor=ram_monitor,
+    )
 
-        generation_pb2_grpc.add_GenerationServiceServicer_to_server(
-            generation_servicer, grpc.grpc_server
-        )
-        generation_pb2_grpc.add_GenerationServiceServicer_to_server(
-            generation_servicer, http.grpc_server
-        )
-        http.grpc_gateway.add_GenerationServiceServicer(generation_servicer)
-        http.stability_rest_api.add_GenerationServiceServicer(generation_servicer)
+    generation_pb2_grpc.add_GenerationServiceServicer_to_server(
+        generation_servicer, grpc.grpc_server
+    )
+    generation_pb2_grpc.add_GenerationServiceServicer_to_server(
+        generation_servicer, http.grpc_server
+    )
+    http.grpc_gateway.add_GenerationServiceServicer(generation_servicer)
+    http.stability_rest_api.add_GenerationServiceServicer(generation_servicer)
 
-        # Create Engines Servicer and attach to all the servers
+    # Create Engines Servicer and attach to all the servers
 
-        engines_servicer = EnginesServiceServicer(manager)
+    engines_servicer = EnginesServiceServicer(manager)
 
-        engines_pb2_grpc.add_EnginesServiceServicer_to_server(
-            engines_servicer, grpc.grpc_server
-        )
-        engines_pb2_grpc.add_EnginesServiceServicer_to_server(
-            engines_servicer, http.grpc_server
-        )
-        http.grpc_gateway.add_EnginesServiceServicer(engines_servicer)
-        http.stability_rest_api.add_EnginesServiceServicer(engines_servicer)
+    engines_pb2_grpc.add_EnginesServiceServicer_to_server(
+        engines_servicer, grpc.grpc_server
+    )
+    engines_pb2_grpc.add_EnginesServiceServicer_to_server(
+        engines_servicer, http.grpc_server
+    )
+    http.grpc_gateway.add_EnginesServiceServicer(engines_servicer)
+    http.stability_rest_api.add_EnginesServiceServicer(engines_servicer)
 
-        # Create Dashobard Servicer and attach to all the servers
+    # Create Dashobard Servicer and attach to all the servers
 
-        dashboard_servicer = DashboardServiceServicer()
+    dashboard_servicer = DashboardServiceServicer()
 
-        dashboard_pb2_grpc.add_DashboardServiceServicer_to_server(
-            dashboard_servicer, grpc.grpc_server
-        )
-        dashboard_pb2_grpc.add_DashboardServiceServicer_to_server(
-            DashboardServiceServicer(), http.grpc_server
-        )
+    dashboard_pb2_grpc.add_DashboardServiceServicer_to_server(
+        dashboard_servicer, grpc.grpc_server
+    )
+    dashboard_pb2_grpc.add_DashboardServiceServicer_to_server(
+        DashboardServiceServicer(), http.grpc_server
+    )
 
-        print(
-            f"GRPC listening on port {args.grpc_port}, HTTP listening on port {args.http_port}. Start your engines...."
-        )
+    print(
+        f"GRPC listening on port {args.grpc_port}, HTTP listening on port {args.http_port}. Start your engines...."
+    )
 
-        loads_time = time.time()
+    loads_time = time.time()
 
-        manager.loadPipelines()
+    manager.loadPipelines()
 
-        print(
-            f"All engines ready, loading took {time.time()-loads_time:.1f}s, total startup {time.time()-start_time:.1f}s"
-        )
+    print(
+        f"All engines ready, loading took {time.time()-loads_time:.1f}s, total startup {time.time()-start_time:.1f}s"
+    )
 
-        if ram_monitor:
-            ram_monitor.print()
+    if ram_monitor:
+        ram_monitor.print()
 
-        # Block until termination
-        grpc.block()
+    # Block until termination
+    grpc.block()

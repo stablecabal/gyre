@@ -1,0 +1,19 @@
+- model_id: "controlnet-sd21-canny"
+  model: "thibaud/controlnet-sd21-canny-diffusers"
+  type: "controlnet"
+
+- model_id: "controlnet-sd21-depth"
+  model: "thibaud/controlnet-sd21-depth-diffusers"
+  type: "controlnet"
+
+- model_id: "controlnet-sd21-hed"
+  model: "thibaud/controlnet-sd21-hed-diffusers"
+  type: "controlnet"
+
+- model_id: "controlnet-sd21-openpose"
+  model: "thibaud/controlnet-sd21-openpose-diffusers"
+  type: "controlnet"
+
+- model_id: "controlnet-sd21-scribble"
+  model: "thibaud/controlnet-sd21-scribble-diffusers"
+  type: "controlnet"

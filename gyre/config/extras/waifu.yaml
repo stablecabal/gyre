@@ -1,0 +1,31 @@
+---
+!stable-diffusion-v1-5-finetune/waifu-diffusion-v1-3
+name: "Waifu Diffusion v1.3"
+description: "Waifu Diffusion anime finetune based on Stable Diffusion V2"
+source:
+  model: "hakurei/waifu-diffusion"
+  revision: "a20c448"
+
+---
+- model_id: "waifu-diffusion-v1-3-base"
+  whitelist: ["unet", "text_encoder", "vae"]
+
+- model_id: "waifu-diffusion-v1-3"
+  overrides:
+    vae: "@waifu-diffusion-v1-3-base/vae"
+
+---
+!stable-diffusion-v2-1-finetune/waifu-diffusion-v1-4
+name: "Waifu Diffusion v1.4"
+description: "Waifu Diffusion anime finetune based on Stable Diffusion V2"
+source:
+  model: "hakurei/waifu-diffusion"
+  revision: "b03a1ad"
+
+---
+- model_id: "waifu-diffusion-v1-4-base"
+  whitelist: ["unet", "text_encoder", "vae"]
+
+- model_id: "waifu-diffusion-v1-4"
+  overrides:
+    vae: "@waifu-diffusion-v1-4-base/vae"

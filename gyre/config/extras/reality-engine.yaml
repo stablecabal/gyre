@@ -1,0 +1,18 @@
+---
+!stable-diffusion-v2/reality-engine
+name: "Reality Engine v1.0"
+description: "A realism-focused finetune of the Stability V2.1 768x768 model"
+
+---
+- model_id: "reality-engine-ckpt"
+  type: "ckpt/v2-inference-v"
+  whitelist: ["unet"]
+  model: "https://civitai.com/api/download/models/20414"
+
+- model_id: "reality-engine-base"
+  fallback: "@reality-engine-ckpt"
+
+- model_id: "reality-engine"
+  model: "@stable-diffusion-v2-1-vpred"
+  overrides:
+    unet: "@reality-engine-base/unet"

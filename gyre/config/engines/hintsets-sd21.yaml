@@ -1,0 +1,22 @@
+- hintset_id: "hintset-sd21-controlnet"
+  controlnet/canny:
+    aliases: "canny"
+    model: "@controlnet-sd21-canny"
+  controlnet/depth:
+    aliases: "depth"
+    model: "@controlnet-sd21-depth"
+  controlnet/hed:
+    aliases: "hed"
+    model: "@controlnet-sd21-hed"
+  controlnet/openpose:
+    aliases: ["pose", "openpose", "pose/openpose"]
+    model: "@controlnet-sd21-openpose"
+  controlnet/scribble:
+    aliases: ["sketch", "scribble"]
+    model: "@controlnet-sd21-scribble"
+
+- hintset_id: "hintset-sd21-common"
+  "@hintset-sd21-controlnet": "*"
+
+- hintset_id: "hintset-sd21-complete"
+  "@hintset-sd21-controlnet": "*"

@@ -1,0 +1,74 @@
+---
+# Orange has a specific VAE for all the models
+- model_id: "orange-vae"
+  # For any checkpoint, the type should be "ckpt/" followed by the LDM configuration
+  type: "ckpt/v1-inference"
+  model: "WarriorMama777/OrangeMixs"
+  # We're loading a VAE first, which is in a subfolder
+  subfolder: "VAEs"
+  # Because it's a vae, we need to flag it as such, otherwise we'll get an error when
+  # Gyre tries to load a unet and text_encoder too
+  whitelist: ["vae"]
+  # The Orange VAE will occasionally give black results when running in fp16 mode,
+  # so force it to run in fp32 even if Gyre is set to fp16 mode
+  fp16: "prevent"
+
+---
+!@stable-diffusion-v1-5-ckpt/orangemix
+- id: "{{id}}"
+  overrides:
+    vae: "@orange-vae/vae"
+
+---
+!orangemix/orangemix-abyss2
+name: "Abyss Orange Mix 2"
+description: "Abyss Orange Mix 2, an anime-style mix based on Stable Diffusion V1.5"
+source:
+  model: "WarriorMama777/OrangeMixs"
+  subfolder: "Models/AbyssOrangeMix2"
+  allow_patterns: "AbyssOrangeMix2_sfw.safetensors"
+
+---
+!orangemix/orangemix-abyss2-hard
+name: "Abyss Orange Mix 2 Hard"
+description: "Abyss Orange Mix 2 (Hard ver), an anime-style mix based on Stable Diffusion V1.5"
+source:
+  model: "WarriorMama777/OrangeMixs"
+  subfolder: "Models/AbyssOrangeMix2"
+  allow_patterns: "AbyssOrangeMix2_hard.safetensors"
+
+---
+!orangemix/orangemix-abyss3
+name: "Abyss Orange Mix 3"
+description: "Abyss Orange Mix 3, an anime-style mix based on Stable Diffusion V1.5"
+source:
+  model: "WarriorMama777/OrangeMixs"
+  subfolder: "Models/AbyssOrangeMix3"
+  allow_patterns: "AOM3_orangemixs.safetensors"
+
+---
+!orangemix/orangemix-abyss3a1
+name: "Abyss Orange Mix 3 A1"
+description: "Abyss Orange Mix 3 A1, an anime-style mix based on Stable Diffusion V1.5"
+source:
+  model: "WarriorMama777/OrangeMixs"
+  subfolder: "Models/AbyssOrangeMix3"
+  allow_patterns: "AOM3A1_orangemixs.safetensors"
+
+---
+!orangemix/orangemix-abyss3a2
+name: "Abyss Orange Mix 3 A2"
+description: "Abyss Orange Mix 3 A2, an anime-style mix based on Stable Diffusion V1.5"
+source:
+  model: "WarriorMama777/OrangeMixs"
+  subfolder: "Models/AbyssOrangeMix3"
+  allow_patterns: "AOM3A2_orangemixs.safetensors"
+
+---
+!orangemix/orangemix-abyss3a3
+name: "Abyss Orange Mix 3 A3"
+description: "Abyss Orange Mix 3 A3, an anime-style mix based on Stable Diffusion V1.5"
+source:
+  model: "WarriorMama777/OrangeMixs"
+  subfolder: "Models/AbyssOrangeMix3"
+  allow_patterns: "AOM3A3_orangemixs.safetensors"
