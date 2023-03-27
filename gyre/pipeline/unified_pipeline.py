@@ -1922,6 +1922,8 @@ class UnifiedPipeline(DiffusionPipeline):
             def get_natural_opts(child_opts):
                 unet = child_opts["unet"]
                 unet_pixel_size = self.get_unet_pixel_size(unet)
+                unet_sample_size = self.get_unet_sample_size(unet)
+
                 hires_threshold = math.floor(
                     unet_pixel_size * (1 + self._hires_threshold_fraction)
                 )
@@ -1938,12 +1940,12 @@ class UnifiedPipeline(DiffusionPipeline):
                         "Either use a K-Diffusion scheduler or disable Hires fix."
                     )
 
-                def image_to_natural(image, fill=torch.zeros):
+                def image_to_natural(image, fill=torch.zeros, size=unet_pixel_size):
                     return (
                         None
                         if image is None
                         else HiresUnetWrapper.image_to_natural(
-                            unet_pixel_size,
+                            size,
                             cast(torch.Tensor, image),
                             oos_fraction=hires_oos_fraction,
                             fill=fill,
@@ -1956,7 +1958,9 @@ class UnifiedPipeline(DiffusionPipeline):
                     "height": unet_pixel_size,
                     "init_image": image_to_natural(init_image),
                     "mask_image": image_to_natural(mask_image, torch.ones),
-                    "depth_map": image_to_natural(child_opts["depth_map"]),
+                    "depth_map": image_to_natural(
+                        child_opts["depth_map"], size=unet_sample_size
+                    ),
                     "hints": [
                         hint.extend(
                             lambda image, mask, **_: {
@@ -2028,7 +2032,10 @@ class UnifiedPipeline(DiffusionPipeline):
             )
 
             if leaf.opts.get("depth_map") is not None:
-                unet = UnetWithExtraChannels(unet, leaf.opts["depth_map"])
+                unet = UnetWithExtraChannels(
+                    unet,
+                    leaf.opts["depth_map"].to(self.execution_device, latents_dtype),
+                )
 
             hints = leaf.opts.get("hints")
             if hints:
