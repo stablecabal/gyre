@@ -473,6 +473,13 @@ def main():
         help="Path to the engines.yaml file, or an https URL to a zip containing an `engines.yml` file and any includes",
     )
     generation_opts.add_argument(
+        "--enable_engine",
+        "-e",
+        action="append",
+        default=environ_list("SD_ENABLE_ENGINE"),
+        help="The ID of an engine to enable. (Shorthand for --enginecfg '{id: (the id), enabled: True}')",
+    )
+    generation_opts.add_argument(
         "--weight_root",
         "-W",
         type=str,
@@ -708,9 +715,17 @@ def main():
     prevHandler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
 
     # Handle enginecfg arg being passed as a URL
+    unprocessed_cfg = args.enginecfg
+
+    if not unprocessed_cfg:
+        unprocessed_cfg = ["./config/engines.yaml"]
+
+    for engine_id in args.enable_engine:
+        unprocessed_cfg.append('{id: "' + engine_id + '", enabled: True}')
+
     enginecfg = []
 
-    for cfg in args.enginecfg or ["./config/engines.yaml"]:
+    for cfg in unprocessed_cfg:
         if cfg.startswith("http"):
             temp_cfg = tempfile.TemporaryDirectory()
             temp_zip = os.path.join(temp_cfg.name, "config.zip")
