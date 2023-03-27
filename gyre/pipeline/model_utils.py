@@ -95,8 +95,8 @@ class GPUExclusionSet:
     def clean_sets(self, _):
         self.tops = [topref for topref in self.tops if topref() is not None]
 
-    def reset(self, exclude: list[weakref.ref] = []):
-        exclude = list(exclude)
+    def reset(self, exclude: list[weakref.ref] | None = None):
+        exclude = [] if exclude is None else list(exclude)
 
         for topref in self.tops:
             if topref in exclude:

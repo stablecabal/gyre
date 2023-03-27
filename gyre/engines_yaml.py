@@ -33,7 +33,7 @@ class Params:
         self.mapping = mapping
 
 
-def LoaderFactory(sources, context={}, cache={}):
+def LoaderFactory(sources: list[str], context: dict, cache: dict):
     if "loader" in cache:
         return cache["loader"]
 

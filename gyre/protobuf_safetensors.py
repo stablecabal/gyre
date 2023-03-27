@@ -24,7 +24,7 @@ def serialize_safetensor(safetensors):
     return proto_safetensors
 
 
-def serialize_safetensor_from_dict(tensors, metadata={}):
+def serialize_safetensor_from_dict(tensors, metadata: dict[str, str] | None = None):
     proto_safetensors = Safetensors()
 
     for k, v in tensors.items():

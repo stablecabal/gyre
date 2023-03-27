@@ -4,8 +4,8 @@ NO_DEFAULT_SUPPLIED = object()
 
 
 class HintsetManager:
-    def __init__(self, hints=[], device="cpu", aligner=None):
-        self.hints: list[dict] = hints
+    def __init__(self, hints=None, device="cpu", aligner=None):
+        self.hints: list[dict] = [] if hints is None else hints
         self.device = device
         self.aligner = aligner
 

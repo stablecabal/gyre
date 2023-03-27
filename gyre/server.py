@@ -397,7 +397,10 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         return NoResource().render(request)
 
 
-def environ_list(key, default=[]):
+__environ_list_nodefault = object()
+
+
+def environ_list(key, default=__environ_list_nodefault):
     """
     For mapping an argument that might be called mutiple times to environment variables
     we support two options (can be mixed):
@@ -407,8 +410,10 @@ def environ_list(key, default=[]):
 
     (The second format is not appropriate where the values themselves might contain commas)
     """
-
     result = []
+
+    if default is __environ_list_nodefault:
+        default = []
 
     if key in os.environ:
         result += re.split(r"\s*,\s*", os.environ.get(key).strip())
