@@ -1,0 +1,20 @@
+---
+!stable-diffusion-v1-5-finetune/realistic-vision-v1-3
+name: "Realistic Vision v1.3"
+description: "A realistic photo model"
+source:
+  model: "SG161222/Realistic_Vision_V1.3"
+
+---
+!stable-diffusion-v1-5-finetune/realistic-vision-v1-4
+name: "Realistic Vision v1.4"
+description: "A realistic photo model"
+source:
+  model: "SG161222/Realistic_Vision_V1.4"
+
+---
+!stable-diffusion-v1-5-finetune/realistic-vision-v2-0
+name: "Realistic Vision v2.0"
+description: "A realistic photo model"
+source:
+  model: "SG161222/Realistic_Vision_V2.0"

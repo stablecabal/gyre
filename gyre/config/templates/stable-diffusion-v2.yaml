@@ -35,33 +35,47 @@
 ---
 !@stable-diffusion-v2/stable-diffusion-v2-1-finetune
 - model_id: "{{id}}-base"
-  whitelist: ["unet", "text_encoder"]
+  whitelist:
+    - "{{#has_unet:True}}":
+        - "unet"
+    - "{{#has_text_encoder:True}}":
+        - "text_encoder"
+    - "{{#has_vae:False}}":
+        - "vae"
 
 - "{{^inpaint_source}}":
-    - model_id: "{{id}}-inpaint-unet"
-      type: "mix"
-      model:
-        - "@stable-diffusion-v2-0-inpaint/unet"
-        - "@{{id}}-base/unet"
-      mix:
-        type: "difference"
-        base: "@stable-diffusion-v2-1-base/unet"
-        alpha: 0
+    - "{{#has_unet:True}}":
+        - model_id: "{{id}}-inpaint-unet"
+          type: "mix"
+          model:
+            - "@stable-diffusion-v2-0-inpaint/unet"
+            - "@{{id}}-base/unet"
+          mix:
+            type: "difference"
+            base: "@stable-diffusion-v2-1-base/unet"
+            alpha: 0
 
-    - model_id: "{{id}}-inpaint-text_encoder"
-      type: "mix"
-      model:
-        - "@stable-diffusion-v2-1-base/text_encoder"
-        - "@{{id}}-base/text_encoder"
+    - "{{#has_text_encoder:True}}":
+        - model_id: "{{id}}-inpaint-text_encoder"
+          type: "mix"
+          model:
+            - "@stable-diffusion-v2-1-base/text_encoder"
+            - "@{{id}}-base/text_encoder"
 
 - model_id: "{{id}}"
   model: "@stable-diffusion-v2-1"
   overrides:
-    unet: "@{{id}}-base/unet"
-    text_encoder: "@{{id}}-base/text_encoder"
+    "{{#has_unet:True}}":
+      unet: "@{{id}}-base/unet"
+    "{{#has_text_encoder:True}}":
+      text_encoder: "@{{id}}-base/text_encoder"
+    "{{#has_vae:False}}":
+      vae: "@{{id}}-base/vae"
     "{{^inpaint_source}}":
-      inpaint_unet: "@{{id}}-inpaint-unet"
-      inpaint_text_encoder: "@{{id}}-inpaint-text_encoder"
+      "{{#has_unet:True}}":
+        inpaint_unet: "@{{id}}-inpaint-unet"
+      "{{#has_text_encoder:True}}":
+        inpaint_text_encoder: "@{{id}}-inpaint-text_encoder"
 
 ---
 !@stable-diffusion-v2-1-finetune/stable-diffusion-v2-1-ckpt
@@ -71,7 +85,55 @@
 
 - model_id: "{{id}}-ckpt"
   type: "ckpt/v2-inference"
-  whitelist: ["unet", "text_encoder"]
+  whitelist:
+    - "{{#has_unet:True}}":
+        - "unet"
+    - "{{#has_text_encoder:True}}":
+        - "text_encoder"
+    - "{{#has_vae:False}}":
+        - "vae"
+  "{{> source}}": _
+
+- model_id: "{{id}}-base"
+  fallback: "@{{id}}-ckpt"
+  whitelist: !none
+
+---
+!@stable-diffusion-v2/stable-diffusion-v2-1-vpred-finetune
+- model_id: "{{id}}-base"
+  whitelist:
+    - "{{#has_unet:True}}":
+        - "unet"
+    - "{{#has_text_encoder:True}}":
+        - "text_encoder"
+    - "{{#has_vae:False}}":
+        - "vae"
+
+- model_id: "{{id}}"
+  model: "@stable-diffusion-v2-1-vpred"
+  overrides:
+    "{{#has_unet:True}}":
+      unet: "@{{id}}-base/unet"
+    "{{#has_text_encoder:True}}":
+      text_encoder: "@{{id}}-base/text_encoder"
+    "{{#has_vae:False}}":
+      vae: "@{{id}}-base/vae"
+
+---
+!@stable-diffusion-v2-1-vpred-finetune/stable-diffusion-v2-1-vpred-ckpt
+- !params
+  source: "" # Remove the source for the {id}}-base model
+  inpaint_source: "" # Remove the inpaint_source for the {id}}-base model
+
+- model_id: "{{id}}-ckpt"
+  type: "ckpt/v2-inference-v"
+  whitelist:
+    - "{{#has_unet:True}}":
+        - "unet"
+    - "{{#has_text_encoder:True}}":
+        - "text_encoder"
+    - "{{#has_vae:False}}":
+        - "vae"
   "{{> source}}": _
 
 - model_id: "{{id}}-base"

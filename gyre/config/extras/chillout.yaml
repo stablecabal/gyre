@@ -1,0 +1,5 @@
+!stable-diffusion-v1-5-ckpt/chillout
+name: "Chillout"
+description: "Chillout"
+source:
+  model: "https://civitai.com/api/download/models/11745"

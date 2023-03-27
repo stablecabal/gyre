@@ -1,0 +1,13 @@
+---
+!stable-diffusion-v1-5-finetune/dreamshaper
+name: "Dreamshaper"
+description: "A semi-realistic artistic model"
+source:
+  model: "Lykon/DreamShaper"
+
+---
+!stable-diffusion-v1-5-finetune/neverendingdream
+name: "NeverEnding Dream"
+description: "A semi-realistic artistic model"
+source:
+  model: "Lykon/NeverEnding-Dream"

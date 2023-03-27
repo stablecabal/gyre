@@ -1,0 +1,6 @@
+!stable-diffusion-v1-5-ckpt/liberty
+name: "Liberty"
+description: "Liberty is freedom. A merge with over 23 other models with a methodical, careful and genuine approach."
+has_vae: True
+source:
+  model: "https://civitai.com/api/download/models/6908"
