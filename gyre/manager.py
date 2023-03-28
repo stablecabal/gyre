@@ -599,6 +599,11 @@ class ModelSet:
     def is_singular(self):
         return len(self.__data) == 1
 
+    def as_dict(self):
+        res = {}
+        res.update(self.__data)
+        return res
+
     def __len__(self):
         return len(self.__data)
 
@@ -1874,8 +1879,7 @@ class EngineManager(object):
         for name, handler in hintset_spec.items():
             if name.startswith("@"):
                 subhintset = self._build_hintset(name[1:], whitelist=handler)
-                for subname, subdetails in subhintset.items():
-                    result[subname] = subdetails
+                result.update(subhintset)
 
             else:
                 whitelisted = any((fnmatch(name, pattern) for pattern in whitelist))
@@ -1889,7 +1893,7 @@ class EngineManager(object):
                     aliases = [aliases]
 
                 result[name] = dict(
-                    model=self._load_model(spec).first(),
+                    models=self._load_model(spec).as_dict(),
                     types=[name] + aliases,
                     priority=handler.get("priority", 100),
                 )

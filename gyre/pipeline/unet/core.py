@@ -95,6 +95,34 @@ class UNetWithT2I:
         return self.unet(latents, t, **kwargs, adapter_states=adapter_states)
 
 
+class UNetWithT2IStyle:
+    def __init__(self, unet: DiffusersUNet, t2istyle_adapters):
+        self.unet = unet
+
+        individual_adapter_states = [adapter() for adapter in t2istyle_adapters]
+        self.adapter_states = torch.cat(individual_adapter_states, dim=1)
+
+    def __call__(
+        self, latents: XtTensor, t: ScheduleTimestep, **kwargs
+    ) -> DiffusersUNetOutput:
+
+        hidden_states = kwargs.pop("encoder_hidden_states")
+
+        # TODO this might be wrong with batch size > 1
+        if hidden_states.shape[0] == self.adapter_states.shape[0]:
+            hidden_states = torch.cat([hidden_states, self.adapter_states], dim=1)
+        else:
+            uncond, cond = hidden_states.chunk(2)
+
+            pad_len = self.adapter_states.size(1)
+            uncond = torch.cat([uncond, uncond[:, -pad_len:, :]], dim=1)
+            cond = torch.cat([cond, self.adapter_states], dim=1)
+
+            hidden_states = torch.cat([uncond, cond])
+
+        return self.unet(latents, t, encoder_hidden_states=hidden_states, **kwargs)
+
+
 class UNetWithEmbeddings:
     def __init__(
         self,

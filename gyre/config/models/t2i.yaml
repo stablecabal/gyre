@@ -53,3 +53,6 @@
   allow_patterns: "t2iadapter_style_sd14v1.pth"
   type: "t2i_adapter"
   class: "T2iAdapter/from_state_dict(type=style)"
+  fp16: "prevent"
+  overrides:
+    clip: "@openai-clip-l"

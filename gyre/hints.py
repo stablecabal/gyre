@@ -9,8 +9,8 @@ class HintsetManager:
         self.device = device
         self.aligner = aligner
 
-    def add_hint_handler(self, model, types, priority=100):
-        self.hints.append({"model": model, "types": types, "priority": priority})
+    def add_hint_handler(self, models, types, priority=100):
+        self.hints.append({"models": models, "types": types, "priority": priority})
 
     def with_device(self, device):
         return HintsetManager(self.hints, device=device)
@@ -18,16 +18,17 @@ class HintsetManager:
     def with_aligner(self, aligner):
         return HintsetManager(self.hints, aligner=aligner)
 
-    def __align(self, model):
-        if self.aligner is not None:
-            return self.aligner(model)
-        else:
-            return clone_model(model, self.device)
+    def __default_aligner(self, model):
+        return clone_model(model, self.device)
+
+    def __align(self, models):
+        aligner = self.aligner or self.__default_aligner
+        return {name: aligner(model) for name, model in models.items()}
 
     def for_type(self, type, default=NO_DEFAULT_SUPPLIED):
         for hint in sorted(self.hints, key=lambda hint: hint["priority"], reverse=True):
             if type in hint["types"]:
-                return self.__align(hint["model"])
+                return self.__align(hint["models"])
 
         if default is NO_DEFAULT_SUPPLIED:
             raise KeyError(f"No hint handler for type {type}")

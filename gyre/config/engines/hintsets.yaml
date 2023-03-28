@@ -56,7 +56,7 @@
 
 - hintset_id: "hintset-sd15-common"
   "@hintset-sd15-t2i":
-    ["t2i/depth", "t2i/keypose", "t2i/openpose", "t2i/sketch"]
+    ["t2i/depth", "t2i/keypose", "t2i/openpose", "t2i/sketch", "t2i/style"]
   "@hintset-sd15-controlnet":
     ["controlnet/canny", "controlnet/hed", "controlnet/seg"]
 

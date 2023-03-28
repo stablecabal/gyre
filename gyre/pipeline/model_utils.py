@@ -63,6 +63,13 @@ class CloneToGPUHook(ModelHook):
 
         self.active = True
 
+        # TODO: This is a very specific fix, should be replaced by
+        # something more generic
+        if isinstance(module, torch.nn.MultiheadAttention):
+            out_proj = module.out_proj
+            hook = get_hook(out_proj, CloneToGPUHook)
+            hook.pre_forward(out_proj, [], {})
+
         return (
             send_to_device(args, dev),
             send_to_device(kwargs, dev),
@@ -80,6 +87,11 @@ class CloneToGPUHook(ModelHook):
             set_module_tensor_to_device(model, name, "meta")
 
         self.active = False
+
+        if isinstance(model, torch.nn.MultiheadAttention):
+            out_proj = model.out_proj
+            hook = get_hook(out_proj, CloneToGPUHook)
+            hook.reset(out_proj)
 
 
 class GPUExclusionSet:

@@ -1,4 +1,5 @@
 import contextlib
+import inspect
 import itertools
 import logging
 import math
@@ -22,7 +23,7 @@ import numpy as np
 import torch
 import torchvision.transforms as T
 from diffusers.configuration_utils import FrozenDict
-from diffusers.models import AutoencoderKL, UNet2DConditionModel
+from diffusers.models import AutoencoderKL, UNet2DConditionModel, modeling_utils
 from diffusers.models.cross_attention import CrossAttnProcessor, SlicedAttnProcessor
 from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
@@ -80,6 +81,7 @@ from gyre.pipeline.unet.core import (
     UNetWithEmbeddings,
     UnetWithExtraChannels,
     UNetWithT2I,
+    UNetWithT2IStyle,
 )
 from gyre.pipeline.unet.graft import GraftUnets
 from gyre.pipeline.unet.hires_fix import HiresUnetWrapper
@@ -763,9 +765,30 @@ class UnifiedPipelineHint:
     weight: float
 
     @classmethod
-    def for_model(cls, model, image, mask=None, weight=1.0):
-        if isinstance(model, t2i_adapter.T2iAdapter):
+    def for_model(cls, models, image, feature_extractor, clip, mask=None, weight=1.0):
+
+        clip_model = models.pop("clip_model", None)
+        feature_extractor = models.pop("feature_extractor", None)
+
+        if len(models) != 1:
+            raise ValueError(f"Unknown set of hint models: {models.keys()}")
+
+        _, model = models.popitem()
+
+        # Handle T2i Style Adapters (a special case, since they operate on the hidden_state directly)
+        if isinstance(model, t2i_adapter.T2iAdapter_style):
+            if clip_model is None or feature_extractor is None:
+                raise ValueError(
+                    "T2i Style model needs a clip model and feature extractor"
+                )
+
+            return UnifiedPipelineHint_T2i_Style(
+                model, image, clip_model, feature_extractor, mask, weight
+            )
+        # Handle all other T2i Adapters
+        elif isinstance(model, t2i_adapter.T2iAdapter):
             return UnifiedPipelineHint_T2i(model, image, mask, weight)
+        # Handle Controlnets
         elif isinstance(model, controlnet.ControlNetModel):
             return UnifiedPipelineHint_Controlnet(model, image, mask, weight)
 
@@ -794,19 +817,17 @@ class UnifiedPipelineHint:
     def to(self, device=None, dtype=None):
         self.image = self.image.to(device, dtype)
 
+        if self.mask is not None:
+            self.mask = self.mask.to(device, dtype)
+
     def normalise(self, channels=3):
         self.image = images.normalise_tensor(self.image, channels)
         if self.mask is not None:
             self.mask = images.normalise_tensor(self.mask, 1)
 
     def extend(self, callback=None, **kwargs):
-        cargs = {
-            "model": self.model,
-            "image": self.image,
-            "mask": self.mask,
-            "weight": self.weight,
-            "channels": self.channels,
-        }
+        keys = inspect.signature(self.__init__).parameters.keys()
+        cargs = {key: getattr(self, key) for key in keys if key != "self"}
 
         cargs.update(kwargs)
 
@@ -844,7 +865,7 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
     patch_unet = t2i_adapter.patch_unet
     wrap_unet = UNetWithT2I
 
-    def __init__(self, model, image, mask=None, weight=1.0, channels=None):
+    def __init__(self, model, image, mask=None, weight=1.0):
         channels = model.config.cin // 64 if "cin" in model.config else 3
         super().__init__(model, image, mask, weight, channels=channels)
 
@@ -853,6 +874,41 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
             state * self.weight * self.resized_mask(state)
             for state in self.model(self.image)
         ]
+
+
+class UnifiedPipelineHint_T2i_Style(UnifiedPipelineHint):
+    patch_unet = None
+    wrap_unet = UNetWithT2IStyle
+
+    def __init__(self, model, image, clip_model, feature_extractor, mask, weight):
+        super().__init__(model, image, mask=mask, weight=weight)
+
+        self.clip_model = clip_model
+        self.feature_extractor = feature_extractor
+
+        self.normalize = T.Normalize(
+            mean=feature_extractor.image_mean,
+            std=feature_extractor.image_std,
+        )
+
+        self.clip_size = feature_extractor.size
+        if isinstance(self.clip_size, dict):
+            self.clip_size = self.clip_size["shortest_edge"]
+
+    def __preprocess_image(self, image):
+        image = images.rescale(image, self.clip_size, self.clip_size, "cover")
+        image = self.normalize(image)
+        return image
+
+    def __call__(self):
+        image = self.__preprocess_image(self.image)
+        res = self.clip_model.vision_model(image, return_dict=True)
+
+        model_dtype = modeling_utils.get_parameter_dtype(self.model)
+        result = self.model(res.last_hidden_state.to(model_dtype))
+        result = result.to(image.dtype)
+
+        return result * self.weight
 
 
 class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
@@ -1842,14 +1898,16 @@ class UnifiedPipeline(DiffusionPipeline):
                     leaf_args["unet"] = self.depth_unet
 
                 else:
-                    handler = None
+                    handler_models = None
 
                     if self.hintset_manager:
-                        handler = self.hintset_manager.for_type(hint_type, None)
+                        handler_models = self.hintset_manager.for_type(hint_type, None)
 
-                    if handler:
+                    if handler_models:
                         leaf_args["hints"].append(
-                            UnifiedPipelineHint.for_model(handler, image, None, weight)
+                            UnifiedPipelineHint.for_model(
+                                handler_models, image, None, weight
+                            )
                         )
                     else:
                         if (
@@ -2031,6 +2089,11 @@ class UnifiedPipeline(DiffusionPipeline):
                 text_embeddings, num_images_per_prompt
             )
 
+            if uncond_embeddings is not None:
+                uncond_embeddings = text_embedding_calculator.repeat(
+                    uncond_embeddings, num_images_per_prompt
+                )
+
             if leaf.opts.get("depth_map") is not None:
                 unet = UnetWithExtraChannels(
                     unet,
@@ -2045,17 +2108,15 @@ class UnifiedPipeline(DiffusionPipeline):
                     grouped.setdefault(type(hint), []).append(hint)
 
                 for cls, ghints in grouped.items():
-                    cls.patch_unet(leaf.opts["unet"])
-                    unet = cls.wrap_unet(unet, list(ghints))
+                    if cls.patch_unet:
+                        cls.patch_unet(leaf.opts["unet"])
+                    if cls.wrap_unet:
+                        unet = cls.wrap_unet(unet, list(ghints))
 
             # unet_g is the guided unet, for when we aren't doing CFG, or we want to run seperately to unet_u
             leaf.unet_g = UNetWithEmbeddings(unet, text_embeddings)
 
             if uncond_embeddings is not None:
-                uncond_embeddings = text_embedding_calculator.repeat(
-                    uncond_embeddings, num_images_per_prompt
-                )
-
                 leaf.unet_cfg = CFGChildUnets(
                     g=leaf.unet_g,
                     # unet_u is the unguided unet, for when we want to run seperately to unet_g

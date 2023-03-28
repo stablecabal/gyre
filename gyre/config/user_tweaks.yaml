@@ -1,8 +1,8 @@
 # Example of enabling a model that's disabled by default.
 # In this case we're enabling the old-fish model defined in fish.yaml
-- id: "old-fish"
-  enabled: True
-#
+# - id: "old-fish"
+#   enabled: True
+
 # Example of modifying the underlying template. This would change the
 # default value of enabled from False to True.
 #

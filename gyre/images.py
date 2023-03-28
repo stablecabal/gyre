@@ -109,14 +109,9 @@ def addTextChunkToPngBytes(binary, key: str, text: str):
     chunk_crc = struct.pack(">I", chunk_crc)
 
     # return new binary with tEXt chunk injected in the middle
-    return b"".join((
-        img_data_pre,
-        length,
-        chunktype,
-        txt_chunk,
-        chunk_crc,
-        img_data_post
-    ))
+    return b"".join(
+        (img_data_pre, length, chunktype, txt_chunk, chunk_crc, img_data_post)
+    )
 
 
 def normalise_tensor(tensor: torch.Tensor, channels: int | None = 3) -> torch.Tensor:
@@ -218,7 +213,7 @@ def rescale(
     # Get the original height and width
     orig_h, orig_w = tensor.shape[-2], tensor.shape[-1]
     # Calculate the scaling factors to hit the target height
-    scale_h, scale_w = orig_h / height, orig_w / width
+    scale_h, scale_w = height / orig_h, width / orig_w
 
     if fit == "cover":
         scale_h = scale_w = max(scale_h, scale_w)

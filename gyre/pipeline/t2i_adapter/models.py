@@ -137,9 +137,6 @@ class T2iAdapter_style(StyleAdapter, T2iAdapter, ModelMixin, ConfigMixin):
             num_token=num_token,
         )
 
-    def forward(self, x):
-        raise NotImplementedError("Currently doesn't work")
-
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         super().from_pretrained(pretrained_model_name_or_path, **kwargs)

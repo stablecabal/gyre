@@ -2,6 +2,10 @@
   model: "thibaud/controlnet-sd21-canny-diffusers"
   type: "controlnet"
 
+- model_id: "controlnet-sd21-color"
+  model: "thibaud/controlnet-sd21-color-diffusers"
+  type: "controlnet"
+
 - model_id: "controlnet-sd21-depth"
   model: "thibaud/controlnet-sd21-depth-diffusers"
   type: "controlnet"
@@ -16,4 +20,8 @@
 
 - model_id: "controlnet-sd21-scribble"
   model: "thibaud/controlnet-sd21-scribble-diffusers"
+  type: "controlnet"
+
+- model_id: "controlnet-sd21-zoedepth"
+  model: "thibaud/controlnet-sd21-zoedepth-diffusers"
   type: "controlnet"
