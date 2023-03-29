@@ -81,7 +81,6 @@ from gyre.pipeline.unet.core import (
     UNetWithEmbeddings,
     UnetWithExtraChannels,
     UNetWithT2I,
-    UNetWithT2IStyle,
 )
 from gyre.pipeline.unet.graft import GraftUnets
 from gyre.pipeline.unet.hires_fix import HiresUnetWrapper
@@ -769,25 +768,18 @@ class UnifiedPipelineHint:
 
         clip_model = models.pop("clip_model", None)
         feature_extractor = models.pop("feature_extractor", None)
+        fuser = models.pop("fuser", None)
 
         if len(models) != 1:
             raise ValueError(f"Unknown set of hint models: {models.keys()}")
 
         _, model = models.popitem()
 
-        # Handle T2i Style Adapters (a special case, since they operate on the hidden_state directly)
-        if isinstance(model, t2i_adapter.T2iAdapter_style):
-            if clip_model is None or feature_extractor is None:
-                raise ValueError(
-                    "T2i Style model needs a clip model and feature extractor"
-                )
-
-            return UnifiedPipelineHint_T2i_Style(
-                model, image, clip_model, feature_extractor, mask, weight
+        # Handle T2i Adapters
+        if isinstance(model, t2i_adapter.T2iAdapter):
+            return UnifiedPipelineHint_T2i(
+                model, image, clip_model, feature_extractor, fuser, mask, weight
             )
-        # Handle all other T2i Adapters
-        elif isinstance(model, t2i_adapter.T2iAdapter):
-            return UnifiedPipelineHint_T2i(model, image, mask, weight)
         # Handle Controlnets
         elif isinstance(model, controlnet.ControlNetModel):
             return UnifiedPipelineHint_Controlnet(model, image, mask, weight)
@@ -865,50 +857,85 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
     patch_unet = t2i_adapter.patch_unet
     wrap_unet = UNetWithT2I
 
-    def __init__(self, model, image, mask=None, weight=1.0):
+    def standard_setup(self):
+        pass
+
+    def style_setup(self):
+        if self.clip_model is None or self.feature_extractor is None:
+            raise ValueError("T2i Style model needs a clip model and feature extractor")
+
+        self.normalize = T.Normalize(
+            mean=self.feature_extractor.image_mean,
+            std=self.feature_extractor.image_std,
+        )
+
+        self.clip_size = self.feature_extractor.size
+        if isinstance(self.clip_size, dict):
+            self.clip_size = self.clip_size["shortest_edge"]
+
+    def __init__(
+        self, model, image, clip_model, feature_extractor, fuser, mask, weight
+    ):
         channels = model.config.cin // 64 if "cin" in model.config else 3
         super().__init__(model, image, mask, weight, channels=channels)
 
-    def __call__(self):
-        return [
-            state * self.weight * self.resized_mask(state)
-            for state in self.model(self.image)
-        ]
-
-
-class UnifiedPipelineHint_T2i_Style(UnifiedPipelineHint):
-    patch_unet = None
-    wrap_unet = UNetWithT2IStyle
-
-    def __init__(self, model, image, clip_model, feature_extractor, mask, weight):
-        super().__init__(model, image, mask=mask, weight=weight)
-
-        self.clip_model = clip_model
+        self.clip_model: CLIPModel = clip_model
         self.feature_extractor = feature_extractor
+        self.fuser = fuser
 
-        self.normalize = T.Normalize(
-            mean=feature_extractor.image_mean,
-            std=feature_extractor.image_std,
-        )
+        if self.coadapter_type() and self.fuser is None:
+            raise ValueError("T2i Coadapter model needs a fuser model")
 
-        self.clip_size = feature_extractor.size
-        if isinstance(self.clip_size, dict):
-            self.clip_size = self.clip_size["shortest_edge"]
+        if isinstance(self.model, t2i_adapter.T2iAdapter_style):
+            self.type = "style"
+            self.style_setup()
+        else:
+            self.type = "standard"
+            self.standard_setup()
 
     def __preprocess_image(self, image):
         image = images.rescale(image, self.clip_size, self.clip_size, "cover")
         image = self.normalize(image)
         return image
 
-    def __call__(self):
+    def standard_call(self):
+        return [
+            state * self.weight * self.resized_mask(state)
+            for state in self.model(self.image)
+        ]
+
+    def style_call(self):
         image = self.__preprocess_image(self.image)
-        res = self.clip_model.vision_model(image, return_dict=True)
+        image_embeds = self.clip_model.vision_model(
+            image, output_hidden_states=True, return_dict=True
+        )
+
+        layer = "final"
+        normalize = False
+
+        if layer == "final":
+            clip_hidden_state = image_embeds.last_hidden_state
+        elif layer == "penultimate":
+            clip_hidden_state = image_embeds.hidden_states[-2]
+        else:
+            clip_hidden_state = image_embeds.hidden_states[layer]
+
+        if normalize:
+            clip_hidden_state = self.clip_model.vision_model.post_layernorm(
+                clip_hidden_state
+            )
 
         model_dtype = modeling_utils.get_parameter_dtype(self.model)
-        result = self.model(res.last_hidden_state.to(model_dtype))
+        result = self.model(clip_hidden_state.to(model_dtype))
         result = result.to(image.dtype)
 
         return result * self.weight
+
+    def __call__(self):
+        return self.style_call() if self.type == "style" else self.standard_call()
+
+    def coadapter_type(self):
+        return getattr(self.model, "_coadapter_type", False)
 
 
 class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):

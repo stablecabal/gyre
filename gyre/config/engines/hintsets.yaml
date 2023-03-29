@@ -24,10 +24,27 @@
     aliases: "style"
     model: "@t2i-adapter-style"
 
+- hintset_id: "hintset-sd15-coadapter"
+  coadapter/canny:
+    aliases: "canny"
+    model: "@coadapter-canny"
+  coadapter/color:
+    aliases: "color"
+    model: "@coadapter-color"
+  coadapter/depth:
+    aliases: "depth"
+    model: "@coadapter-depth"
+  coadapter/sketch:
+    aliases: ["sketch", "scribble"]
+    model: "@coadapter-sketch"
+  coadapter/style:
+    aliases: "style"
+    model: "@coadapter-style"
+
 - hintset_id: "hintset-sd15-controlnet"
   controlnet/canny:
     aliases: "canny"
-    priority: 200
+    priority: 50
     model: "@controlnet-canny"
   controlnet/depth:
     aliases: "depth"
@@ -55,10 +72,15 @@
     model: "@controlnet-seg"
 
 - hintset_id: "hintset-sd15-common"
+  "@hintset-sd15-coadapter": "*"
   "@hintset-sd15-t2i":
-    ["t2i/depth", "t2i/keypose", "t2i/openpose", "t2i/sketch", "t2i/style"]
+    - "t2i/keypose"
+    - "t2i/openpose"
   "@hintset-sd15-controlnet":
-    ["controlnet/canny", "controlnet/hed", "controlnet/seg"]
+    - "controlnet/canny"
+    - "controlnet/hed"
+    - "controlnet/normal"
+    - "controlnet/seg"
 
 - hintset_id: "hintset-sd15-complete"
   "@hintset-sd15-t2i": "*"

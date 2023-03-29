@@ -70,57 +70,86 @@ class UNetWithControlnet:
 
 
 class UNetWithT2I:
+    standard_states: list[torch.Tensor] | None = None
+    style_states: torch.Tensor | None = None
+
     def __init__(self, unet: DiffusersUNet, t2i_adapters):
         self.unet = unet
 
-        individual_adapter_states = [adapter() for adapter in t2i_adapters]
-        adapter_states = [sum(i) for i in zip(*individual_adapter_states)]
+        standard_states = []
+        style_states = []
+        coadapters = {}
+        fuser = None
 
-        self.adapter_states = adapter_states
-        self.adapter_states_dim0 = adapter_states[0].shape[0]
+        for adapter in t2i_adapters:
+            if cotype := adapter.coadapter_type():
+                coadapters.setdefault(cotype, []).append(adapter())
+                fuser = adapter.fuser
+            else:
+                state = adapter()
+                if isinstance(state, list):
+                    standard_states.append(state)
+                else:
+                    style_states.append(state)
 
-        self.cfg_adapter_states = [
-            torch.cat([state] * 2, dim=0) for state in adapter_states
-        ]
+        if coadapters:
+            assert fuser is not None, "fuser is missing"
+
+            # Sum each coadapter seperately (to handle multiple of a specific coadapter type)
+            summed_coadapters = {}
+            for cotype, states in coadapters.items():
+                if isinstance(states[0], list):
+                    summed_coadapters[cotype] = [sum(i) for i in zip(*states)]
+                else:
+                    summed_coadapters[cotype] = torch.cat(states, dim=1)
+
+            # Then run it through the fuser
+            coadapter_standard_states, coadapter_style_states = fuser(summed_coadapters)
+            if coadapter_standard_states is not None:
+                standard_states.append(coadapter_standard_states)
+            if coadapter_style_states is not None:
+                style_states.append(coadapter_style_states)
+
+        if standard_states:
+            self.standard_states = [sum(i) for i in zip(*standard_states)]
+            self.standard_dim0 = self.standard_states[0].shape[0]
+
+            self.cfg_standard_states = [
+                torch.cat([state] * 2, dim=0) for state in self.standard_states
+            ]
+
+        if style_states:
+            self.style_states = torch.cat(style_states, dim=1)
+            self.style_dim0 = self.style_states.shape[0]
+            self.style_dim1 = self.style_states.shape[1]
 
     def __call__(
         self, latents: XtTensor, t: ScheduleTimestep, **kwargs
     ) -> DiffusersUNetOutput:
-        adapter_states = (
-            self.adapter_states
-            if self.adapter_states_dim0 == kwargs["encoder_hidden_states"].shape[0]
-            else self.cfg_adapter_states
-        )
+        if self.standard_states is not None:
+            kwargs["adapter_states"] = (
+                self.standard_states
+                if self.standard_dim0 == kwargs["encoder_hidden_states"].shape[0]
+                else self.cfg_standard_states
+            )
 
-        return self.unet(latents, t, **kwargs, adapter_states=adapter_states)
+        if self.style_states is not None:
+            hidden_states = kwargs.pop("encoder_hidden_states")
 
+            # TODO this might be wrong with batch size > 1
+            if hidden_states.shape[0] == self.style_dim0:
+                hidden_states = torch.cat([hidden_states, self.style_states], dim=1)
+            else:
+                uncond, cond = hidden_states.chunk(2)
 
-class UNetWithT2IStyle:
-    def __init__(self, unet: DiffusersUNet, t2istyle_adapters):
-        self.unet = unet
+                uncond = torch.cat([uncond, uncond[:, -self.style_dim1 :, :]], dim=1)
+                cond = torch.cat([cond, self.style_states], dim=1)
 
-        individual_adapter_states = [adapter() for adapter in t2istyle_adapters]
-        self.adapter_states = torch.cat(individual_adapter_states, dim=1)
+                hidden_states = torch.cat([uncond, cond])
 
-    def __call__(
-        self, latents: XtTensor, t: ScheduleTimestep, **kwargs
-    ) -> DiffusersUNetOutput:
+            kwargs["encoder_hidden_states"] = hidden_states
 
-        hidden_states = kwargs.pop("encoder_hidden_states")
-
-        # TODO this might be wrong with batch size > 1
-        if hidden_states.shape[0] == self.adapter_states.shape[0]:
-            hidden_states = torch.cat([hidden_states, self.adapter_states], dim=1)
-        else:
-            uncond, cond = hidden_states.chunk(2)
-
-            pad_len = self.adapter_states.size(1)
-            uncond = torch.cat([uncond, uncond[:, -pad_len:, :]], dim=1)
-            cond = torch.cat([cond, self.adapter_states], dim=1)
-
-            hidden_states = torch.cat([uncond, cond])
-
-        return self.unet(latents, t, encoder_hidden_states=hidden_states, **kwargs)
+        return self.unet(latents, t, **kwargs)
 
 
 class UNetWithEmbeddings:

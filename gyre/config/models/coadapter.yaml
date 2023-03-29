@@ -1,0 +1,53 @@
+- model_id: "coadapter-fuser"
+  model: "TencentARC/T2I-Adapter"
+  subfolder: "models"
+  allow_patterns: "coadapter-fuser-sd15v1.pth"
+  type: "t2i_adapter"
+  class: "T2iAdapter/from_state_dict(type=fuser)"
+
+- model_id: "coadapter-canny"
+  model: "TencentARC/T2I-Adapter"
+  subfolder: "models"
+  allow_patterns: "coadapter-canny-sd15v1.pth"
+  type: "t2i_adapter"
+  class: "T2iAdapter/from_state_dict(coadapter=canny, cin=64)"
+  overrides:
+    fuser: "@coadapter-fuser"
+
+- model_id: "coadapter-color"
+  model: "TencentARC/T2I-Adapter"
+  subfolder: "models"
+  allow_patterns: "coadapter-color-sd15v1.pth"
+  type: "t2i_adapter"
+  class: "T2iAdapter/from_state_dict(coadapter=color, type=light)"
+  overrides:
+    fuser: "@coadapter-fuser"
+
+- model_id: "coadapter-depth"
+  model: "TencentARC/T2I-Adapter"
+  subfolder: "models"
+  allow_patterns: "coadapter-depth-sd15v1.pth"
+  type: "t2i_adapter"
+  class: "T2iAdapter/from_state_dict(coadapter=depth)"
+  overrides:
+    fuser: "@coadapter-fuser"
+
+- model_id: "coadapter-sketch"
+  model: "TencentARC/T2I-Adapter"
+  subfolder: "models"
+  allow_patterns: "coadapter-sketch-sd15v1.pth"
+  type: "t2i_adapter"
+  class: "T2iAdapter/from_state_dict(coadapter=sketch, cin=64, autoinvert=True)"
+  overrides:
+    fuser: "@coadapter-fuser"
+
+- model_id: "coadapter-style"
+  model: "TencentARC/T2I-Adapter"
+  subfolder: "models"
+  allow_patterns: "coadapter-style-sd15v1.pth"
+  type: "t2i_adapter"
+  class: "T2iAdapter/from_state_dict(coadapter=style, type=style)"
+  fp16: "prevent"
+  overrides:
+    clip: "@openai-clip-l"
+    fuser: "@coadapter-fuser"

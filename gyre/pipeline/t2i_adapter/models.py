@@ -3,13 +3,14 @@
 
 import glob
 import os
+from copy import deepcopy
 
 import huggingface_hub
 import torch
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
-from .adapter import Adapter, Adapter_light, StyleAdapter
+from .adapter import Adapter, Adapter_light, CoAdapterFuser, LayerNorm, StyleAdapter
 
 
 class T2iAdapter:
@@ -21,6 +22,7 @@ class T2iAdapter:
         low_cpu_mem_usage=True,
         allow_patterns=[],
         ignore_patterns=[],
+        coadapter=False,
         **config,
     ):
         t2i_type = config.pop("type", "main")
@@ -31,6 +33,8 @@ class T2iAdapter:
             adapter_cls = T2iAdapter_style
         elif t2i_type == "light":
             adapter_cls = T2iAdapter_light
+        elif t2i_type == "fuser":
+            adapter_cls = T2iAdapter_fuser
         else:
             raise ValueError(f"Unknown T2i Adapter type {t2i_type}")
 
@@ -49,8 +53,25 @@ class T2iAdapter:
         adapter = adapter_cls(**{**adapter_cls.default_config, **config})
         adapter.load_state_dict(torch.load(os.path.join(path, paths[0])))
 
+        if coadapter:
+            adapter._coadapter_type = coadapter
+
         if torch_dtype != "auto":
+
+            layernorms = []
+
+            # Kind of a hack - LayerNorm modules need to be left in float32,
+            # so make a copy of all the parameters before running .to
+            for module in adapter.modules():
+                if isinstance(module, LayerNorm):
+                    weight, bias = deepcopy(module.weight), deepcopy(module.bias)
+                    layernorms.append((module, weight, bias))
+
             adapter.to(torch_dtype)
+
+            # And now restore those parameters
+            for module, weight, bias in layernorms:
+                module.weight, module.bias = weight, bias
 
         adapter.eval()
         return adapter
@@ -194,5 +215,47 @@ class T2iAdapter_light(Adapter_light, T2iAdapter, ModelMixin, ConfigMixin):
             allow_patterns,
             ignore_patterns,
             type="light",
+            **config,
+        )
+
+
+class T2iAdapter_fuser(CoAdapterFuser, T2iAdapter, ModelMixin, ConfigMixin):
+    # Defaults from https://github.com/TencentARC/T2I-Adapter/blob/main/app_coadapter.py#L58
+    default_config = dict(
+        unet_channels=[320, 640, 1280, 1280],
+        width=768,
+        num_head=8,
+        n_layes=3,
+    )
+
+    @register_to_config
+    def __init__(
+        self, unet_channels=[320, 640, 1280, 1280], width=768, num_head=8, n_layes=3
+    ):
+        super().__init__(
+            unet_channels=unet_channels, width=width, num_head=num_head, n_layes=n_layes
+        )
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        super().from_pretrained(pretrained_model_name_or_path, **kwargs)
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        path,
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+        allow_patterns=[],
+        ignore_patterns=[],
+        **config,
+    ):
+        super().from_state_dict(
+            path,
+            torch_dtype,
+            low_cpu_mem_usage,
+            allow_patterns,
+            ignore_patterns,
+            type="fuser",
             **config,
         )
