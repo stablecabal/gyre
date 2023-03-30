@@ -1203,12 +1203,15 @@ class PromptParameters(google.protobuf.message.Message):
     WEIGHT_FIELD_NUMBER: builtins.int
     NAMED_WEIGHTS_FIELD_NUMBER: builtins.int
     TOKEN_OVERRIDES_FIELD_NUMBER: builtins.int
+    CLIP_LAYER_FIELD_NUMBER: builtins.int
     init: builtins.bool
     weight: builtins.float
     @property
     def named_weights(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___NamedWeight]: ...
     @property
     def token_overrides(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___TokenOverride]: ...
+    clip_layer: builtins.int
+    """0 _or_ 1 == final, 2 = penultimate, 3 = next"""
     def __init__(
         self,
         *,
@@ -1216,9 +1219,12 @@ class PromptParameters(google.protobuf.message.Message):
         weight: builtins.float | None = ...,
         named_weights: collections.abc.Iterable[global___NamedWeight] | None = ...,
         token_overrides: collections.abc.Iterable[global___TokenOverride] | None = ...,
+        clip_layer: builtins.int | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_init", b"_init", "_weight", b"_weight", "init", b"init", "weight", b"weight"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_init", b"_init", "_weight", b"_weight", "init", b"init", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "init", b"init", "weight", b"weight"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "init", b"init", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_clip_layer", b"_clip_layer"]) -> typing_extensions.Literal["clip_layer"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_init", b"_init"]) -> typing_extensions.Literal["init"] | None: ...
     @typing.overload

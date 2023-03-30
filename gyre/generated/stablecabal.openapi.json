@@ -2083,6 +2083,11 @@
                         "items": {
                             "$ref": "#/components/schemas/TokenOverride"
                         }
+                    },
+                    "clipLayer": {
+                        "type": "integer",
+                        "format": "int64",
+                        "title": "0 _or_ 1 == final, 2 = penultimate, 3 = next"
                     }
                 },
                 "description": "A set of parameters for each individual Prompt."

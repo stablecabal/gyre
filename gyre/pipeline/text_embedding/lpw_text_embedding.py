@@ -235,6 +235,7 @@ def get_unweighted_text_embeddings(
 def get_weighted_text_embeddings(
     tokenizer: CLIPTokenizer,
     text_encoder: CLIPTextModel,
+    uncond_encoder: CLIPTextModel,
     device: torch.device,
     prompt: Union[str, List[str]],
     uncond_prompt: Optional[Union[str, List[str]]] = None,
@@ -349,7 +350,7 @@ def get_weighted_text_embeddings(
     )
     if uncond_prompt is not None:
         uncond_embeddings = get_unweighted_text_embeddings(
-            text_encoder,
+            uncond_encoder,
             uncond_tokens,
             tokenizer.model_max_length,
             no_boseos_middle=no_boseos_middle,
@@ -391,6 +392,7 @@ class LPWTextEmbedding(TextEmbedding):
         return get_weighted_text_embeddings(
             tokenizer=self.tokenizer,
             text_encoder=self.text_encoder,
+            uncond_encoder=self.uncond_encoder,
             device=self.device,
             prompt=prompt.as_tokens(),
             uncond_prompt=uncond_prompt.as_tokens()

@@ -9,12 +9,12 @@ class BasicTextEmbedding(TextEmbedding):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def _get_embeddedings(self, strings, label):
+    def _get_embeddedings(self, strings, text_encoder, label):
         tokenizer = self.tokenizer
 
         max_length = min(
             tokenizer.model_max_length,
-            self.text_encoder.config.max_position_embeddings,
+            text_encoder.config.max_position_embeddings,
         )
 
         # get prompt text embeddings
@@ -34,12 +34,16 @@ class BasicTextEmbedding(TextEmbedding):
             )
             text_input_ids = text_input_ids[:, :max_length]
 
-        text_embeddings = self.text_encoder(text_input_ids.to(self.device))
+        text_embeddings = text_encoder(text_input_ids.to(self.device))
 
         return text_embeddings[0]
 
     def get_text_embeddings(self, prompt):
-        return self._get_embeddedings(prompt.as_unweighted_string(), "prompt")
+        return self._get_embeddedings(
+            prompt.as_unweighted_string(), self.text_encoder, "prompt"
+        )
 
     def get_uncond_embeddings(self, prompt):
-        return self._get_embeddedings(prompt.as_unweighted_string(), "negative prompt")
+        return self._get_embeddedings(
+            prompt.as_unweighted_string(), self.uncond_encoder, "negative prompt"
+        )

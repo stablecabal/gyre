@@ -64,6 +64,15 @@ from gyre.pipeline.lora import (
     remove_lora_from_pipe,
     set_lora_scale,
 )
+from gyre.pipeline.prompt_types import (
+    ClipLayer,
+    HintImage,
+    ImageLike,
+    MismatchedClipLayer,
+    PromptBatch,
+    PromptBatchLike,
+    normalise_clip_layer,
+)
 from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
@@ -679,92 +688,13 @@ class EnhancedRunwayInpaintMode(EnhancedInpaintMode):
         return unet
 
 
-class UnifiedPipelinePrompt:
-    def __init__(self, prompts):
-        self._weighted = False
-        self._prompt = self.parse_prompt(prompts)
-
-    def check_tuples(self, list):
-        for item in list:
-            if (
-                not isinstance(item, tuple)
-                or len(item) != 2
-                or not isinstance(item[0], str)
-                or not isinstance(item[1], float | int)
-            ):
-                raise ValueError(
-                    f"Expected a list of (text, weight) tuples, but got {item} of type {type(item)}"
-                )
-            if item[1] != 1.0:
-                self._weighted = True
-
-    def parse_single_prompt(self, prompt):
-        """Parse a single prompt - no lists allowed.
-        Prompt is either a text string, or a list of (text, weight) tuples"""
-
-        if isinstance(prompt, str):
-            return [(prompt, 1.0)]
-        elif isinstance(prompt, list) and isinstance(prompt[0], tuple):
-            self.check_tuples(prompt)
-            return prompt
-
-        raise ValueError(
-            f"Expected a string or a list of tuples, but got {type(prompt)}"
-        )
-
-    def parse_prompt(self, prompts):
-        try:
-            return [self.parse_single_prompt(prompts)]
-        except ValueError:
-            if isinstance(prompts, list):
-                return [self.parse_single_prompt(prompt) for prompt in prompts]
-
-            raise ValueError(
-                f"Expected a string, a list of strings, a list of (text, weight) tuples or "
-                f"a list of a list of tuples. Got {type(prompts)} instead."
-            )
-
-    @property
-    def batch_size(self):
-        return len(self._prompt)
-
-    @property
-    def weighted(self):
-        return self._weighted
-
-    def as_tokens(self):
-        return self._prompt
-
-    def as_unweighted_string(self):
-        return [" ".join([token[0] for token in prompt]) for prompt in self._prompt]
-
-
-UnifiedPipelinePromptType = Union[
-    str,  # Just a single string, for a batch of 1
-    List[str],  # A list of strings, for a batch of len(prompt)
-    List[Tuple[str, float]],  # A list of (part, weight) token tuples, for a batch of 1
-    List[
-        List[Tuple[str, float]]
-    ],  # A list of lists of (part, weight) token tuples, for a batch of len(prompt)
-    UnifiedPipelinePrompt,  # A pre-parsed prompt
-]
-
-UnifiedPipelineImageType = torch.Tensor | PILImage
-
-
-class UnifiedPipelineHintImage(TypedDict):
-    image: UnifiedPipelineImageType
-    hint_type: str
-    weight: float | None
-
-
 class UnifiedPipelineHint:
     model: t2i_adapter.T2iAdapter | controlnet.ControlNetModel
     image: torch.Tensor
     weight: float
 
     @classmethod
-    def for_model(cls, models, image, feature_extractor, clip, mask=None, weight=1.0):
+    def for_model(cls, models, image, mask=None, weight=1.0, clip_layer=None):
 
         clip_model = models.pop("clip_model", None)
         feature_extractor = models.pop("feature_extractor", None)
@@ -778,7 +708,14 @@ class UnifiedPipelineHint:
         # Handle T2i Adapters
         if isinstance(model, t2i_adapter.T2iAdapter):
             return UnifiedPipelineHint_T2i(
-                model, image, clip_model, feature_extractor, fuser, mask, weight
+                model,
+                image,
+                clip_model,
+                feature_extractor,
+                fuser,
+                mask,
+                weight,
+                clip_layer,
             )
         # Handle Controlnets
         elif isinstance(model, controlnet.ControlNetModel):
@@ -874,7 +811,15 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
             self.clip_size = self.clip_size["shortest_edge"]
 
     def __init__(
-        self, model, image, clip_model, feature_extractor, fuser, mask, weight
+        self,
+        model,
+        image,
+        clip_model,
+        feature_extractor,
+        fuser,
+        mask,
+        weight,
+        clip_layer,
     ):
         channels = model.config.cin // 64 if "cin" in model.config else 3
         super().__init__(model, image, mask, weight, channels=channels)
@@ -882,6 +827,7 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
         self.clip_model: CLIPModel = clip_model
         self.feature_extractor = feature_extractor
         self.fuser = fuser
+        self.clip_layer = clip_layer
 
         if self.coadapter_type() and self.fuser is None:
             raise ValueError("T2i Coadapter model needs a fuser model")
@@ -905,20 +851,20 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
         ]
 
     def style_call(self):
+        normalize = False
+        layer = normalise_clip_layer(self.clip_layer, "final")
+
         image = self.__preprocess_image(self.image)
         image_embeds = self.clip_model.vision_model(
-            image, output_hidden_states=True, return_dict=True
+            image, output_hidden_states=(layer != "final"), return_dict=True
         )
-
-        layer = "final"
-        normalize = False
 
         if layer == "final":
             clip_hidden_state = image_embeds.last_hidden_state
         elif layer == "penultimate":
             clip_hidden_state = image_embeds.hidden_states[-2]
         else:
-            clip_hidden_state = image_embeds.hidden_states[layer]
+            clip_hidden_state = image_embeds.hidden_states[-layer]
 
         if normalize:
             clip_hidden_state = self.clip_model.vision_model.post_layernorm(
@@ -1280,7 +1226,7 @@ class UnifiedPipeline(DiffusionPipeline):
         self._structured_diffusion = False
 
         # Some models use a different text embedding layer
-        self._text_embedding_layer = "final"
+        self._text_embedding_layer: ClipLayer = "final"
 
         if clip_tokenizer is None:
             clip_tokenizer = tokenizer
@@ -1619,18 +1565,18 @@ class UnifiedPipeline(DiffusionPipeline):
     @torch.no_grad()
     def __call__(
         self,
-        prompt: UnifiedPipelinePromptType,
+        prompt: PromptBatchLike,
         height: int = 512,
         width: int = 512,
-        init_image: Optional[UnifiedPipelineImageType] = None,
-        mask_image: Optional[UnifiedPipelineImageType] = None,
-        outmask_image: Optional[UnifiedPipelineImageType] = None,
-        depth_map: Optional[UnifiedPipelineImageType] = None,
-        hint_images: list[UnifiedPipelineHintImage] | None = None,
+        init_image: ImageLike | None = None,
+        mask_image: ImageLike | None = None,
+        outmask_image: ImageLike | None = None,
+        depth_map: ImageLike | None = None,
+        hint_images: list[HintImage] | None = None,
         strength: float | None = None,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
-        negative_prompt: UnifiedPipelinePromptType | None = None,
+        negative_prompt: PromptBatchLike | None = None,
         num_images_per_prompt: int = 1,
         prediction_type: SCHEDULER_PREDICTION_TYPE = "epsilon",
         eta: Optional[float] = None,
@@ -1654,7 +1600,7 @@ class UnifiedPipeline(DiffusionPipeline):
         clip_gradient_length: Optional[int] = None,
         clip_gradient_threshold: Optional[float] = None,
         clip_gradient_maxloss: Optional[float] = None,
-        clip_prompt: UnifiedPipelinePromptType | None = None,
+        clip_prompt: PromptBatchLike | None = None,
         vae_cutouts: Optional[int] = None,
         approx_cutouts: Optional[int] = None,
         no_cutouts: CLIP_NO_CUTOUTS_TYPE = False,
@@ -1814,18 +1760,18 @@ class UnifiedPipeline(DiffusionPipeline):
                 )
 
         # Parse prompt and calculate batch size
-        prompt = UnifiedPipelinePrompt(prompt)
-        batch_size = prompt.batch_size
+        prompt = PromptBatch.from_alike(prompt)
+        batch_size = len(prompt)
 
         # Match the negative prompt length to the batch_size
         if negative_prompt is None:
-            negative_prompt = UnifiedPipelinePrompt([[("", 1.0)]] * batch_size)
+            negative_prompt = PromptBatch.from_alike([""] * batch_size)
         else:
-            negative_prompt = UnifiedPipelinePrompt(negative_prompt)
+            negative_prompt = PromptBatch.from_alike(negative_prompt)
 
-        if batch_size != negative_prompt.batch_size:
+        if batch_size != len(negative_prompt):
             raise ValueError(
-                f"negative_prompt has batch size {negative_prompt.batch_size}, but "
+                f"negative_prompt has batch size {len(negative_prompt)}, but "
                 f"prompt has batch size {batch_size}. They need to match."
             )
 
@@ -1833,11 +1779,11 @@ class UnifiedPipeline(DiffusionPipeline):
             if clip_prompt is None:
                 clip_prompt = prompt
             else:
-                clip_prompt = UnifiedPipelinePrompt(clip_prompt)
+                clip_prompt = PromptBatch.from_alike(clip_prompt)
 
-            if batch_size != clip_prompt.batch_size:
+            if batch_size != len(clip_prompt):
                 raise ValueError(
-                    f"clip_prompt has batch size {clip_prompt.batch_size}, but "
+                    f"clip_prompt has batch size {len(clip_prompt)}, but "
                     f"prompt has batch size {batch_size}. They need to match."
                 )
 
@@ -1898,11 +1844,10 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if hint_images is not None:
             for hint_image in hint_images:
-                image = hint_image["image"]
-                hint_type = hint_image["hint_type"]
-                weight = (
-                    hint_image["weight"] if hint_image["weight"] is not None else 1.0
-                )
+                image = hint_image.image
+                hint_type = hint_image.hint_type
+                weight = 1.0 if hint_image.weight is None else hint_image.weight
+                clip_layer = hint_image.clip_layer
 
                 if isinstance(image, PILImage):
                     image = images.fromPIL(image)
@@ -1933,7 +1878,11 @@ class UnifiedPipeline(DiffusionPipeline):
                     if handler_models:
                         leaf_args["hints"].append(
                             UnifiedPipelineHint.for_model(
-                                handler_models, image, None, weight
+                                handler_models,
+                                image,
+                                mask=None,
+                                weight=weight,
+                                clip_layer=clip_layer,
                             )
                         )
                     else:
@@ -2087,27 +2036,59 @@ class UnifiedPipeline(DiffusionPipeline):
             if unet is self.inpaint_unet and self.inpaint_text_encoder is not None:
                 text_encoder = self.inpaint_text_encoder
 
-            text_encoder = TextEncoderAltLayer(text_encoder, self._text_embedding_layer)
+            prompt_chunks = []
 
-            # text_embedding_calculator = BasicTextEmbedding(
-            #     tokenizer=tokenizer,
-            #     text_encoder=text_encoder,
-            #     device=self.execution_device,
-            # )
+            try:
+                prompt_layer = prompt.clip_layer(self._text_embedding_layer)
+                uncond_layer = negative_prompt.clip_layer(self._text_embedding_layer)
+                prompt_chunks.append(
+                    (prompt, prompt_layer, negative_prompt, uncond_layer)
+                )
 
-            text_embedding_calculator = LPWTextEmbedding(
-                tokenizer=tokenizer,
-                text_encoder=text_encoder,
-                device=self.execution_device,
-                max_embeddings_multiples=max_embeddings_multiples,
-            )
+            except MismatchedClipLayer:
+                for prompt_chunk, uncond_chunk in zip(
+                    prompt.chunk(), negative_prompt.chunk()
+                ):
+                    prompt_layer = prompt_chunk.clip_layer(self._text_embedding_layer)
+                    uncond_layer = uncond_chunk.clip_layer(self._text_embedding_layer)
+                    prompt_chunks.append(
+                        (prompt_chunk, prompt_layer, uncond_chunk, uncond_layer)
+                    )
 
-            (
-                text_embeddings,
-                uncond_embeddings,
-            ) = text_embedding_calculator.get_embeddings(
-                prompt=prompt,
-                uncond_prompt=negative_prompt if do_classifier_free_guidance else None,
+            text_embeddings_chunked = []
+            uncond_embeddings_chunked = []
+
+            for prompt_chunk, prompt_layer, uncond_chunk, uncond_layer in prompt_chunks:
+                # text_embedding_calculator = BasicTextEmbedding(
+                #     tokenizer=tokenizer,
+                #     text_encoder=text_encoder,
+                #     device=self.execution_device,
+                # )
+
+                text_embedding_calculator = LPWTextEmbedding(
+                    tokenizer=tokenizer,
+                    text_encoder=TextEncoderAltLayer(text_encoder, prompt_layer),
+                    uncond_encoder=TextEncoderAltLayer(text_encoder, uncond_layer),
+                    device=self.execution_device,
+                    max_embeddings_multiples=max_embeddings_multiples,
+                )
+
+                (
+                    text_embeddings,
+                    uncond_embeddings,
+                ) = text_embedding_calculator.get_embeddings(
+                    prompt=prompt_chunk,
+                    uncond_prompt=uncond_chunk if do_classifier_free_guidance else None,
+                )
+
+                text_embeddings_chunked.append(text_embeddings)
+                uncond_embeddings_chunked.append(uncond_embeddings)
+
+            text_embeddings = torch.cat(text_embeddings_chunked, dim=0)
+            uncond_embeddings = (
+                torch.cat(uncond_embeddings_chunked, dim=0)
+                if do_classifier_free_guidance
+                else None
             )
 
             latents_dtype = text_embeddings.dtype

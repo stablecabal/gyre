@@ -20,6 +20,7 @@ from gyre import constants, images
 from gyre.cache import CacheKeyError
 from gyre.debug_recorder import DebugNullRecorder
 from gyre.manager import EngineNotFoundError
+from gyre.pipeline.prompt_types import HintImage, Prompt, PromptFragment
 from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
 from gyre.protobuf_tensors import deserialize_tensor
 from gyre.services.exception_to_grpc import exception_to_grpc
@@ -438,29 +439,36 @@ class ParameterExtractor:
             if prompt.artifact.type == atype:
                 yield prompt
 
-    def prompt(self):
-        tokens = []
+    def _clip_layer_from_prompt(self, prompt):
+        if prompt.HasField("parameters") and prompt.parameters.HasField("clip_layer"):
+            return prompt.parameters.clip_layer
+
+        return None
+
+    def _prompt_by_weight(self, weight_callback=None):
+
+        fragments = []
+        clip_layer = None
 
         for prompt in self._prompt_of_type("text"):
             weight = 1.0
             if prompt.HasField("parameters") and prompt.parameters.HasField("weight"):
                 weight = prompt.parameters.weight
-            if weight > 0:
-                tokens.append((prompt.text, weight))
 
-        return tokens if tokens else None
+            if weight_callback is not None:
+                weight = weight_callback(weight)
+
+            if weight > 0:
+                fragments.append(PromptFragment(prompt=prompt.text, weight=weight))
+                clip_layer = self._clip_layer_from_prompt(prompt)
+
+        return Prompt(fragments=fragments, clip_layer=clip_layer) if fragments else None
+
+    def prompt(self):
+        return self._prompt_by_weight()
 
     def negative_prompt(self):
-        tokens = []
-
-        for prompt in self._prompt_of_type("text"):
-            weight = 1.0
-            if prompt.HasField("parameters") and prompt.parameters.HasField("weight"):
-                weight = prompt.parameters.weight
-            if weight < 0:
-                tokens.append((prompt.text, -weight))
-
-        return tokens if tokens else None
+        return self._prompt_by_weight(lambda weight: -weight)
 
     def num_images_per_prompt(self):
         return self._image_parameter("samples")
@@ -599,11 +607,12 @@ class ParameterExtractor:
                 )
 
                 hint_images.append(
-                    {
-                        "image": hint_image,
-                        "hint_type": prompt.artifact.hint_image_type,
-                        "weight": weight,
-                    }
+                    HintImage(
+                        image=hint_image,
+                        hint_type=prompt.artifact.hint_image_type,
+                        weight=weight,
+                        clip_layer=self._clip_layer_from_prompt(prompt),
+                    )
                 )
 
         return hint_images

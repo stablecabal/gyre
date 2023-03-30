@@ -42,13 +42,9 @@ from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
 from gyre.pipeline.controlnet import ControlNetModel
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
+from gyre.pipeline.prompt_types import HintImage, ImageLike, PromptBatchLike
 from gyre.pipeline.samplers import build_sampler_set
-from gyre.pipeline.unified_pipeline import (
-    SCHEDULER_NOISE_TYPE,
-    UnifiedPipelineHintImage,
-    UnifiedPipelineImageType,
-    UnifiedPipelinePromptType,
-)
+from gyre.pipeline.unified_pipeline import SCHEDULER_NOISE_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -421,8 +417,8 @@ class GeneratePipelineWrapper(PipelineWrapper):
     def generate(
         self,
         # The prompt, negative_prompt, and number of images per prompt
-        prompt: UnifiedPipelinePromptType,
-        negative_prompt: Optional[UnifiedPipelinePromptType] = None,
+        prompt: PromptBatchLike,
+        negative_prompt: PromptBatchLike | None = None,
         num_images_per_prompt: Optional[int] = 1,
         # The seeds - len must match len(prompt) * num_images_per_prompt if provided
         seed: Optional[Union[int, Iterable[int]]] = None,
@@ -446,11 +442,11 @@ class GeneratePipelineWrapper(PipelineWrapper):
         scheduler_noise_type: Optional[SCHEDULER_NOISE_TYPE] = "normal",
         num_inference_steps: int = 50,
         # Providing these changes from txt2img into either img2img (no mask) or inpaint (mask) mode
-        init_image: Optional[UnifiedPipelineImageType] = None,
-        mask_image: Optional[UnifiedPipelineImageType] = None,
-        outmask_image: Optional[UnifiedPipelineImageType] = None,
-        depth_map: Optional[UnifiedPipelineImageType] = None,
-        hint_images: list[UnifiedPipelineHintImage] | None = None,
+        init_image: ImageLike | None = None,
+        mask_image: ImageLike | None = None,
+        outmask_image: ImageLike | None = None,
+        depth_map: ImageLike | None = None,
+        hint_images: list[HintImage] | None = None,
         # The strength of the img2img or inpaint process, if init_image is provided
         strength: float = None,
         # Lora

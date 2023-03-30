@@ -1,7 +1,8 @@
 class TextEmbedding:
-    def __init__(self, tokenizer, text_encoder, device, **kwargs):
+    def __init__(self, tokenizer, text_encoder, uncond_encoder, device, **kwargs):
         self.tokenizer = tokenizer
         self.text_encoder = text_encoder
+        self.uncond_encoder = uncond_encoder
         self.device = device
 
     def get_text_embeddings(self, prompt):
