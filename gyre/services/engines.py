@@ -62,7 +62,7 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
 
             if "prompt" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_TEXT)
-            if "init_image" in call_args:
+            if "image" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_IMAGE)
             if "mask_image" in call_args:
                 info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_MASK)

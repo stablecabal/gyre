@@ -1,0 +1,18 @@
+- model_id: "latent-upscaler-2x"
+  model: "stabilityai/sd-x2-latent-upscaler"
+
+- id: "latent-upscaler-2x"
+  name: "Latent Upscaler 2x"
+  description: "Diffusion-base 2x upscaler that works on latents directly"
+  model: "@latent-upscaler-2x"
+  enabled: False
+  class: "StableDiffusionLatentUpscalePipeline"
+
+- model_id: "upscaler-4x"
+  model: "stabilityai/stable-diffusion-x4-upscaler"
+
+- id: "upscaler-4x"
+  name: "Stable Diffusion Upscaler 4x"
+  description: "Diffusion-based 4x upscaler that works on pixels"
+  model: "@upscaler-4x"
+  class: "StableDiffusionUpscalePipeline"

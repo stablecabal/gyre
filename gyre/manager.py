@@ -11,9 +11,10 @@ import os
 import queue
 import shutil
 import tempfile
+import typing
 from collections import Counter
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from queue import Queue
 from types import SimpleNamespace as SN
@@ -37,19 +38,28 @@ from huggingface_hub.file_download import http_get
 from tqdm.auto import tqdm
 from transformers import CLIPModel, PreTrainedModel
 
-from gyre import civitai, ckpt_utils, torch_safe_unpickler
+from gyre import civitai, ckpt_utils, images, torch_safe_unpickler
 from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
 from gyre.pipeline.controlnet import ControlNetModel
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
-from gyre.pipeline.prompt_types import HintImage, ImageLike, PromptBatchLike
+from gyre.pipeline.prompt_types import (
+    HintImage,
+    ImageLike,
+    Prompt,
+    PromptBatch,
+    PromptBatchLike,
+)
 from gyre.pipeline.samplers import build_sampler_set
 from gyre.pipeline.unified_pipeline import SCHEDULER_NOISE_TYPE
+from gyre.pipeline.xformers_utils import xformers_mea_available
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LIBRARIES = {
     "StableDiffusionPipeline": "stable_diffusion",
+    "StableDiffusionUpscalePipeline": "stable_diffusion",
+    "StableDiffusionLatentUpscalePipeline": "stable_diffusion",
     "UnifiedPipeline": "gyre.pipeline.unified_pipeline",
     "UpscalerPipeline": "gyre.pipeline.upscaler_pipeline",
     "DiffusersDepthPipeline": "gyre.pipeline.depth.diffusers_depth_pipeline",
@@ -87,10 +97,10 @@ TYPE_CLASSES = {
 
 class ProgressBarWrapper(object):
     class InternalTqdm(tqdm):
-        def __init__(self, progress_callback, stop_event, suppress_output, iterable):
+        def __init__(self, progress_callback, stop_event, *args, **kwargs):
             self._progress_callback = progress_callback
             self._stop_event = stop_event
-            super().__init__(iterable, disable=suppress_output)
+            super().__init__(*args, **kwargs)
 
         def update(self, n=1):
             displayed = super().update(n)
@@ -110,10 +120,16 @@ class ProgressBarWrapper(object):
         self._stop_event = stop_event
         self._suppress_output = suppress_output
 
-    def __call__(self, iterable):
-        return ProgressBarWrapper.InternalTqdm(
-            self._progress_callback, self._stop_event, self._suppress_output, iterable
-        )
+    def __call__(self, iterable=None, total=None):
+        args = [self._progress_callback, self._stop_event]
+        kwargs = {"disable": self._suppress_output}
+
+        if iterable is not None:
+            args.append(iterable)
+        elif total is not None:
+            kwargs["total"] = total
+
+        return ProgressBarWrapper.InternalTqdm(*args, **kwargs)
 
 
 def clip(val, minval, maxval):
@@ -152,6 +168,10 @@ class EngineMode(object):
     @property
     def attention_slice(self):
         return self.device == "cuda" and self._vramO > 0
+
+    @property
+    def tile_vae(self):
+        return True
 
     @property
     def fp16(self):
@@ -357,16 +377,83 @@ class PipelineWrapper:
         return self._pipeline(*args, **kwargs)
 
 
+def image_to_centered(i):
+    if isinstance(i, torch.Tensor):
+        i = images.normalise_tensor(i, 3)
+        return i * 2 - 1
+    return i
+
+
+def prompt_to_string(p):
+    if isinstance(p, Prompt | PromptBatch):
+        return p.as_unweighted_string()
+    return p
+
+
+@dataclass
+class WrapperConfig:
+    fields: dict[str, typing.Callable] | None = None
+    schedulers: set[Literal["diffusers", "kdiffusion"]] = field(default_factory=set)
+    xformers: Literal["manual", "automatic"] = "manual"
+
+    def apply_fields(self, args):
+        if self.fields is None:
+            return args
+
+        res = {**args}
+
+        for k, c in self.fields.items():
+            if k in res:
+                res[k] = c(res[k])
+
+        return res
+
+
+WRAPPER_CONFIGS = {
+    "StableDiffusionUpscalePipeline": WrapperConfig(
+        fields=dict(
+            image=image_to_centered,
+            prompt=prompt_to_string,
+            negative_prompt=prompt_to_string,
+            eta=lambda eta: 0.0 if eta is None else eta,
+        ),
+        schedulers={"diffusers"},
+    ),
+    "StableDiffusionLatentUpscalePipeline": WrapperConfig(
+        fields=dict(
+            image=image_to_centered,
+            prompt=prompt_to_string,
+            negative_prompt=prompt_to_string,
+        ),
+        schedulers=set(),
+    ),
+}
+
+
 class GeneratePipelineWrapper(PipelineWrapper):
     def __init__(self, id, mode, pipeline):
         super().__init__(id, mode, pipeline)
 
+        # Get any pipeline-specific tweaks
+        self.config = WRAPPER_CONFIGS.get(pipeline.__class__.__name__)
+
         if self.mode.attention_slice:
             self._pipeline.enable_attention_slicing("auto")
-            self._pipeline.enable_vae_slicing()
+            if callable(getattr(self._pipeline, "enable_vae_slicing", None)):
+                self._pipeline.enable_vae_slicing()
         else:
             self._pipeline.disable_attention_slicing()
-            self._pipeline.disable_vae_slicing()
+            if callable(getattr(self._pipeline, "disable_vae_slicing", None)):
+                self._pipeline.disable_vae_slicing()
+
+        if self.mode.tile_vae:
+            self._pipeline.vae.enable_tiling()
+        else:
+            self._pipeline.vae.disable_tiling()
+
+        if self.config is not None and self.config.xformers == "manual":
+            if xformers_mea_available():
+                self._pipeline.enable_xformers_memory_efficient_attention()
 
         self.prediction_type = getattr(
             self._pipeline.scheduler, "prediction_type", "epsilon"
@@ -374,8 +461,12 @@ class GeneratePipelineWrapper(PipelineWrapper):
 
         self._samplers = build_sampler_set(
             self._pipeline.scheduler.config,
-            include_diffusers=True,
-            include_kdiffusion=True,
+            include_diffusers=(
+                self.config is None or "diffusers" in self.config.schedulers
+            ),
+            include_kdiffusion=(
+                self.config is None or "kdiffusion" in self.config.schedulers
+            ),
         )
 
     def _prepScheduler(self, scheduler):
@@ -422,7 +513,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
         num_images_per_prompt: Optional[int] = 1,
         # The seeds - len must match len(prompt) * num_images_per_prompt if provided
         seed: Optional[Union[int, Iterable[int]]] = None,
-        # The size - ignored if an init_image is passed
+        # The size - ignored if an image is passed
         height: int = 512,
         width: int = 512,
         # Guidance control
@@ -442,12 +533,12 @@ class GeneratePipelineWrapper(PipelineWrapper):
         scheduler_noise_type: Optional[SCHEDULER_NOISE_TYPE] = "normal",
         num_inference_steps: int = 50,
         # Providing these changes from txt2img into either img2img (no mask) or inpaint (mask) mode
-        init_image: ImageLike | None = None,
+        image: ImageLike | None = None,
         mask_image: ImageLike | None = None,
         outmask_image: ImageLike | None = None,
         depth_map: ImageLike | None = None,
         hint_images: list[HintImage] | None = None,
-        # The strength of the img2img or inpaint process, if init_image is provided
+        # The strength of the img2img or inpaint process, if image is provided
         strength: float = None,
         # Lora
         lora=None,
@@ -475,17 +566,21 @@ class GeneratePipelineWrapper(PipelineWrapper):
         elif seed > 0:
             generator = torch.Generator(generator_device).manual_seed(seed)
 
-        if scheduler is None:
-            samplers = self.get_samplers()
-            if sampler is None:
-                scheduler = list(samplers.values())[0]
-            else:
-                scheduler = samplers.get(sampler, None)
+        # Inject custom scheduler
+        if self.config is None or self.config.schedulers:
+            if scheduler is None:
+                samplers = self.get_samplers()
+                if sampler is None:
+                    scheduler = list(samplers.values())[0]
+                else:
+                    scheduler = samplers.get(sampler, None)
 
-        if not scheduler:
-            raise NotImplementedError("Scheduler not implemented")
+            if not scheduler:
+                raise NotImplementedError("Scheduler not implemented")
 
-        self._pipeline.scheduler = scheduler
+            self._pipeline.scheduler = scheduler
+
+        # Inject progress bar to enable cancellation support
         self._pipeline.progress_bar = ProgressBarWrapper(
             progress_callback, stop_event, suppress_output
         )
@@ -510,7 +605,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
             karras_rho=karras_rho,
             scheduler_noise_type=scheduler_noise_type,
             num_inference_steps=num_inference_steps,
-            init_image=init_image,
+            image=image,
             mask_image=mask_image,
             outmask_image=outmask_image,
             depth_map=depth_map,
@@ -527,11 +622,16 @@ class GeneratePipelineWrapper(PipelineWrapper):
             return_dict=False,
         )
 
+        if self.config is not None:
+            pipeline_args = self.config.apply_fields(pipeline_args)
+
         pipeline_keys = inspect.signature(self._pipeline).parameters.keys()
         self_params = inspect.signature(self.generate).parameters
+
+        # Filter args to only those the pipeline supports
         for k, v in list(pipeline_args.items()):
             if k not in pipeline_keys:
-                if v != self_params[k].default:
+                if not (k in self_params and v == self_params[k].default):
                     print(
                         f"Warning: Pipeline doesn't understand argument {k} (set to {v}) - ignoring"
                     )
@@ -1440,6 +1540,12 @@ class EngineManager(object):
         result = {}
 
         for key in thetas[0].keys():
+            # Special case for position IDs
+            if key == "text_model.embeddings.position_ids":
+                base = thetas[0][key]
+                result[key] = torch.arange(0, base.shape[1]).unsqueeze(0).to(base)
+                continue
+
             tomix = [theta[key] for theta in thetas]
             shapes = [tensor.shape for tensor in tomix]
 

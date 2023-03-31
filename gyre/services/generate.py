@@ -474,13 +474,13 @@ class ParameterExtractor:
         return self._image_parameter("samples")
 
     def height(self):
-        image = self.get("init_image")
+        image = self.get("image")
         if image is not None:
             return image.shape[2]
         return self._image_parameter("height")
 
     def width(self):
-        image = self.get("init_image")
+        image = self.get("image")
         if image is not None:
             return image.shape[3]
         return self._image_parameter("width")
@@ -563,7 +563,7 @@ class ParameterExtractor:
 
         return image
 
-    def init_image(self):
+    def image(self):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_IMAGE:
                 return self._add_to_echo(
@@ -817,15 +817,15 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 self._ram_monitor.print()
 
             if request.engine_id == "noop":
-                init_image = kwargs.get("init_image", None)
+                image = kwargs.get("image", None)
 
                 # If there was an init image passed, return the result
-                if init_image is not None:
+                if image is not None:
                     answer = generation_pb2.Answer()
                     answer.request_id = request.request_id
                     answer.answer_id = "noop"
                     artifact = image_to_artifact(
-                        init_image, artifact_type=generation_pb2.ARTIFACT_IMAGE
+                        image, artifact_type=generation_pb2.ARTIFACT_IMAGE
                     )
                     artifact.index = 1
                     answer.artifacts.append(artifact)
@@ -852,7 +852,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
 
                 logargs = {**batchargs}
                 for field in [
-                    "init_image",
+                    "image",
                     "mask_image",
                     "outmask_image",
                     "depth_map",
@@ -887,7 +887,15 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                         if "token_embedding" in prompt["artifact"]:
                             del prompt["artifact"]["token_embedding"]
 
-                for i, (result_image, nsfw) in enumerate(zip(results[0], results[1])):
+                print(len(results))
+
+                if len(results) == 1:
+                    result_images = results[0]
+                    nsfws = [False] * len(result_images)
+                else:
+                    result_images, nsfws = results[0], results[1]
+
+                for i, (result_image, nsfw) in enumerate(zip(result_images, nsfws)):
                     answer = generation_pb2.Answer()
                     answer.request_id = request.request_id
                     answer.answer_id = f"{request.request_id}-{ctr}"

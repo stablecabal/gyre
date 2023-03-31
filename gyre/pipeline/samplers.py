@@ -2,7 +2,12 @@ import functools
 import inspect
 
 import generation_pb2
-from diffusers import DPMSolverMultistepScheduler, LMSDiscreteScheduler, PNDMScheduler
+from diffusers import (
+    DDIMScheduler,
+    DPMSolverMultistepScheduler,
+    LMSDiscreteScheduler,
+    PNDMScheduler,
+)
 from k_diffusion import sampling as k_sampling
 
 from gyre.pipeline.kschedulers import (
@@ -13,7 +18,8 @@ from gyre.pipeline.kschedulers import (
     HeunDiscreteScheduler,
 )
 from gyre.pipeline.schedulers.sample_dpmpp_2m import sample_dpmpp_2m
-from gyre.pipeline.schedulers.scheduling_ddim import DDIMScheduler
+
+# from gyre.pipeline.schedulers.scheduling_ddim import DDIMScheduler
 
 DIFFUSERS_SAMPLERS = {
     generation_pb2.SAMPLER_DDIM: (DDIMScheduler, {}),

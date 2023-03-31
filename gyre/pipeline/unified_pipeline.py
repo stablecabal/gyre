@@ -235,7 +235,7 @@ class Img2imgMode(UnifiedMode):
         pipeline: "UnifiedPipeline",
         scheduler: CommonScheduler,
         generators: list[torch.Generator],
-        init_image: torch.Tensor,
+        image: torch.Tensor,
         latents_dtype: torch.dtype,
         batch_total: int,
         num_inference_steps: int,
@@ -257,7 +257,7 @@ class Img2imgMode(UnifiedMode):
         self.latents_dtype = latents_dtype
         self.batch_total = batch_total
 
-        self.init_image = self.preprocess_tensor(init_image)
+        self.image = self.preprocess_tensor(image)
 
     def preprocess_tensor(self, tensor):
         # Make sure it's BCHW not just CHW
@@ -310,7 +310,7 @@ class Img2imgMode(UnifiedMode):
         return latents
 
     def _buildInitialLatents(self):
-        return self._convertToLatents(self.init_image)
+        return self._convertToLatents(self.image)
 
     def _addInitialNoise(self, latents):
         self.image_noise = batched_randn(
@@ -418,7 +418,7 @@ class EnhancedInpaintMode(Img2imgMode, MaskProcessorMixin):
 
         # Remove any excluded pixels (0)
         high_mask = self.round_mask_high(self.mask)
-        self.init_latents_orig = self._convertToLatents(self.init_image, high_mask)
+        self.init_latents_orig = self._convertToLatents(self.image, high_mask)
         # low_mask = self.round_mask_low(self.mask)
         # blend_mask = self.mask * self.mask_scale
 
@@ -593,7 +593,7 @@ class EnhancedInpaintMode(Img2imgMode, MaskProcessorMixin):
         return (init_latents * self.latent_mask) + (noise * (1 - self.latent_mask))
 
     def generateLatents(self):
-        # Build initial latents from init_image the same as for img2img
+        # Build initial latents from image the same as for img2img
         init_latents = self._buildInitialLatents()
         # If strength was >=1, filled exposed areas in mask with new, shaped noise
         if self.fill_with_shaped_noise:
@@ -1568,7 +1568,7 @@ class UnifiedPipeline(DiffusionPipeline):
         prompt: PromptBatchLike,
         height: int = 512,
         width: int = 512,
-        init_image: ImageLike | None = None,
+        image: ImageLike | None = None,
         mask_image: ImageLike | None = None,
         outmask_image: ImageLike | None = None,
         depth_map: ImageLike | None = None,
@@ -1681,7 +1681,7 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if hires_oos_fraction is None:
             hires_oos_fraction = self._hires_oos_fraction
-            if init_image is not None:
+            if image is not None:
                 hires_oos_fraction = self._hires_image_oos_fraction
 
         self.set_tiling_mode(tiling)
@@ -1816,10 +1816,10 @@ class UnifiedPipeline(DiffusionPipeline):
                 f" {type(callback_steps)}."
             )
 
-        if mask_image is not None and init_image is None:
+        if mask_image is not None and image is None:
             raise ValueError("Can't pass a mask without an image")
 
-        if outmask_image is not None and init_image is None:
+        if outmask_image is not None and image is None:
             raise ValueError("Can't pass a outmask without an image")
 
         depth_map = None
@@ -1827,8 +1827,8 @@ class UnifiedPipeline(DiffusionPipeline):
         if self.depth_unet is not None and mask_image is None:
             can_use_depth_unet = True
 
-        if init_image is not None and isinstance(init_image, PILImage):
-            init_image = images.fromPIL(init_image)
+        if image is not None and isinstance(image, PILImage):
+            image = images.fromPIL(image)
 
         if mask_image is not None and isinstance(mask_image, PILImage):
             mask_image = images.fromPIL(mask_image)
@@ -1844,19 +1844,19 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if hint_images is not None:
             for hint_image in hint_images:
-                image = hint_image.image
+                hint_tensor = hint_image.image
                 hint_type = hint_image.hint_type
                 weight = 1.0 if hint_image.weight is None else hint_image.weight
                 clip_layer = hint_image.clip_layer
 
-                if isinstance(image, PILImage):
-                    image = images.fromPIL(image)
+                if isinstance(hint_tensor, PILImage):
+                    hint_tensor = images.fromPIL(hint_tensor)
 
                 # If this model has a depth_unet, use it for preference
                 if hint_type == "depth" and can_use_depth_unet:
                     logger.debug("Using unet for depth")
 
-                    depth_map = images.normalise_tensor(image, 1)
+                    depth_map = images.normalise_tensor(hint_tensor, 1)
 
                     depth_map = images.resize_right(
                         depth_map,
@@ -1879,7 +1879,7 @@ class UnifiedPipeline(DiffusionPipeline):
                         leaf_args["hints"].append(
                             UnifiedPipelineHint.for_model(
                                 handler_models,
-                                image,
+                                hint_tensor,
                                 mask=None,
                                 weight=weight,
                                 clip_layer=clip_layer,
@@ -1915,7 +1915,7 @@ class UnifiedPipeline(DiffusionPipeline):
                 leaf_args["unet"] = self.inpaint_unet
             else:
                 mode_class = EnhancedInpaintMode
-        elif init_image is not None:
+        elif image is not None:
             mode_class = Img2imgMode
         else:
             mode_class = Txt2imgMode
@@ -1974,13 +1974,17 @@ class UnifiedPipeline(DiffusionPipeline):
                         "Either use a K-Diffusion scheduler or disable Hires fix."
                     )
 
-                def image_to_natural(image, fill=torch.zeros, size=unet_pixel_size):
+                def image_to_natural(
+                    image: torch.Tensor | None,
+                    fill: Callable = torch.zeros,
+                    size: int = unet_pixel_size,
+                ):
                     return (
                         None
                         if image is None
                         else HiresUnetWrapper.image_to_natural(
                             size,
-                            cast(torch.Tensor, image),
+                            image,
                             oos_fraction=hires_oos_fraction,
                             fill=fill,
                         )
@@ -1990,7 +1994,7 @@ class UnifiedPipeline(DiffusionPipeline):
                     **child_opts,
                     "width": unet_pixel_size,
                     "height": unet_pixel_size,
-                    "init_image": image_to_natural(init_image),
+                    "image": image_to_natural(image),
                     "mask_image": image_to_natural(mask_image, torch.ones),
                     "depth_map": image_to_natural(
                         child_opts["depth_map"], size=unet_sample_size
@@ -2006,10 +2010,6 @@ class UnifiedPipeline(DiffusionPipeline):
                         )
                         for hint in child_opts["hints"]
                     ],
-                    # "controlnet_hints": [
-                    #     hint.with_image(image_to_natural)
-                    #     for hint in child_opts["controlnet_hints"]
-                    # ],
                 }
 
             # TODO: This only works as long as all unets have same natural size
@@ -2157,7 +2157,7 @@ class UnifiedPipeline(DiffusionPipeline):
             generators=generators,
             width=width,
             height=height,
-            init_image=init_image,
+            image=image,
             mask_image=mask_image,
             depth_map=depth_map,
             latents_dtype=latents_dtype,
@@ -2243,7 +2243,7 @@ class UnifiedPipeline(DiffusionPipeline):
         )
 
         timestep_args = {}
-        if init_image is not None:
+        if image is not None:
             timestep_args["strength"] = strength
         if prediction_type:
             timestep_args["prediction_type"] = prediction_type
@@ -2284,45 +2284,45 @@ class UnifiedPipeline(DiffusionPipeline):
         latents = mode_tree.split_result(latents)
 
         latents = 1 / 0.18215 * latents
-        image = self.vae_decode(latents)
+        result_image = self.vae_decode(latents)
 
-        image = (image / 2 + 0.5).clamp(0, 1)
+        result_image = (result_image / 2 + 0.5).clamp(0, 1)
 
-        if init_image is not None and outmask_image is not None:
+        if image is not None and outmask_image is not None:
             outmask = torch.cat([outmask_image] * batch_total)
             outmask = outmask[:, [0, 1, 2]]
-            outmask = outmask.to(image.device)
+            outmask = outmask.to(result_image.device)
 
-            source = torch.cat([init_image] * batch_total)
+            source = torch.cat([image] * batch_total)
             source = source[:, [0, 1, 2]]
-            source = source.to(image.device)
+            source = source.to(result_image.device)
 
-            image = source * (1 - outmask) + image * outmask
+            result_image = source * (1 - outmask) + result_image * outmask
 
-        numpyImage = image.cpu().permute(0, 2, 3, 1).numpy()
+        result_numpy = result_image.cpu().permute(0, 2, 3, 1).numpy()
 
         if run_safety_checker and self.safety_checker is not None:
             # run safety checker
             safety_cheker_input = self.feature_extractor(
-                self.numpy_to_pil(numpyImage), return_tensors="pt"
+                self.numpy_to_pil(result_numpy), return_tensors="pt"
             ).to(self.execution_device)
-            numpyImage, has_nsfw_concept = self.safety_checker(
-                images=numpyImage,
+            result_numpy, has_nsfw_concept = self.safety_checker(
+                images=result_numpy,
                 clip_input=safety_cheker_input.pixel_values.to(latents_dtype),
             )
         else:
-            has_nsfw_concept = [False] * numpyImage.shape[0]
+            has_nsfw_concept = [False] * result_numpy.shape[0]
 
         if output_type == "pil":
-            image = self.numpy_to_pil(image)
+            result_image = self.numpy_to_pil(result_numpy)
         elif output_type == "tensor":
-            image = torch.from_numpy(numpyImage).permute(0, 3, 1, 2)
+            result_image = torch.from_numpy(result_numpy).permute(0, 3, 1, 2)
         else:
-            image = numpyImage
+            result_image = result_numpy
 
         if not return_dict:
-            return (image, has_nsfw_concept)
+            return (result_image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(
-            images=image, nsfw_content_detected=has_nsfw_concept
+            images=result_image, nsfw_content_detected=has_nsfw_concept
         )

@@ -13,6 +13,7 @@ import threading
 import time
 import zipfile
 from concurrent import futures
+from fnmatch import fnmatch
 
 import yaml
 
@@ -482,7 +483,14 @@ def main():
         "-e",
         action="append",
         default=environ_list("SD_ENABLE_ENGINE"),
-        help="The ID of an engine to enable. (Shorthand for --enginecfg '{id: (the id), enabled: True}')",
+        help="The ID (or wildcard pattern) of an engine to enable (overrides anything contained in config)",
+    )
+    generation_opts.add_argument(
+        "--disable_engine",
+        "-d",
+        action="append",
+        default=environ_list("SD_DISABLE_ENGINE"),
+        help="The ID (or wildcard pattern) of an engine to disable (overrides anything contained in config)",
     )
     generation_opts.add_argument(
         "--weight_root",
@@ -725,9 +733,6 @@ def main():
     if not unprocessed_cfg:
         unprocessed_cfg = ["./config/engines.yaml"]
 
-    for engine_id in args.enable_engine:
-        unprocessed_cfg.append('{id: "' + engine_id + '", enabled: True}')
-
     enginecfg = []
 
     for cfg in unprocessed_cfg:
@@ -811,6 +816,7 @@ def main():
     if xformers_mea_available():
         print("Xformers defaults to on")
 
+    # Parse yaml (handle includes, process templates, merge changes)
     engines = engines_yaml.load(
         enginecfg,
         {
@@ -821,6 +827,17 @@ def main():
         },
     )
 
+    # Enable or disable any engines that were overriddden via server args
+    for engine in engines:
+        if engine_id := engine.get("id", None):
+            for pattern in args.enable_engine:
+                if fnmatch(engine_id, pattern):
+                    engine["enabled"] = True
+            for pattern in args.disable_engine:
+                if fnmatch(engine_id, pattern):
+                    engine["enabled"] = False
+
+    # Create engine manager
     manager = EngineManager(
         engines,
         weight_root=args.weight_root,

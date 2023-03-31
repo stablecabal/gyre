@@ -11,9 +11,9 @@ from typing import Literal
 import cv2 as cv
 import kornia
 import numpy as np
-import PIL
 import torch
 import torchvision
+from PIL import Image as PILImage
 from tqdm import tqdm, trange
 
 from .resize_right import interp_methods
@@ -38,7 +38,7 @@ def toPIL(tensor):
     # Then convert from 0..1 to 0..255
     images = (rgbBHWC.to(torch.float32) * 255).round().to(torch.uint8).cpu().numpy()
     # And put into PIL image instances
-    return [PIL.Image.fromarray(image) for image in images]
+    return [PILImage.fromarray(image) for image in images]
 
 
 def fromCV(bgrHWC):
@@ -74,7 +74,6 @@ def fromPngBytes(bytes):
     return asuint8[None, ...].to(torch.float32) / 255
 
 
-# Images with alpha will be slow for now. TODO: Move to OpenCV (torchvision does not support encoding alpha images)
 def toPngBytes(tensor):
     tensor = tensor.to("cpu")
 
