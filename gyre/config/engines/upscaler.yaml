@@ -1,18 +1,107 @@
-- model_id: "latent-upscaler-2x"
+---
+# ---
+# "Stable Diffusion" upscalers - upscalers that use Diffusion process to upscale
+# ---
+
+- model_id: "latent-upscaler-x2"
   model: "stabilityai/sd-x2-latent-upscaler"
 
-- id: "latent-upscaler-2x"
+- id: "latent-upscaler-x2"
   name: "Latent Upscaler 2x"
   description: "Diffusion-base 2x upscaler that works on latents directly"
-  model: "@latent-upscaler-2x"
+  task: "upscaler"
+  model: "@latent-upscaler-x2"
   enabled: False
   class: "StableDiffusionLatentUpscalePipeline"
 
-- model_id: "upscaler-4x"
+- model_id: "upscaler-x4"
   model: "stabilityai/stable-diffusion-x4-upscaler"
 
-- id: "upscaler-4x"
+- id: "upscaler-x4"
   name: "Stable Diffusion Upscaler 4x"
   description: "Diffusion-based 4x upscaler that works on pixels"
-  model: "@upscaler-4x"
+  task: "upscaler"
+  model: "@upscaler-x4"
   class: "StableDiffusionUpscalePipeline"
+
+# ---
+# "BasicSR" upscalers - a variety of DL upscaling algorithms that share a similar model structure
+# ---
+
+---
+!@template/basicsr-upscaler
+- model_id: "{{id}}"
+  type: "module"
+  class: "UpscalerLoader/{{type}}"
+  "{{> source}}": _
+
+- id: "{{id}}"
+  name: "{{id}}"
+  "{{#description:False}}":
+    description: "{{description}}"
+  task: "upscaler"
+  class: UpscalerPipeline
+  model: "@{{id}}"
+  enabled: "{{enabled:False}}"
+  default: "{{default:False}}"
+
+---
+!basicsr-upscaler/hat-gan-x4
+type: hat
+enabled: True
+default: True
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "hat_ganx4"
+
+---
+!basicsr-upscaler/hat-l-x4
+type: hat_l
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "hat_lx4"
+
+---
+!basicsr-upscaler/swinir-x4
+type: swinir
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "swin_x4"
+
+---
+!basicsr-upscaler/swinir-l-x4
+type: swinir_l
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "swin_lx4"
+
+---
+!basicsr-upscaler/realesrgan-x4plus
+type: realesrgan
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "realesrgan_x4plus"
+
+---
+!basicsr-upscaler/realesrgan-x4plus-anime
+type: realesrgan_6B
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "realesrgan_x4plus_anime"
+
+---
+!basicsr-upscaler/esrgan-animesharp-x4
+type: esrgan_old
+# WARNING: This model is distributed under a non-commercial license (CC BY-NC-SA 4.0)
+# Do not enable on servers that may be used for commercial purposes
+enabled: False
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "esrgan_animesharp_x4"
+
+---
+!basicsr-upscaler/esrgan-valar-x4
+type: esrgan_plus
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "esrgan_valar_x4"

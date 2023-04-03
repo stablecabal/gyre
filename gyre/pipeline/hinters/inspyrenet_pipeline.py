@@ -48,17 +48,7 @@ class InSPyReNetPipeline:
             # Scale down to 1280 x 1280
             scale = min(MAX_RES / tensor.shape[-2], MAX_RES / tensor.shape[-1])
 
-            sample = (
-                images.resize_right(
-                    sample,
-                    scale,
-                    interp_method=images.interp_methods.lanczos2,
-                    antialiasing=False,
-                    pad_mode="reflect",
-                )
-                .clamp(0, 1)
-                .contiguous()
-            )
+            sample = images.resize(sample, scale).contiguous()
 
             # Use guided filter if tensor is over double MAX_RES
             guided_filter = scale < 0.5
@@ -83,20 +73,14 @@ class InSPyReNetPipeline:
         pred = pred.to(tensor.device, tensor.dtype)
 
         if scale is not None:
-            print("Guided Filtering Mask")
-
-            pred = images.resize_right(
-                pred,
-                1 / scale,
-                interp_method=images.interp_methods.lanczos2,
-                antialiasing=False,
-                pad_mode="reflect",
-            ).clamp(0, 1)
+            pred = images.resize(pred, 1 / scale)
 
         if padding is not None:
             pred = pred[:, :, padding[2] :, padding[0] :]
 
         if guided_filter:
+            print("Guided Filtering Mask")
+
             guided_pred = (
                 guidedfilter2d_color(
                     tensor.to(torch.float64), pred.to(torch.float64), 32, 1e-8

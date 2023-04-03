@@ -41,6 +41,7 @@ from transformers import CLIPModel, PreTrainedModel
 from gyre import civitai, ckpt_utils, images, torch_safe_unpickler
 from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
+from gyre.pipeline import pipeline_meta
 from gyre.pipeline.controlnet import ControlNetModel
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
 from gyre.pipeline.prompt_types import (
@@ -61,7 +62,6 @@ DEFAULT_LIBRARIES = {
     "StableDiffusionUpscalePipeline": "stable_diffusion",
     "StableDiffusionLatentUpscalePipeline": "stable_diffusion",
     "UnifiedPipeline": "gyre.pipeline.unified_pipeline",
-    "UpscalerPipeline": "gyre.pipeline.upscaler_pipeline",
     "DiffusersDepthPipeline": "gyre.pipeline.depth.diffusers_depth_pipeline",
     "MidasDepthPipeline": "gyre.pipeline.depth.midas_depth_pipeline",
     "MidasModelWrapper": "gyre.pipeline.depth.midas_model_wrapper",
@@ -74,6 +74,8 @@ DEFAULT_LIBRARIES = {
     "MmposePipeline": "gyre.pipeline.hinters.mmpose_pipeline",
     "InSPyReNet_SwinB": "gyre.pipeline.hinters.inspyrenet.InSPyReNet",
     "InSPyReNetPipeline": "gyre.pipeline.hinters.inspyrenet_pipeline",
+    "UpscalerLoader": "gyre.pipeline.upscalers.upscaler_loader",
+    "UpscalerPipeline": "gyre.pipeline.upscalers.upscaler_pipeline",
 }
 
 
@@ -87,7 +89,6 @@ TYPE_CLASSES = {
     "clip_tokenizer": "transformers.CLIPTokenizer",
     "text_encoder": "transformers.CLIPTextModel",
     "inpaint_text_encoder": "transformers.CLIPTextModel",
-    "upscaler": "gyre.pipeline.upscaler_pipeline.NoiseLevelAndTextConditionedUpscaler",
     "depth_estimator": "transformers.DPTForDepthEstimation",
     "midas_depth_estimator": "MidasModelWrapper",
     "t2i_adapter": "T2iAdapter",
@@ -377,66 +378,14 @@ class PipelineWrapper:
         return self._pipeline(*args, **kwargs)
 
 
-def image_to_centered(i):
-    if isinstance(i, torch.Tensor):
-        i = images.normalise_tensor(i, 3)
-        return i * 2 - 1
-    return i
-
-
-def prompt_to_string(p):
-    if isinstance(p, Prompt | PromptBatch):
-        return p.as_unweighted_string()
-    return p
-
-
-@dataclass
-class WrapperConfig:
-    fields: dict[str, typing.Callable] | None = None
-    schedulers: set[Literal["diffusers", "kdiffusion"]] = field(default_factory=set)
-    xformers: Literal["manual", "automatic"] = "manual"
-
-    def apply_fields(self, args):
-        if self.fields is None:
-            return args
-
-        res = {**args}
-
-        for k, c in self.fields.items():
-            if k in res:
-                res[k] = c(res[k])
-
-        return res
-
-
-WRAPPER_CONFIGS = {
-    "StableDiffusionUpscalePipeline": WrapperConfig(
-        fields=dict(
-            image=image_to_centered,
-            prompt=prompt_to_string,
-            negative_prompt=prompt_to_string,
-            eta=lambda eta: 0.0 if eta is None else eta,
-        ),
-        schedulers={"diffusers"},
-    ),
-    "StableDiffusionLatentUpscalePipeline": WrapperConfig(
-        fields=dict(
-            image=image_to_centered,
-            prompt=prompt_to_string,
-            negative_prompt=prompt_to_string,
-        ),
-        schedulers=set(),
-    ),
-}
-
-
-class GeneratePipelineWrapper(PipelineWrapper):
+class DiffusionPipelineWrapper(PipelineWrapper):
     def __init__(self, id, mode, pipeline):
         super().__init__(id, mode, pipeline)
 
         # Get any pipeline-specific tweaks
-        self.config = WRAPPER_CONFIGS.get(pipeline.__class__.__name__)
+        self._meta = pipeline_meta.get_meta(pipeline)
 
+        # Enable attention slicing based on mode
         if self.mode.attention_slice:
             self._pipeline.enable_attention_slicing("auto")
             if callable(getattr(self._pipeline, "enable_vae_slicing", None)):
@@ -446,28 +395,30 @@ class GeneratePipelineWrapper(PipelineWrapper):
             if callable(getattr(self._pipeline, "disable_vae_slicing", None)):
                 self._pipeline.disable_vae_slicing()
 
-        if self.mode.tile_vae:
-            self._pipeline.vae.enable_tiling()
-        else:
-            self._pipeline.vae.disable_tiling()
+        # Enable VAE tiling based on mode
+        if (vae := getattr(self._pipeline, "vae", None)) is not None:
+            if self.mode.tile_vae:
+                vae.enable_tiling()
+            else:
+                vae.disable_tiling()
 
-        if self.config is not None and self.config.xformers == "manual":
+        # Enable xformers based on mode
+        if self._meta.get("xformers") == "manual":
             if xformers_mea_available():
                 self._pipeline.enable_xformers_memory_efficient_attention()
 
-        self.prediction_type = getattr(
-            self._pipeline.scheduler, "prediction_type", "epsilon"
-        )
+        # If the pipeline has a scheduler, get some details
+        self._prediction_type = None
+        self._samplers = None
 
-        self._samplers = build_sampler_set(
-            self._pipeline.scheduler.config,
-            include_diffusers=(
-                self.config is None or "diffusers" in self.config.schedulers
-            ),
-            include_kdiffusion=(
-                self.config is None or "kdiffusion" in self.config.schedulers
-            ),
-        )
+        if (scheduler := getattr(self._pipeline, "scheduler", None)) is not None:
+            self._prediction_type = scheduler.config.get("prediction_type", "epsilon")
+
+            self._samplers = build_sampler_set(
+                scheduler.config,
+                include_diffusers=self._meta.get("diffusers_capable", True),
+                include_kdiffusion=self._meta.get("kdiffusion_capable", False),
+            )
 
     def _prepScheduler(self, scheduler):
         if (
@@ -492,20 +443,20 @@ class GeneratePipelineWrapper(PipelineWrapper):
         return scheduler
 
     def activate(self, device):
-        super().activate(
-            device,
-            GPUExclusionSet(
+        exclusion_set = None
+
+        if self.mode.gpu_offload and self._meta.get("offload_capable", True):
+            exclusion_set = GPUExclusionSet(
                 max_activated=self.mode.model_max_limit,
                 mem_limit=self.mode.model_vram_limit,
             )
-            if self.mode.gpu_offload
-            else None,
-        )
+
+        super().activate(device, exclusion_set)
 
     def get_samplers(self):
         return self._samplers
 
-    def generate(
+    def __call__(
         self,
         # The prompt, negative_prompt, and number of images per prompt
         prompt: PromptBatchLike,
@@ -567,9 +518,8 @@ class GeneratePipelineWrapper(PipelineWrapper):
             generator = torch.Generator(generator_device).manual_seed(seed)
 
         # Inject custom scheduler
-        if self.config is None or self.config.schedulers:
+        if (samplers := self.get_samplers()) is not None:
             if scheduler is None:
-                samplers = self.get_samplers()
                 if sampler is None:
                     scheduler = list(samplers.values())[0]
                 else:
@@ -595,7 +545,7 @@ class GeneratePipelineWrapper(PipelineWrapper):
             guidance_scale=guidance_scale,
             clip_guidance_scale=clip_guidance_scale,
             clip_guidance_base=clip_guidance_base,
-            prediction_type=self.prediction_type,
+            prediction_type=self._prediction_type,
             eta=eta,
             churn=churn,
             churn_tmin=churn_tmin,
@@ -622,11 +572,12 @@ class GeneratePipelineWrapper(PipelineWrapper):
             return_dict=False,
         )
 
-        if self.config is not None:
-            pipeline_args = self.config.apply_fields(pipeline_args)
+        # Allow meta-info to adjust fields for the specific pipeline
+        pipeline_args = pipeline_meta.apply_fields(self._meta, pipeline_args)
 
+        # Introspect some details about the pipeline call metiod
         pipeline_keys = inspect.signature(self._pipeline).parameters.keys()
-        self_params = inspect.signature(self.generate).parameters
+        self_params = inspect.signature(self.__call__).parameters
 
         # Filter args to only those the pipeline supports
         for k, v in list(pipeline_args.items()):
@@ -642,6 +593,10 @@ class GeneratePipelineWrapper(PipelineWrapper):
         gc.collect()
 
         return images
+
+    def generate(self, *args, **kwargs):
+        logger.warn("UnifiedPipeline#generate is deprecated, use __call__")
+        return self(*args, **kwargs)
 
 
 class ModelSet:
@@ -1962,8 +1917,8 @@ class EngineManager(object):
                     f"Engine {spec.id} has options, but created pipeline rejected them"
                 )
 
-        if spec.task == "generate":
-            wrap_class = GeneratePipelineWrapper
+        if isinstance(pipeline, DiffusionPipeline):
+            wrap_class = DiffusionPipelineWrapper
         else:
             wrap_class = PipelineWrapper
 
@@ -2223,6 +2178,9 @@ class EngineManager(object):
             for engine in self.engines
             if engine.enabled and engine.is_engine
         }
+
+    def getStatusByID(self, engine_id):
+        return engine_id in self._engine_models
 
     def _return_pipeline_to_pool(self, slot):
         assert slot.pipeline, "No pipeline to return to pool"

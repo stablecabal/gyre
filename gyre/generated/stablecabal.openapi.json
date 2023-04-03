@@ -513,6 +513,24 @@
                         }
                     }
                 },
+                "parameters": [
+                    {
+                        "name": "taskGroup",
+                        "description": "Empty",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "GENERATE",
+                                "UPSCALE",
+                                "UTILITY",
+                                "HINTER"
+                            ],
+                            "default": "GENERATE"
+                        }
+                    }
+                ],
                 "tags": [
                     "EnginesService"
                 ]
@@ -1461,6 +1479,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ArtifactType"
                         }
+                    },
+                    "task": {
+                        "type": "string"
                     }
                 },
                 "title": "Engine info struct"
@@ -1490,6 +1511,16 @@
                         }
                     }
                 }
+            },
+            "EngineTaskGroup": {
+                "type": "string",
+                "enum": [
+                    "GENERATE",
+                    "UPSCALE",
+                    "UTILITY",
+                    "HINTER"
+                ],
+                "default": "GENERATE"
             },
             "EngineTokenizer": {
                 "type": "string",

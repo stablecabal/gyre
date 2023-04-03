@@ -778,13 +778,7 @@ class UnifiedPipelineHint:
             state.shape[-1] / self.mask.shape[-1],
         )
 
-        return images.resize_right(
-            self.mask,
-            scale,
-            interp_method=images.interp_methods.lanczos2,
-            antialiasing=False,
-            pad_mode="reflect",
-        ).to(state.device, state.dtype)
+        return images.resize(self.mask, scale).to(state.device, state.dtype)
 
     def __call__(self):
         raise NotImplementedError("Sub-class needs to implement")
@@ -1113,7 +1107,10 @@ class UnifiedPipeline(DiffusionPipeline):
             Model that extracts features from generated images to be used as inputs for the `safety_checker`.
     """
 
-    _kdiffusion_capable = True
+    _meta = {
+        "diffusers_capable": True,
+        "kdiffusion_capable": True
+    }
 
     def _check_scheduler_config(self, scheduler):
         if (
@@ -1857,14 +1854,7 @@ class UnifiedPipeline(DiffusionPipeline):
                     logger.debug("Using unet for depth")
 
                     depth_map = images.normalise_tensor(hint_tensor, 1)
-
-                    depth_map = images.resize_right(
-                        depth_map,
-                        out_shape=[depth_map.shape[-2] // 8, depth_map.shape[-1] // 8],
-                        interp_method=images.interp_methods.lanczos2,
-                        pad_mode="replicate",
-                        antialiasing=False,
-                    ).clamp(0, 1)
+                    depth_map = images.resize(depth_map, (1 / 8, 1 / 8), sharpness=2)
 
                     leaf_args["depth_map"] = 2.0 * depth_map - 1.0
                     leaf_args["unet"] = self.depth_unet

@@ -4,6 +4,7 @@
 # All functions will handle RGB or RGBA images
 
 import struct
+import typing
 import zlib
 from math import ceil, sqrt
 from typing import Literal
@@ -199,12 +200,62 @@ def crop(tensor, top, left, height, width):
     return tensor[:, :, top : top + height, left : left + width]
 
 
+def scale_shape(shape, scale):
+    return shape[:-2] + (shape[-2] * scale, shape[-1] * scale)
+
+
+def resize(tensor, factors: float | tuple[float] | tuple[float, float], sharpness=1):
+    if not isinstance(factors, typing.Iterable):
+        factors = (factors, factors)
+    elif len(factors) == 1:
+        factors = (factors[0], factors[0])
+
+    # Handle sharpness == 1 (lanczos3 for both up & downsampling, with antialiasing)
+    # and sharpness == 2 (no antialiasing)
+
+    if sharpness > 0:
+        return resize_right(
+            tensor,
+            factors,
+            interp_method=interp_methods.lanczos3,
+            antialiasing=sharpness == 1,
+            pad_mode="reflect",
+        ).clamp(0, 1)
+
+    # Handle sharpness = 0 (lanzcos3 for up, area for downscale)
+
+    factors = tuple(factors)
+
+    up_factors = tuple((1 if x < 1 else x for x in factors))
+    down_factors = tuple((1 if x > 1 else x for x in factors))
+
+    if up_factors != (1, 1):
+        tensor = resize_right(
+            tensor,
+            up_factors,
+            interp_method=interp_methods.lanczos3,
+            antialiasing=False,
+            pad_mode="reflect",
+        ).clamp(0, 1)
+
+    if down_factors != (1, 1):
+        tensor = kornia.geometry.transform.rescale(
+            tensor,
+            down_factors,
+            "area",
+            antialias=False,
+        ).clamp(0, 1)
+
+    return tensor
+
+
 def rescale(
     tensor,
     height,
     width=None,
     fit: Literal["strict", "cover", "contain"] = "cover",
     pad_mode="constant",
+    sharpness=1,
 ):
     if width is None:
         width = height
@@ -220,13 +271,7 @@ def rescale(
         scale_h = scale_w = min(scale_h, scale_w)
 
     # Do the resize
-    tensor = resize_right(
-        tensor,
-        [scale_h, scale_w],
-        interp_method=interp_methods.lanczos2,
-        pad_mode="replicate",
-        antialiasing=False,
-    ).clamp(0, 1)
+    tensor = resize(tensor, (scale_h, scale_w), sharpness=sharpness)
 
     # Get the result height and width
     res_h, res_w = tensor.shape[-2], tensor.shape[-1]

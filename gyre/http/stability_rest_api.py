@@ -5,7 +5,7 @@ from base64 import b64encode
 import grpc
 import multipart
 import regex
-from engines_pb2 import Engines, EngineType
+from engines_pb2 import GENERATE, Engines, EngineType, ListEnginesRequest
 from generation_pb2 import (
     ARTIFACT_IMAGE,
     ARTIFACT_MASK,
@@ -51,7 +51,9 @@ class StabilityRESTAPI_EnginesController(JSONAPIController):
         if not self._servicer:
             raise WebError(503, "Not ready yet")
 
-        engines: Engines = self._servicer.ListEngines(None, None)
+        engines: Engines = self._servicer.ListEngines(
+            ListEnginesRequest(task_group=GENERATE), None
+        )
         res = []
 
         for engine in engines.engine:

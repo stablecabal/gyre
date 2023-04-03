@@ -22,8 +22,8 @@ class DiffusersDepthPipeline(DiffusionPipeline):
         )
 
     @torch.no_grad()
-    def __call__(self, tensor, normalise=True):
-        sample = tensor
+    def __call__(self, image, normalise=True):
+        sample = image
         device, dtype = self.depth_estimator.device, self.depth_estimator.dtype
 
         # CHW in RGB only (strip batch, strip A)
@@ -48,7 +48,7 @@ class DiffusersDepthPipeline(DiffusionPipeline):
 
         depth_map = torch.nn.functional.interpolate(
             depth_map.unsqueeze(1),
-            size=tensor.shape[-2:],
+            size=image.shape[-2:],
             mode="bicubic",
             align_corners=False,
         )
@@ -58,4 +58,4 @@ class DiffusersDepthPipeline(DiffusionPipeline):
             depth_max = torch.amax(depth_map, dim=[1, 2, 3], keepdim=True)
             depth_map = (depth_map - depth_min) / (depth_max - depth_min)
 
-        return depth_map.to(tensor.device, tensor.dtype)
+        return depth_map.to(image)

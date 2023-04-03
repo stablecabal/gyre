@@ -10,6 +10,7 @@ SRC_MODULES = [
     "mmsegmentation",
     "mmdetection",
     "mmpose",
+    "BasicSR",
 ]
 
 src_dir = os.path.dirname(__file__)
@@ -31,6 +32,18 @@ def stub_dependancy(module_name):
             parent = full_name
 
     return sys.modules[module_name]
+
+
+def stub_basicsr_version():
+    module = stub_dependancy("basicsr.version")
+
+    with open(os.path.join(src_dir, "BasicSR", "VERSION"), "r") as f:
+        SHORT_VERSION = f.read().strip()
+    VERSION_INFO = [x if x.isdigit() else f'"{x}"' for x in SHORT_VERSION.split(".")]
+
+    module.__version__ = "{}"
+    module.__gitsha__ = "unknown"
+    module.version_info = tuple(VERSION_INFO)
 
 
 def kdiffusion_direct_import(name):
@@ -117,6 +130,9 @@ def inject_src_paths():
     # Add names to path
     for name in SRC_MODULES:
         sys.path.append(os.path.join(src_dir, name))
+
+    # Fix BasicSR version being generated on package build
+    stub_basicsr_version()
 
     # Hack around mmpose version constraint
     fix_mmpose_version_constraint()

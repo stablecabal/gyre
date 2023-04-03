@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable
 import generation_pb2
 import generation_pb2_grpc
 import grpc
+import torch
 from google.protobuf import json_format as pb_json_format
 
 from gyre import constants, images
@@ -474,16 +475,31 @@ class ParameterExtractor:
         return self._image_parameter("samples")
 
     def height(self):
-        image = self.get("image")
-        if image is not None:
-            return image.shape[2]
-        return self._image_parameter("height")
+        # Just accept height if passed
+        if (height := self._image_parameter("height")) is not None:
+            return height
+        # If not passed, first try and use the size from init image
+        if (image := self.get("image")) is not None:
+            # If width parameter _was_ passed, calculate height to maintain aspect ratio
+            if (width := self._image_parameter("width")) is not None:
+                return round(image.shape[-2] / image.shape[-1] * width)
+            # Otherwise just use image size
+            return image.shape[-2]
+        # Otherwise default to 512
+        return 512
 
     def width(self):
-        image = self.get("image")
-        if image is not None:
-            return image.shape[3]
-        return self._image_parameter("width")
+        # Just accept width if passed
+        if (width := self._image_parameter("width")) is not None:
+            return width
+        # If not passed, first try and use the size from init image
+        if (image := self.get("image")) is not None:
+            # If height parameter _was_ passed, calculate width to maintain aspect ratio
+            if (height := self._image_parameter("height")) is not None:
+                return round(image.shape[-1] / image.shape[-2] * height)
+            return image.shape[-1]
+        # Otherwise default to 512
+        return 512
 
     def seed(self):
         if self._request.WhichOneof("params") != "image":
@@ -875,7 +891,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 recorder.store("pipe.generate calls", kwargs)
 
                 with self._manager.with_engine(request.engine_id) as engine:
-                    results = engine.generate(**batchargs, stop_event=stop_event)
+                    results = engine(**batchargs, stop_event=stop_event)
 
                 meta = pb_json_format.MessageToDict(request)
                 for prompt in meta["prompt"]:
@@ -887,9 +903,10 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                         if "token_embedding" in prompt["artifact"]:
                             del prompt["artifact"]["token_embedding"]
 
-                print(len(results))
-
-                if len(results) == 1:
+                if isinstance(results, torch.Tensor):
+                    result_images = results
+                    nsfws = [False] * len(result_images)
+                elif len(results) == 1:
                     result_images = results[0]
                     nsfws = [False] * len(result_images)
                 else:
