@@ -1,4 +1,4 @@
-import generation_pb2
+import engines_pb2, generation_pb2
 import grpc
 from google.protobuf import json_format as pb_json_format
 from twisted.internet import reactor
@@ -10,8 +10,10 @@ from gyre.http.grpc_gateway_controller import GRPCGatewayController
 
 
 class GrpcGateway_EnginesController(GRPCGatewayController):
-    def handle_GET(self, web_request, _, context):
-        return self._servicer.ListEngines(None, context)
+    input_class = engines_pb2.ListEnginesRequest
+    
+    def handle_GET(self, web_request, list_engines_request, context):
+        return self._servicer.ListEngines(list_engines_request, context)
 
 
 class GrpcGateway_GenerateController(GRPCGatewayController):
