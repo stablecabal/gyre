@@ -48,8 +48,8 @@ class JSONAPIController(resource.Resource):
         # Set CORS headers
         self._cors_headers(request)
 
-        if not handler:
-            return NoResource().render(request)
+        if handler is None:
+            return ErrorPage(405, b"Method not allowed", b"")
 
         # Calculate what (if any) return type matches the accept header
         return_type = None
@@ -93,11 +93,12 @@ class JSONAPIController(resource.Resource):
         return response
 
     def render_GET(self, request):
-        handler = getattr(self, "handle_GET", None)
+        handler = getattr(self, "handle_GET", getattr(self, "handle_BOTH", None))
+
         return self._render_common(request, handler, None)
 
     def render_POST(self, request):
-        handler = getattr(self, "handle_POST", None)
+        handler = getattr(self, "handle_POST", getattr(self, "handle_BOTH", None))
 
         content_type_header = request.getHeader("content-type")
         if not content_type_header or content_type_header != "application/json":

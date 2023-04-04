@@ -103,4 +103,6 @@ class GRPCGatewayController(JSONAPIController):
 
             return response
 
-        return super()._render_common(request, wrapped_handler, input)
+        return super()._render_common(
+            request, wrapped_handler if handler is not None else None, input
+        )
