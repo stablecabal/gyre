@@ -1,11 +1,12 @@
 import json
 import uuid
 from base64 import b64encode
+from itertools import chain
 
 import grpc
 import multipart
 import regex
-from engines_pb2 import GENERATE, Engines, EngineType, ListEnginesRequest
+from engines_pb2 import GENERATE, UPSCALE, Engines, EngineType, ListEnginesRequest
 from generation_pb2 import (
     ARTIFACT_IMAGE,
     ARTIFACT_MASK,
@@ -22,41 +23,35 @@ from generation_pb2 import (
     Request,
     StepParameter,
 )
-from google.protobuf import json_format as pb_json_format
-from twisted.internet import reactor
 from twisted.web import resource
-from twisted.web.error import Error as WebError
-from twisted.web.resource import ErrorPage, NoResource
-from twisted.web.server import NOT_DONE_YET
+from twisted.web.resource import NoResource
 
-from gyre.http.grpc_gateway_controller import GRPCGatewayContext
-from gyre.http.json_api_controller import (
-    JSONAPIController,
-    UnsupportedMediaTypeResource,
-)
+from gyre.http.grpc_gateway_controller import GRPCServiceBridgeController
+from gyre.http.json_api_controller import JSONError, UnsupportedMediaType
 
 
-class StabilityRESTAPI_EnginesController(JSONAPIController):
-    def __init__(self):
-        self._servicer = None
-        super().__init__()
+def number(data, attr, type, default=None, minVal=None, maxVal=None):
+    val = type(data.get(attr, default))
+    if minVal is not None and val < minVal:
+        raise ValueError(f"{attr} may not be less than {minVal}, but {val} passed")
+    if maxVal is not None and val > maxVal:
+        raise ValueError(f"{attr} may not be more than {maxVal}, but {val} passed")
 
-    def add_servicer(self, servicer):
-        self._servicer = servicer
+    return val
 
-    def getChild(self, path, request):
-        return self
 
+class StabilityRESTAPI_EnginesController(GRPCServiceBridgeController):
     def handle_GET(self, request, _):
-        if not self._servicer:
-            raise WebError(503, "Not ready yet")
-
-        engines: Engines = self._servicer.ListEngines(
-            ListEnginesRequest(task_group=GENERATE), None
+        generators: Engines = self.servicer.ListEngines(
+            ListEnginesRequest(task_group=GENERATE), request.grpc_context
         )
+        upscalers: Engines = self.servicer.ListEngines(
+            ListEnginesRequest(task_group=UPSCALE), request.grpc_context
+        )
+
         res = []
 
-        for engine in engines.engine:
+        for engine in chain(generators.engine, upscalers.engine):
             res.append(
                 dict(
                     id=engine.id,
@@ -69,22 +64,22 @@ class StabilityRESTAPI_EnginesController(JSONAPIController):
         return {"engines": res}
 
 
-class StabilityRESTAPI_GenerationController(JSONAPIController):
+class StabilityRESTAPI_ImageController(GRPCServiceBridgeController):
     preferred_return_type = "image/png"
     return_types = {"application/json", "image/png"}
 
     def __init__(self, servicer, engineid, gentype):
-        self._servicer = servicer
-        self._engineid = engineid
-        self._gentype = gentype
-
         super().__init__()
 
-    def render_GET(self, request):
-        handler = getattr(self, "_handle_generate", None)
+        self._engineid = engineid
+        self._gentype = gentype
+        self.add_servicer(servicer)
 
+    text_prompt_rx = r"text_prompts\[([0-9]+)\]\[(text|weight)\]"
+
+    def decode_GET(self, request):
         text_prompts = {}
-        options = {}
+        data = {}
 
         # TODO: This is duplicated from render_POST
 
@@ -92,79 +87,100 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
             name = k.decode("utf-8")
             value = v[0].decode("utf-8")
 
-            if name.startswith("text_prompts"):
-                idx, label = regex.findall(r"\[(.*?)\]", name)
+            if match := regex.match(self.text_prompt_rx, name):
+                idx, label = int(match[1]), match[2]
                 prompt = text_prompts.setdefault(idx, {})
                 prompt[label] = value
             else:
-                options[name] = value
+                data[name] = value
 
         if text_prompts:
             keys = list(text_prompts.keys())
             keys.sort()
-            options["text_prompts"] = [text_prompts[k] for k in keys]
+            data["text_prompts"] = [text_prompts[k] for k in keys]
 
-        return self._render_common(request, handler, {"options": options})
+        return data
 
-    def render_POST(self, request):
-        handler = getattr(self, "_handle_generate", None)
-
-        content = None
-
+    def decode_POST(self, request):
         content_type_header = request.getHeader("content-type")
+
         if content_type_header:
             content_type, options = multipart.parse_options_header(content_type_header)
 
             if content_type == "application/json":
-                content = {"options": json.load(request.content)}
+                data = json.load(request.content)
+                # Handle v1alpha-style "nested options" structure
+                if "options" in data:
+                    data.update(data.pop("options"))
+                return data
 
-            elif content_type == "multipart/form-data":
+            if content_type == "multipart/form-data":
                 parser = multipart.MultipartParser(request.content, options["boundary"])
-                content = {}
-                options = {}
+                data = {}
                 text_prompts = {}
                 for part in parser:
-                    if part.name == "init_image" and part.content_type == "image/png":
-                        content["init_image"] = part.raw
-                    elif part.name == "mask_image" and part.content.type == "image/png":
-                        content["mask_image"] = part.raw
+                    if part.name in {"image", "init_image", "mask_image"}:
+                        if part.content_type != "image/png":
+                            raise JSONError(500, "Images must be of type image/png")
+                        data[part.name] = part.raw
                     elif part.name == "options":
-                        content["options"] = json.load(part.file)
-                    elif part.name.startswith("text_prompts"):
-                        idx, label = regex.findall(r"\[(.*?)\]", part.name)
+                        data.update(json.load(part.file))
+                    elif match := regex.match(self.text_prompt_rx, part.name):
+                        idx, label = int(match[1]), match[2]
                         prompt = text_prompts.setdefault(idx, {})
                         prompt[label] = part.value
                     else:
-                        options[part.name] = part.value
+                        data[part.name] = part.value
 
                 if text_prompts:
                     keys = list(text_prompts.keys())
                     keys.sort()
-                    options["text_prompts"] = [text_prompts[k] for k in keys]
+                    data["text_prompts"] = [text_prompts[k] for k in keys]
 
-                if options:
-                    if "options" in content:
-                        raise ValueError(
-                            f"Parameters can't contain both "
-                            f"the 'options' JSON parameter (keys: {', '.join(content['options'].keys())})  "
-                            f"and form-encoded parameters (keys: {', '.join(options.keys())})"
-                        )
+                return data
 
-                    content["options"] = options
+        raise UnsupportedMediaType()
 
-        if content is None:
-            return UnsupportedMediaTypeResource().render(request)
-        else:
-            return self._render_common(request, handler, content)
+    def encode_image_png(self, request, answers):
+        if request.grpc_context.code != grpc.StatusCode.OK:
+            raise grpc.RpcError()
 
-    def _number(self, options, attr, type, default=None, minVal=None, maxVal=None):
-        val = type(options.get(attr, default))
-        if minVal is not None and val < minVal:
-            raise ValueError(f"{attr} may not be less than {minVal}, but {val} passed")
-        if maxVal is not None and val > maxVal:
-            raise ValueError(f"{attr} may not be more than {maxVal}, but {val} passed")
+        for answer in answers:
+            for artifact in answer.artifacts:
+                if artifact.mime == "image/png":
+                    request.setHeader("finish-reason", str(artifact.finish_reason))
+                    request.setHeader("seed", str(artifact.seed))
+                    return artifact.binary
 
-        return val
+        raise JSONError(
+            500,
+            "No appropriate image artifact found in response from generation service",
+        )
+
+    def encode_application_json(self, request, answers):
+        if request.grpc_context.code != grpc.StatusCode.OK:
+            raise grpc.RpcError()
+
+        data = []
+
+        for answer in answers:
+            for artifact in answer.artifacts:
+                if artifact.mime == "image/png":
+                    data.append(
+                        {
+                            "base64": b64encode(artifact.binary).decode("ascii"),
+                            "finishReason": artifact.finish_reason,
+                            "seed": artifact.seed,
+                        }
+                    )
+
+        if data:
+            return json.dumps(data)
+
+        raise JSONError(
+            500,
+            "No appropriate image artifact found in response from generation service",
+        )
 
     def _image_to_prompt(
         self, image, init: bool = False, mask: bool = False, adjustments=[]
@@ -184,72 +200,77 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
             parameters=PromptParameters(init=init),
         )
 
+    def _ia_alpha2rgb(self):
+        return ImageAdjustment(
+            channels=ImageAdjustment_Channels(
+                r=CHANNEL_A,
+                g=CHANNEL_A,
+                b=CHANNEL_A,
+                a=CHANNEL_DISCARD,
+            )
+        )
+
+    def _ia_invert(self):
+        return ImageAdjustment(invert=ImageAdjustment_Invert())
+
     def _mask_to_prompt(self, init_image, mask_image, mask_source):
         # With init_image_alpha, pull alpha from init_image into r,g,b then invert
         if mask_source == "INIT_IMAGE_ALPHA":
             return self._image_to_prompt(
                 init_image,
                 mask=True,
-                adjustments=[
-                    ImageAdjustment(
-                        channels=ImageAdjustment_Channels(
-                            r=CHANNEL_A,
-                            g=CHANNEL_A,
-                            b=CHANNEL_A,
-                            a=CHANNEL_DISCARD,
-                        )
-                    ),
-                    ImageAdjustment(invert=ImageAdjustment_Invert()),
-                ],
+                adjustments=[self._ia_alpha2rgb(), self._ia_invert()],
             )
 
-        # With mask_image_white we can just use mask as-is
-        elif mask_source == "MASK_IMAGE_WHITE":
-            if mask_image:
-                return self._image_to_prompt(mask_image, mask=True)
-            else:
-                raise ValueError(
-                    "mask_source is MASK_IMAGE_WHITE but no mask_image was provided"
-                )
-
-        # With mask_image_black, invert the mask
-        elif mask_source == "MASK_IMAGE_BLACK":
-            if mask_image:
-                return self._image_to_prompt(
-                    mask_image,
-                    mask=True,
-                    adjustments=[ImageAdjustment(invert=ImageAdjustment_Invert())],
-                )
-            else:
-                raise ValueError(
-                    "mask_source is MASK_IMAGE_BLACK but no mask_image was provided"
-                )
-
-        elif mask_source:
-            raise ValueError(f"Unknown mask_source {mask_source}")
         else:
-            raise ValueError("masking requires a mask_source parameter")
+            if not mask_image:
+                raise ValueError(
+                    f"mask_source is {mask_source} but no mask_image was provided"
+                )
 
-    def _handle_generate(self, http_request, data):
-        if not self._servicer:
-            raise WebError(503, "Not ready yet")
+            # With mask_image_white we can just use mask as-is
+            if mask_source == "MASK_IMAGE_WHITE":
+                return self._image_to_prompt(mask_image, mask=True)
 
-        init_image = data.get("init_image")
-        mask_image = data.get("mask_image")
-        options = data.get("options")
+            # With mask_image_black, invert the mask
+            elif mask_source == "MASK_IMAGE_BLACK":
+                return self._image_to_prompt(
+                    mask_image, mask=True, adjustments=[self._ia_invert()]
+                )
 
-        if not options:
-            raise ValueError("No options provided. Please check API docs.")
+            else:
+                raise ValueError(f"Unknown mask_source {mask_source}")
 
+    def _prepare_request(self, data, is_png=False):
+        raise NotImplementedError()
+
+    def handle_BOTH(self, http_request, data):
         accept_header = http_request.getHeader("accept")
         is_png = accept_header == "image/png"
 
+        generate_request = self._prepare_request(data, is_png)
+
+        def generate(next):
+            try:
+                next(
+                    self.servicer.Generate(generate_request, http_request.grpc_context)
+                )
+            except Exception as e:
+                next(None, e)
+
+        return generate
+
+
+class StabilityRESTAPI_GenerationController(StabilityRESTAPI_ImageController):
+    def _prepare_request(self, data, is_png=False):
         request = Request(
             engine_id=self._engineid.decode("utf-8"), request_id=str(uuid.uuid4())
         )
         parameters = StepParameter()
 
         # -- init_image
+
+        init_image = data.pop("init_image", None)
 
         if self._gentype == b"text-to-image":
             if init_image:
@@ -260,26 +281,10 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
 
             request.prompt.append(self._image_to_prompt(init_image, init=True))
 
-        # -- cfg_scale
-
-        parameters.sampler.cfg_scale = self._number(
-            options, "cfg_scale", float, 7, 0, 35
-        )
-
-        # -- clip_guidance_preset
-
-        if options.get("clip_guidance_preset", "NONE").upper() != "NONE":
-            guidance_parameters = GuidanceInstanceParameters()
-            guidance_parameters.guidance_strength = 0.333
-            parameters.guidance.instances.append(guidance_parameters)
-
-        # -- height
-
-        request.image.height = self._number(options, "height", int, 512, 512, 2048)
-
         # -- mask_source
 
-        mask_source = options.get("mask_source", "").upper()
+        mask_image = data.pop("mask_image", None)
+        mask_source = data.get("mask_source", "").upper()
 
         if self._gentype != b"masking":
             if mask_source:
@@ -289,34 +294,46 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
                 self._mask_to_prompt(init_image, mask_image, mask_source)
             )
 
+        # -- cfg_scale
+
+        parameters.sampler.cfg_scale = number(data, "cfg_scale", float, 7, 0, 35)
+
+        # -- clip_guidance_preset
+
+        if data.get("clip_guidance_preset", "NONE").upper() != "NONE":
+            guidance_parameters = GuidanceInstanceParameters()
+            guidance_parameters.guidance_strength = 0.333
+            parameters.guidance.instances.append(guidance_parameters)
+
+        # -- height
+
+        if not init_image:
+            request.image.height = number(data, "height", int, 512, 512, 2048)
+
         # -- sampler
 
         sampler_str = "SAMPLER_K_DPMPP_SDE"
-        if "sampler" in options:
-            sampler_str = "SAMPLER_" + str(options["sampler"]).upper()
+        if "sampler" in data:
+            sampler_str = "SAMPLER_" + str(data["sampler"]).upper()
 
         request.image.transform.diffusion = DiffusionSampler.Value(sampler_str)
 
         # -- samples
 
         if is_png:
-            request.image.samples = self._number(options, "samples", int, 1, 1, 1)
+            request.image.samples = number(data, "samples", int, 1, 1, 1)
         else:
-            request.image.samples = self._number(options, "samples", int, 1, 1, 10)
+            request.image.samples = number(data, "samples", int, 1, 1, 10)
 
         # -- seed
 
-        if "seed" in options:
-            request.image.seed.append(
-                self._number(options, "seed", int, 0, 0, 2147483647)
-            )
+        if "seed" in data:
+            request.image.seed.append(number(data, "seed", int, 0, 0, 2147483647))
 
         # -- init_image_mode (automatically determine for all modes where possible)
 
-        has_image_strength = "image_strength" in options
-        has_schedule = (
-            "step_schedule_start" in options or "step_schedule_end" in options
-        )
+        has_image_strength = "image_strength" in data
+        has_schedule = "step_schedule_start" in data or "step_schedule_end" in data
 
         if has_image_strength and not has_schedule:
             init_image_mode = "IMAGE_STRENGTH"
@@ -324,38 +341,36 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
             init_image_mode = "STEP_SCHEDULE"
         else:
             default_iim = "IMAGE_STRENGTH" if init_image else "STEP_SCHEDULE"
-            init_image_mode = options.get("init_image_mode", default_iim).upper()
+            init_image_mode = data.get("init_image_mode", default_iim).upper()
 
         if init_image_mode == "IMAGE_STRENGTH":
 
             # -- image_strength
 
             parameters.schedule.end = 0
-            parameters.schedule.start = 1 - self._number(
-                options, "image_strength", float, 0.35, 0, 1
+            parameters.schedule.start = 1 - number(
+                data, "image_strength", float, 0.35, 0, 1
             )
 
         else:
 
             # -- step_schedule_end
 
-            parameters.schedule.end = self._number(
-                options, "step_schedule_end", float, 0, 0, 1
-            )
+            parameters.schedule.end = number(data, "step_schedule_end", float, 0, 0, 1)
 
             # -- step_schedule_start
 
-            parameters.schedule.start = self._number(
-                options, "step_schedule_start", float, 1, 0, 1
+            parameters.schedule.start = number(
+                data, "step_schedule_start", float, 1, 0, 1
             )
 
         # -- steps
 
-        request.image.steps = self._number(options, "steps", int, 50, 10, 150)
+        request.image.steps = number(data, "steps", int, 50, 10, 150)
 
         # -- text_prompts
 
-        for prompt in options["text_prompts"]:
+        for prompt in data["text_prompts"]:
             rp = Prompt()
             rp.text = str(prompt["text"])
             rp.parameters.weight = float(prompt.get("weight", 1.0))
@@ -363,42 +378,42 @@ class StabilityRESTAPI_GenerationController(JSONAPIController):
 
         # -- width
 
-        request.image.width = self._number(options, "width", int, 512, 512, 2048)
-
-        images = []
-        finish = []
-        seeds = []
+        if not init_image:
+            request.image.width = number(data, "width", int, 512, 512, 2048)
 
         request.image.parameters.append(parameters)
-        context = GRPCGatewayContext(http_request)
-        try:
-            for answer in self._servicer.Generate(request, context):
-                for artifact in answer.artifacts:
-                    if artifact.mime == "image/png":
-                        images.append(artifact.binary)
-                        finish.append(artifact.finish_reason)
-                        seeds.append(artifact.seed)
-        except grpc.RpcError:
-            raise WebError(context.http_code, context.http_message)
-
-        if is_png:
-            http_request.setHeader("finish-reason", str(finish[0]))
-            http_request.setHeader("seed", str(seeds[0]))
-            return images[0]
-        else:
-            return json.dumps(
-                [
-                    {
-                        "base64": b64encode(image).decode("ascii"),
-                        "finishReason": reason,
-                        "seed": seed,
-                    }
-                    for image, reason, seed in zip(images, finish, seeds)
-                ]
-            )
+        return request
 
 
-class StabilityRESTAPI_GenerationRouter(resource.Resource):
+class StabilityRESTAPI_UpscaleController(StabilityRESTAPI_ImageController):
+    def _prepare_request(self, data, is_png=False):
+        request = Request(
+            engine_id=self._engineid.decode("utf-8"), request_id=str(uuid.uuid4())
+        )
+
+        # -- image
+
+        image = data.pop("image", None)
+
+        if image is None:
+            raise ValueError(f"{self._gentype} requires init_image")
+
+        request.prompt.append(self._image_to_prompt(image, init=True))
+
+        # -- width
+
+        if "width" in data:
+            request.image.width = number(data, "width", int, 512, 512, 2048)
+
+        # -- height
+
+        if "height" in data:
+            request.image.height = number(data, "height", int, 512, 512, 2048)
+
+        return request
+
+
+class StabilityRESTAPI_GenerationRouter(GRPCServiceBridgeController):
     def __init__(self):
         self._servicer = None
         super().__init__()
@@ -408,10 +423,15 @@ class StabilityRESTAPI_GenerationRouter(resource.Resource):
 
     def getChild(self, path, request):
         if not self._servicer:
-            return ErrorPage(503, "Not ready yet", "")
+            return JSONError(503, "Not ready yet")
 
         engineid = path
         gentype = None
+
+        engine_spec = self._servicer._manager._find_spec(id=engineid.decode("utf-8"))
+
+        if engine_spec is None:
+            return JSONError(404, "No such engine")
 
         if request.postpath:
             gentype = request.postpath.pop(0)
@@ -419,10 +439,27 @@ class StabilityRESTAPI_GenerationRouter(resource.Resource):
         if gentype == b"image-to-image" and request.postpath:
             gentype = request.postpath.pop(0)
 
-        if gentype not in {b"text-to-image", b"image-to-image", b"masking"}:
-            return NoResource()
+        if gentype in {b"text-to-image", b"image-to-image", b"masking"}:
+            if engine_spec.task != "generate":
+                return JSONError(400, "Engine is not a generate task engine")
 
-        return StabilityRESTAPI_GenerationController(self._servicer, engineid, gentype)
+            return StabilityRESTAPI_GenerationController(
+                self._servicer,
+                engineid,
+                gentype,
+            )
+
+        if gentype in {b"upscale"}:
+            if engine_spec.task != "upscaler":
+                return JSONError(400, "Engine is not a upscaler task engine")
+
+            return StabilityRESTAPI_UpscaleController(
+                self._servicer,
+                engineid,
+                gentype,
+            )
+
+        return JSONError(404, "Unknown engine task")
 
 
 class StabilityRESTAPIRouter(resource.Resource):

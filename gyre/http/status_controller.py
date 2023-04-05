@@ -1,10 +1,7 @@
 import json
 import os
 
-from gyre.http.json_api_controller import (
-    JSONAPIController,
-    UnsupportedMediaTypeResource,
-)
+from gyre.http.json_api_controller import JSONAPIController
 from gyre.logging import store_handler
 
 with open(
@@ -28,15 +25,12 @@ class StatusController(JSONAPIController):
     def set_manager(self, manager):
         self._manager = manager
 
+    def encode_text_html(self, request, data):
+        request.setHeader("content-type", "text/html")
+        return html_source.replace("$DATA$", json.dumps(data))
+
     def handle_GET(self, request, _):
-        data = {
+        return {
             "status": self._manager.status if self._manager else "pending",
             "logs": store_handler.logs,
         }
-
-        accept_header = request.getHeader("accept")
-        if accept_header == "text/html":
-            return html_source.replace("$DATA$", json.dumps(data))
-
-        else:
-            return data

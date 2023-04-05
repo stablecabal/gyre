@@ -459,7 +459,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
     def __call__(
         self,
         # The prompt, negative_prompt, and number of images per prompt
-        prompt: PromptBatchLike,
+        prompt: PromptBatchLike = "",
         negative_prompt: PromptBatchLike | None = None,
         num_images_per_prompt: Optional[int] = 1,
         # The seeds - len must match len(prompt) * num_images_per_prompt if provided
@@ -514,7 +514,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
 
         if isinstance(seed, Iterable):
             generator = [torch.Generator(generator_device).manual_seed(s) for s in seed]
-        elif seed > 0:
+        elif seed is not None and seed > 0:
             generator = torch.Generator(generator_device).manual_seed(seed)
 
         # Inject custom scheduler

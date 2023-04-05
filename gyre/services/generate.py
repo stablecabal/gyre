@@ -922,8 +922,8 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     if self._supress_metadata:
                         artifact = image_to_artifact(result_image)
                     else:
-                        meta["image"]["samples"] = 1
-                        meta["image"]["seed"] = [img_seed]
+                        meta.setdefault("image", {})["samples"] = 1
+                        meta.setdefault("image", {})["seed"] = [img_seed]
                         artifact = image_to_artifact(
                             result_image,
                             meta={"generation_parameters": json.dumps(meta)},

@@ -13,64 +13,72 @@ from gyre.http.grpc_gateway_controller import GRPCGatewayController
 class GrpcGateway_EnginesController(GRPCGatewayController):
     input_class = engines_pb2.ListEnginesRequest
 
-    def handle_BOTH(self, web_request, list_engines_request, context):
-        return self._servicer.ListEngines(list_engines_request, context)
+    def handle_BOTH(self, http_request, list_engines_request):
+        return self.servicer.ListEngines(
+            list_engines_request, http_request.grpc_context
+        )
 
 
 class GrpcGateway_GenerateController(GRPCGatewayController):
     input_class = generation_pb2.Request
 
-    def handle_POST(self, web_request, generation_request, context):
-        reactor.callInThread(self._generate, web_request, generation_request, context)
+    def handle_POST(self, http_request, generation_request):
+        reactor.callInThread(self._generate, http_request, generation_request)
         return NOT_DONE_YET
+
+    def _write_block(self, request, data: bytes):
+        reactor.callFromThread(request.write, data)
+        reactor.callFromThread(request.write, b"\n")
 
     def _error(self, request, code, message):
         # We can't set the http status code during a stream, so just write
         # the status message into the body
         status = grpc.Status(code=code, details=message)
         json_result = pb_json_format.MessageToJson(status).encode("utf-8")
+        self._write_block(request, json_result)
 
-        reactor.callFromThread(request.write, json_result)
-        reactor.callFromThread(request.write, b"\n")
-
-    def _generate(self, request, generation_request, context):
-        for result in self._servicer.Generate(generation_request, context):
-            try:
+    def _generate(self, http_request, generation_request):
+        try:
+            for result in self.servicer.Generate(
+                generation_request, http_request.grpc_context
+            ):
                 json_result = pb_json_format.MessageToJson(result).encode("utf-8")
-
-                reactor.callFromThread(request.write, json_result)
-                reactor.callFromThread(request.write, b"\n")
-            except grpc.RpcError:
-                self._error(request, context.code, context.message)
-                break
-            except BaseException:
-                self._error(request, grpc.StatusCode.INTERNAL, "Internal Error")
-                break
+                self._write_block(http_request, json_result)
+        except grpc.RpcError:
+            self._error(
+                http_request,
+                http_request.grpc_context.code,
+                http_request.grpc_context.message,
+            )
+        except BaseException:
+            self._error(http_request, grpc.StatusCode.INTERNAL, "Internal Error")
 
         reactor.callFromThread(
-            lambda: request.finish() if not request._disconnected else None
+            lambda: http_request.finish() if not http_request._disconnected else None
         )
 
 
 class GrpcGateway_AsyncGenerateController(GRPCGatewayController):
     input_class = generation_pb2.Request
 
-    def handle_POST(self, web_request, generation_request, context):
-        return self._servicer.AsyncGenerate(generation_request, context)
+    def handle_POST(self, http_request, generation_request):
+        return self.servicer.AsyncGenerate(
+            generation_request, http_request.grpc_context
+        )
 
 
 class GrpcGateway_AsyncResultController(GRPCGatewayController):
     input_class = generation_pb2.AsyncHandle
 
-    def handle_POST(self, web_request, async_handle, context):
-        return self._servicer.AsyncResult(async_handle, context)
+    def handle_POST(self, http_request, async_handle):
+        return self.servicer.AsyncResult(async_handle, http_request.grpc_context)
 
 
 class GrpcGateway_AsyncCancelController(GRPCGatewayController):
     input_class = generation_pb2.AsyncHandle
 
-    def handle_POST(self, web_request, async_handle, context):
-        return self._servicer.AsyncCancel(async_handle, context)
+    def handle_POST(self, http_request, async_handle):
+        return self.servicer.AsyncCancel(async_handle, http_request.grpc_context)
 
 
 class GrpcGatewayRouter(resource.Resource):
