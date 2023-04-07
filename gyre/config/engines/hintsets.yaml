@@ -44,7 +44,7 @@
 - hintset_id: "hintset-sd15-controlnet"
   controlnet/canny:
     aliases: "canny"
-    priority: 50
+    priority: 200
     model: "@controlnet-canny"
   controlnet/depth:
     aliases: "depth"
