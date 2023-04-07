@@ -13,7 +13,6 @@ inpaint_source:
 !stable-diffusion-v2/stable-diffusion-v2-1
 name: "Stable Diffusion V2.1"
 description: "Stable Diffusion using the Stability V2.1 512x512 model"
-enabled: True
 source:
   model: "stabilityai/stable-diffusion-2-1-base"
 depth_source:
