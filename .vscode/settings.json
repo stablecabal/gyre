@@ -25,4 +25,5 @@
     "editor.codeActionsOnSave": {
         "source.organizeImports": true
     },
+    "docker.languageserver.formatter.ignoreMultilineInstructions": true,
 }

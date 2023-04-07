@@ -58,7 +58,7 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | b
 
 
 FROM ghcr.io/stablecabal/gyre-devbase:pytorch112-cuda${CUDA_VER}-latest AS bitsandbytesbase
-ARG BANDB_REF=main
+ARG BANDB_REF=0.37.0
 ARG CUDA_VER
 
 WORKDIR /
@@ -168,23 +168,36 @@ COPY gyre /gyre/
 COPY server.py .
 
 # Set up some config files
-RUN mkdir -p /huggingface
+RUN mkdir -p /cache
 RUN mkdir -p /weights
 RUN mkdir -p /lora
 RUN mkdir -p /embedding
 RUN mkdir -p /config
 COPY gyre/config/. /config/
 
-# Set up some environment files
+# /huggingface deprecated but we want to maintain support for now
+RUN mkdir -p /huggingface
+RUN ln -s /huggingface /cache/huggingface
 
-ENV HF_HOME=/huggingface
-ENV HF_API_TOKEN=mustset
+# Set up some environment files
+ENV XDG_CACHE_HOME=/cache
 ENV SD_ENGINECFG=/config/engines.yaml
 ENV SD_WEIGHT_ROOT=/weights
 ENV SD_LOCAL_RESOURCE_1=embedding:/embedding
 ENV SD_LOCAL_RESOURCE_2=lora:/lora
 
+# Create a couple of utility scripts
+COPY --chmod=755 <<"EOT" /run.sh
+#!/bin/bash
+/bin/micromamba -r /env -n gyre run "$@"
+EOT
 
+COPY --chmod=755 <<"EOT" /server.sh
+#!/bin/bash
+/bin/micromamba -r /env -n gyre run python ./server.py "$@"
+EOT
+
+# And set up command
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
 
@@ -203,6 +216,11 @@ COPY --from=xformersbase /xformers.tbz /
 RUN tar xvjf /xformers.tbz
 
 RUN rm /*.tbz
+
+COPY --from=bitsandbytesbase /bitsandbytes/dist/*.whl /
+RUN /bin/micromamba -r /env -n gyre run pip install /*.whl
+
+RUN rm /*.wh
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
@@ -234,20 +252,36 @@ COPY gyre /gyre/
 COPY server.py .
 
 # Set up some config files
-RUN mkdir -p /huggingface
+RUN mkdir -p /cache
 RUN mkdir -p /weights
+RUN mkdir -p /lora
+RUN mkdir -p /embedding
 RUN mkdir -p /config
 COPY gyre/config/. /config/
 
-# Set up some environment files
+# /huggingface deprecated but we want to maintain support for now
+RUN mkdir -p /huggingface
+RUN ln -s /huggingface /cache/huggingface
 
-ENV HF_HOME=/huggingface
-ENV HF_API_TOKEN=mustset
+# Set up some environment files
+ENV XDG_CACHE_HOME=/cache
 ENV SD_ENGINECFG=/config/engines.yaml
 ENV SD_WEIGHT_ROOT=/weights
 ENV SD_LOCAL_RESOURCE_1=embedding:/embedding
 ENV SD_LOCAL_RESOURCE_2=lora:/lora
 
+# Create a couple of utility scripts
+COPY --chmod=755 <<"EOT" /run.sh
+#!/bin/bash
+/bin/micromamba -r /env -n gyre run "$@"
+EOT
+
+COPY --chmod=755 <<"EOT" /server.sh
+#!/bin/bash
+/bin/micromamba -r /env -n gyre run python ./server.py "$@"
+EOT
+
+# And set up command
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
 
