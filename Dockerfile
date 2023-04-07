@@ -220,7 +220,7 @@ RUN rm /*.tbz
 COPY --from=bitsandbytesbase /bitsandbytes/dist/*.whl /
 RUN /bin/micromamba -r /env -n gyre run pip install /*.whl
 
-RUN rm /*.wh
+RUN rm /*.whl
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
