@@ -1495,6 +1495,31 @@ class EngineManager(object):
 
         return model
 
+    def _inspect_kwargs(self, callable):
+        class_init_params = inspect.signature(callable).parameters
+        regular_params = {
+            k: v
+            for k, v in class_init_params.items()
+            if (v.kind is v.POSITIONAL_OR_KEYWORD or v.kind is v.KEYWORD_ONLY)
+            and k != "self"
+        }
+
+        takes_kwargs = any(
+            [p.kind is p.VAR_KEYWORD for p in class_init_params.values()]
+        )
+
+        expected = set(regular_params.keys())
+
+        required = set(
+            [
+                name
+                for name, param in regular_params.items()
+                if param.default is inspect._empty
+            ]
+        )
+
+        return expected, required, takes_kwargs
+
     def _instantiate_pipeline(self, engine, model, extra_kwargs):
         fqclass_name = engine.get("class", "UnifiedPipeline")
         fqclass_name, factory_name, args = self._parse_class_details(fqclass_name)
@@ -1502,27 +1527,8 @@ class EngineManager(object):
 
         available = set(model.keys())
 
-        class_init_params = inspect.signature(class_obj.__init__).parameters
-        regular_params = {
-            k: v
-            for k, v in class_init_params.items()
-            if v.kind is v.POSITIONAL_OR_KEYWORD or v.kind is v.KEYWORD_ONLY
-        }
-        takes_kwargs = any(
-            [p.kind is p.VAR_KEYWORD for p in class_init_params.values()]
-        )
-        expected = set(regular_params.keys()) - set(["self"])
-
-        required = set(
-            [
-                name
-                for name, param in regular_params.items()
-                if param.default is inspect._empty
-                and name != "self"
-                and name != "safety_checker"
-                and name not in args
-            ]
-        )
+        expected, required, takes_kwargs = self._inspect_kwargs(class_obj.__init__)
+        required = required - {"safety_checker"} - args.keys()
 
         if required - available:
             raise EnvironmentError(
@@ -1550,6 +1556,26 @@ class EngineManager(object):
         modules = {**args, **modules, **extra_kwargs}
         return class_obj(**modules)
 
+    def _instantiate_wrapper(self, spec, pipeline, model):
+        meta = pipeline_meta.get_meta(pipeline)
+
+        if wrap_class_name := meta.get("wrapper"):
+            wrap_class = self._import_class(wrap_class_name)
+        elif isinstance(pipeline, DiffusionPipeline):
+            wrap_class = DiffusionPipelineWrapper
+        else:
+            wrap_class = PipelineWrapper
+
+        expected, required, takes_kwargs = self._inspect_kwargs(wrap_class.__init__)
+        required = required - {"id", "mode", "pipeline"}
+
+        modules = {
+            k: clone_model(model[k])
+            for k in (model.keys() if takes_kwargs else expected & model.keys())
+        }
+
+        return wrap_class(id=spec.id, mode=self._mode, pipeline=pipeline, **modules)
+
     def _build_pipeline_for_engine(self, spec: EngineSpec):
         model = self._engine_models.get(spec.id)
         if not model:
@@ -1565,16 +1591,7 @@ class EngineManager(object):
                     f"Engine {spec.id} has options, but created pipeline rejected them"
                 )
 
-        meta = pipeline_meta.get_meta(pipeline)
-
-        if wrap_class_name := meta.get("wrapper"):
-            wrap_class = self._import_class(wrap_class_name)
-        elif isinstance(pipeline, DiffusionPipeline):
-            wrap_class = DiffusionPipelineWrapper
-        else:
-            wrap_class = PipelineWrapper
-
-        return wrap_class(id=spec.id, mode=self._mode, pipeline=pipeline)
+        return self._instantiate_wrapper(spec, pipeline, model)
 
     def _build_hintset(self, hintset_id, whitelist="*"):
         if isinstance(whitelist, str):

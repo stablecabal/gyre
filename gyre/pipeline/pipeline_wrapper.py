@@ -86,7 +86,7 @@ class PipelineWrapper:
 
         if pipeline_module_helper:
             for name, module in pipeline_module_helper():
-                yield name, module
+                yield self._pipeline, name, module
 
         else:
             module_names, *_ = self._pipeline.extract_init_dict(
@@ -95,16 +95,16 @@ class PipelineWrapper:
             for name in module_names.keys():
                 module = getattr(self._pipeline, name)
                 if isinstance(module, torch.nn.Module):
-                    yield name, module
+                    yield self._pipeline, name, module
 
     def activate(self, device, exclusion_set=None):
         if self._previous is not None:
             raise Exception("Activate called without previous deactivate")
 
-        self._previous = {}
+        self._previous = []
 
-        for name, module in self.pipeline_modules():
-            self._previous[name] = module
+        for source, name, module in self.pipeline_modules():
+            self._previous.append((source, name, module))
 
             # Clone from CPU to either CUDA or Meta with a hook to move to CUDA
             cloned = clone_model(
@@ -114,7 +114,7 @@ class PipelineWrapper:
             )
 
             # And set it on the pipeline
-            setattr(self._pipeline, name, cloned)
+            setattr(source, name, cloned)
 
         hintset_manager = getattr(self._pipeline, "hintset_manager", None)
         self._previous_hintset_manager = hintset_manager
@@ -131,8 +131,8 @@ class PipelineWrapper:
         if self._previous is None:
             raise Exception("Deactivate called without previous activate")
 
-        for name, module in self.pipeline_modules():
-            setattr(self._pipeline, name, self._previous.get(name))
+        for source, name, module in self._previous:
+            setattr(source, name, module)
 
         self._pipeline.hintset_manager = self._previous_hintset_manager
 

@@ -903,7 +903,9 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                         if "token_embedding" in prompt["artifact"]:
                             del prompt["artifact"]["token_embedding"]
 
-                if isinstance(results, torch.Tensor):
+                if results is None:
+                    result_images, nsfws = [], []
+                elif isinstance(results, torch.Tensor):
                     result_images = results
                     nsfws = [False] * len(result_images)
                 elif len(results) == 1:

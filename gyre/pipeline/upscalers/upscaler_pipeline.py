@@ -1,3 +1,5 @@
+import logging
+
 import torch
 from diffusers.models import modeling_utils
 from diffusers.pipeline_utils import DiffusionPipeline
@@ -6,6 +8,8 @@ from PIL.Image import Image as PILImage
 from gyre import images
 from gyre.pipeline.prompt_types import ImageLike
 from gyre.pipeline.upscalers.utils import tile
+
+logger = logging.getLogger(__name__)
 
 
 class UpscalerPipeline(DiffusionPipeline):
@@ -37,7 +41,7 @@ class UpscalerPipeline(DiffusionPipeline):
             image = images.fromPIL(image)
 
         if height == image.shape[-2] and width == image.shape[-1]:
-            print("Ignoring passed size, since it matches input image")
+            logger.debug("Ignoring passed size, since it matches input image")
             height = width = None
 
         device = modeling_utils.get_parameter_device(self.module)

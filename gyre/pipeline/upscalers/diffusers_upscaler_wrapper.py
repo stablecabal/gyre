@@ -48,20 +48,16 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
     def _pipeline_upscale(
         self,
         image,
-        prompt,
-        negative_prompt,
         num_images_per_prompt,
-        num_inference_steps,
         generator,
         scale=4,
         tile_size=512,
+        **kwargs,
     ):
         # The pipeline args that are consistent for every call
         pipeline_args = dict(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
+            **kwargs,
             num_images_per_prompt=num_images_per_prompt,
-            num_inference_steps=num_inference_steps,
             generator=generator,
             output_type="numpy",  # Actually "tensor" due to decode_latents patch above
             return_dict=False,
@@ -126,8 +122,8 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
         # The seeds - len must match len(prompt) * num_images_per_prompt if provided
         seed: Optional[Union[int, Iterable[int]]] = None,
         # The size - ignored if an image is passed
-        height: int = 512,
-        width: int = 512,
+        height: int | None = 512,
+        width: int | None = 512,
         # Sampler control
         num_inference_steps: int = 50,
         # Process control
@@ -154,6 +150,11 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
 
         image = images.fromPIL(image) if isinstance(image, PILImage) else image
         image = images.normalise_tensor(image, 4).to(device, dtype)
+
+        # Check height & width
+        if height == image.shape[-2] and width == image.shape[-1]:
+            logger.debug("Ignoring passed size, since it matches input image")
+            height = width = None
 
         # --- SIMPLE UPSCALE
 
@@ -189,10 +190,22 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
 
         SIGMA_START, SIGMA_END = 3, 1  # Magic numbers, determined experimentally
 
-        res = images.blend_frequency_split(
+        result = images.blend_frequency_split(
             diffusion_upscale, simple_upscale, SIGMA_START, SIGMA_END
         )
 
         gc.collect()
 
-        return res
+        # --- DOWNSCALE
+
+        if width is not None and height is not None:
+            if width > result.shape[-1] or height > result.shape[-2]:
+                logger.warn(
+                    f"Requested size ({width}x{height}) is greated than result after upscale ({result.shape[-2]}x{result.shape[-1]}). "
+                    "Further lower-quality upscaling will occur."
+                )
+
+            factors = (height / result.shape[-2], width / result.shape[-1])
+            result = images.resize(result, factors)
+
+        return result
