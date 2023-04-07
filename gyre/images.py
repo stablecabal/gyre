@@ -3,6 +3,7 @@
 # All images in are in BCHW unless specified in the variable name, as floating point 0..1
 # All functions will handle RGB or RGBA images
 
+import math
 import struct
 import typing
 import zlib
@@ -129,7 +130,7 @@ def normalise_tensor(tensor: torch.Tensor, channels: int | None = 3) -> torch.Te
         if tensor.shape[1] >= 4:
             return tensor[:, [0, 1, 2, 3]]
         else:
-            alpha = torch.ones(tensor.shape[0], 1, *tensor.shape[2:])
+            alpha = torch.ones(tensor.shape[0], 1, *tensor.shape[2:]).to(tensor)
             tensor = normalise_tensor(tensor, 3)
             return torch.concat((tensor, alpha), dim=1)
 
@@ -200,8 +201,8 @@ def crop(tensor, top, left, height, width):
     return tensor[:, :, top : top + height, left : left + width]
 
 
-def scale_shape(shape, scale):
-    return shape[:-2] + (shape[-2] * scale, shape[-1] * scale)
+def scale_shape(shape: tuple[int, ...], scale: float) -> tuple[int, ...]:
+    return shape[:-2] + (round(shape[-2] * scale), round(shape[-1] * scale))
 
 
 def resize(tensor, factors: float | tuple[float] | tuple[float, float], sharpness=1):
@@ -421,3 +422,38 @@ def normalmap_from_depthmap(
         normalmap = torch.cat((normalmap, mask), dim=1)
 
     return normalmap
+
+
+def blend_frequency_split(tensor_high, tensor_low, sigma, endsig, steps=None):
+    if steps is None:
+        steps = math.ceil((sigma - endsig) * 2)
+
+    result = torch.zeros_like(tensor_high)
+    high_prev = low_prev = None
+
+    for i in np.linspace(0, 1, steps):
+        stepsig = endsig + (sigma - endsig) * (1 - i)
+
+        if stepsig == endsig:
+            result += tensor_high - high_prev
+
+        else:
+            high_lp = gaussianblur(tensor_high, stepsig)
+            low_lp = gaussianblur(tensor_low, stepsig)
+
+            high_frag = (high_lp - high_prev) if high_prev is not None else high_lp
+            low_frag = (low_lp - low_prev) if low_prev is not None else low_lp
+
+            result = result + low_frag * (1 - i) + high_frag * i
+
+            high_prev = high_lp
+            low_prev = low_lp
+
+    return result.clamp(0, 1)
+
+
+def blend_frequency_split_1(tensor_high, tensor_low, sigma):
+    high_hf = tensor_high - gaussianblur(tensor_high, sigma)
+    low_lf = gaussianblur(tensor_low, sigma)
+
+    return (low_lf + high_hf).clamp(0, 1)

@@ -43,6 +43,7 @@ PIPELINE_META["StableDiffusionUpscalePipeline"] = dict(
         eta=lambda eta: 0.0 if eta is None else eta,
     ),
     xformers="manual",
+    wrapper="gyre.pipeline.upscalers.diffusers_upscaler_wrapper.DiffusionUpscalerPipelineWrapper",
 )
 
 PIPELINE_META["StableDiffusionLatentUpscalePipeline"] = dict(
