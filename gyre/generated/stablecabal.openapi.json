@@ -1069,14 +1069,14 @@
                         "items": {
                             "$ref": "#/components/schemas/ImageAdjustment"
                         },
-                        "title": "Adjustments to this image / mask before generation"
+                        "title": "Adjustments to this image / mask before generation\nFor ARTIFACT_HINT_IMAGE, an autoscale will be added to the end of the chain if one is not included"
                     },
                     "postAdjustments": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ImageAdjustment"
                         },
-                        "title": "Adjustments to this image / mask after generation"
+                        "title": "Adjustments to this image / mask after generation \n(primarily for adjusting mask prior to re-applying image in outpaint)\nA default will be used on masks if nothing is provided"
                     },
                     "hintImageType": {
                         "type": "string",
@@ -1739,8 +1739,28 @@
                     },
                     "backgroundRemoval": {
                         "$ref": "#/components/schemas/ImageAdjustment_BackgroundRemoval"
+                    },
+                    "autoscale": {
+                        "$ref": "#/components/schemas/ImageAdjustment_Autoscale"
                     }
                 }
+            },
+            "ImageAdjustment_Autoscale": {
+                "type": "object",
+                "properties": {
+                    "height": {
+                        "type": "string",
+                        "format": "uint64"
+                    },
+                    "width": {
+                        "type": "string",
+                        "format": "uint64"
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/RescaleMode"
+                    }
+                },
+                "title": "Resize the image in a more clever way. \nIf either width or height are missing, will calculate the right value to maintain aspect ratio\nIf both are missing, will use the target size of the generation"
             },
             "ImageAdjustment_BackgroundRemoval": {
                 "type": "object",
@@ -1903,7 +1923,8 @@
                             "type": "string"
                         }
                     }
-                }
+                },
+                "title": "Resize the image. The mode specifies what will happen if the aspect ratio"
             },
             "ImageAdjustment_Segmentation": {
                 "type": "object"

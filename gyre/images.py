@@ -286,8 +286,8 @@ def rescale(
     )
 
     # Pad any missing
-    pad = [err_w, width - err_w] if err_w > 0 else [0, 0]
-    pad += [err_h, height - err_h] if err_h > 0 else [0, 0]
+    pad = [err_w, width - res_w - err_w] if err_w > 0 else [0, 0]
+    pad += [err_h, height - res_h - err_h] if err_h > 0 else [0, 0]
 
     return torch.nn.functional.pad(tensor, pad, pad_mode)
 

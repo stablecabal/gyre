@@ -612,6 +612,8 @@ global___ImageAdjustment_Channels = ImageAdjustment_Channels
 
 @typing_extensions.final
 class ImageAdjustment_Rescale(google.protobuf.message.Message):
+    """Resize the image. The mode specifies what will happen if the aspect ratio"""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     HEIGHT_FIELD_NUMBER: builtins.int
@@ -634,6 +636,37 @@ class ImageAdjustment_Rescale(google.protobuf.message.Message):
     def ClearField(self, field_name: typing_extensions.Literal["algorithm_hint", b"algorithm_hint", "height", b"height", "mode", b"mode", "width", b"width"]) -> None: ...
 
 global___ImageAdjustment_Rescale = ImageAdjustment_Rescale
+
+@typing_extensions.final
+class ImageAdjustment_Autoscale(google.protobuf.message.Message):
+    """Resize the image in a more clever way. 
+    If either width or height are missing, will calculate the right value to maintain aspect ratio
+    If both are missing, will use the target size of the generation
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    HEIGHT_FIELD_NUMBER: builtins.int
+    WIDTH_FIELD_NUMBER: builtins.int
+    MODE_FIELD_NUMBER: builtins.int
+    height: builtins.int
+    width: builtins.int
+    mode: global___RescaleMode.ValueType
+    def __init__(
+        self,
+        *,
+        height: builtins.int | None = ...,
+        width: builtins.int | None = ...,
+        mode: global___RescaleMode.ValueType = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_height", b"_height", "_width", b"_width", "height", b"height", "width", b"width"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_height", b"_height", "_width", b"_width", "height", b"height", "mode", b"mode", "width", b"width"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_height", b"_height"]) -> typing_extensions.Literal["height"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_width", b"_width"]) -> typing_extensions.Literal["width"] | None: ...
+
+global___ImageAdjustment_Autoscale = ImageAdjustment_Autoscale
 
 @typing_extensions.final
 class ImageAdjustment_Crop(google.protobuf.message.Message):
@@ -808,6 +841,7 @@ class ImageAdjustment(google.protobuf.message.Message):
     OPENPOSE_FIELD_NUMBER: builtins.int
     NORMAL_FIELD_NUMBER: builtins.int
     BACKGROUND_REMOVAL_FIELD_NUMBER: builtins.int
+    AUTOSCALE_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
     @property
@@ -836,6 +870,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     def normal(self) -> global___ImageAdjustment_Normal: ...
     @property
     def background_removal(self) -> global___ImageAdjustment_BackgroundRemoval: ...
+    @property
+    def autoscale(self) -> global___ImageAdjustment_Autoscale: ...
     def __init__(
         self,
         *,
@@ -853,10 +889,11 @@ class ImageAdjustment(google.protobuf.message.Message):
         openpose: global___ImageAdjustment_Openpose | None = ...,
         normal: global___ImageAdjustment_Normal | None = ...,
         background_removal: global___ImageAdjustment_BackgroundRemoval | None = ...,
+        autoscale: global___ImageAdjustment_Autoscale | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal"] | None: ...
+    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 
@@ -1105,10 +1142,15 @@ class Artifact(google.protobuf.message.Message):
     """Size of the artifact in bytes"""
     @property
     def adjustments(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___ImageAdjustment]:
-        """Adjustments to this image / mask before generation"""
+        """Adjustments to this image / mask before generation
+        For ARTIFACT_HINT_IMAGE, an autoscale will be added to the end of the chain if one is not included
+        """
     @property
     def postAdjustments(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___ImageAdjustment]:
-        """Adjustments to this image / mask after generation"""
+        """Adjustments to this image / mask after generation 
+        (primarily for adjusting mask prior to re-applying image in outpaint)
+        A default will be used on masks if nothing is provided
+        """
     hint_image_type: builtins.str
     """Indicate the sort of control for image types"""
     @property

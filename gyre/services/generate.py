@@ -46,6 +46,13 @@ def buildDefaultMaskPostAdjustments():
 
 DEFAULT_POST_ADJUSTMENTS = buildDefaultMaskPostAdjustments()
 
+
+def autoscale(mode):
+    return generation_pb2.ImageAdjustment(
+        autoscale=generation_pb2.ImageAdjustment_Autoscale(mode=mode)
+    )
+
+
 debugCtr = 0
 
 
@@ -103,6 +110,25 @@ class AsyncContext:
         self.set_details(details)
 
         raise grpc.RpcError()
+
+
+def rescale_mode_to_fit_and_pad(mode):
+    # Calculate fit mode
+    if mode == generation_pb2.RESCALE_STRICT:
+        fit = "strict"
+    elif mode == generation_pb2.RESCALE_COVER:
+        fit = "cover"
+    else:
+        fit = "contain"
+
+    # Calculate pad mode (should only be used for CONTAIN modes)
+    pad_mode = "constant"
+    if mode == generation_pb2.RESCALE_CONTAIN_REPLICATE:
+        pad_mode = "replicate"
+    elif mode == generation_pb2.RESCALE_CONTAIN_REFLECT:
+        pad_mode = "reflect"
+
+    return fit, pad_mode
 
 
 class ParameterExtractor:
@@ -179,8 +205,10 @@ class ParameterExtractor:
                     tensor = images.directionalblur(tensor, sigma, "up")
                 else:
                     tensor = images.gaussianblur(tensor, sigma)
+
             elif which == "invert":
                 tensor = images.invert(tensor)
+
             elif which == "levels":
                 tensor = images.levels(
                     tensor,
@@ -189,6 +217,7 @@ class ParameterExtractor:
                     adjustment.levels.output_low,
                     adjustment.levels.output_high,
                 )
+
             elif which == "channels":
                 tensor = images.channelmap(
                     tensor,
@@ -199,29 +228,35 @@ class ParameterExtractor:
                         adjustment.channels.a,
                     ],
                 )
-            elif which == "rescale":
-                # Calculate fit mode
-                if adjustment.rescale.mode == generation_pb2.RESCALE_STRICT:
-                    fit = "strict"
-                elif adjustment.rescale.mode == generation_pb2.RESCALE_COVER:
-                    fit = "cover"
+
+            elif which == "rescale" or which == "autoscale":
+                if which == "autoscale":
+                    mode = adjustment.autoscale.mode
+
+                    width = height = None
+                    if adjustment.autoscale.HasField("width"):
+                        width = adjustment.autoscale.width
+                    if adjustment.autoscale.HasField("height"):
+                        height = adjustment.autoscale.height
+
+                    if width is None and height is None:
+                        width = self.width()
+                        height = self.height()
+                    elif width is None:
+                        assert height is not None
+                        width = height / tensor.shape[-2] * tensor.shape[-1]
+                    elif height is None:
+                        assert width is not None
+                        height = width / tensor.shape[-1] * tensor.shape[-2]
+
                 else:
-                    fit = "contain"
+                    mode = adjustment.rescale.mode
+                    width, height = adjustment.rescale.width, adjustment.rescale.height
 
-                # Calculate pad mode (should only be used for CONTAIN modes)
-                pad_mode = "constant"
-                if adjustment.rescale.mode == generation_pb2.RESCALE_CONTAIN_REPLICATE:
-                    pad_mode = "replicate"
-                elif adjustment.rescale.mode == generation_pb2.RESCALE_CONTAIN_REFLECT:
-                    pad_mode = "reflect"
-
-                tensor = images.rescale(
-                    tensor,
-                    adjustment.rescale.height,
-                    adjustment.rescale.width,
-                    fit,
-                    pad_mode,
-                )
+                # Rescale only if needed
+                if tensor.shape[-2] != height or tensor.shape[-1] != width:
+                    fit, pad_mode = rescale_mode_to_fit_and_pad(mode)
+                    tensor = images.rescale(tensor, height, width, fit, pad_mode)
 
             elif which == "crop":
                 tensor = images.crop(
@@ -320,6 +355,7 @@ class ParameterExtractor:
         self,
         artifact: generation_pb2.Artifact,
         stage=generation_pb2.ARTIFACT_AFTER_ADJUSTMENTS,
+        extra=None,
     ):
         if artifact.WhichOneof("data") == "binary":
             image = self._image_from_artifact_binary(artifact)
@@ -330,14 +366,15 @@ class ParameterExtractor:
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an image"
             )
 
-        if stage == generation_pb2.ARTIFACT_BEFORE_ADJUSTMENTS:
-            return image
+        if stage != generation_pb2.ARTIFACT_BEFORE_ADJUSTMENTS:
+            image = self._apply_image_adjustment(image, artifact.adjustments)
+        if stage == generation_pb2.ARTIFACT_AFTER_POSTADJUSTMENTS:
+            image = self._apply_image_adjustment(image, artifact.postAdjustments)
+        if extra is not None:
+            image = self._apply_image_adjustment(
+                image, extra if isinstance(extra, list) else [extra]
+            )
 
-        image = self._apply_image_adjustment(image, artifact.adjustments)
-        if stage == generation_pb2.ARTIFACT_AFTER_ADJUSTMENTS:
-            return image
-
-        image = self._apply_image_adjustment(image, artifact.postAdjustments)
         return image
 
     def _lora_from_artifact_cache(self, artifact: generation_pb2.Artifact):
@@ -600,18 +637,14 @@ class ParameterExtractor:
                     prompt.artifact, generation_pb2.ARTIFACT_AFTER_POSTADJUSTMENTS
                 )
 
-    def depth_map(self):
-        for prompt in self._prompt_of_type("artifact"):
-            if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
-                return self._add_to_echo(
-                    prompt, self._image_from_artifact(prompt.artifact)
-                )
-
     def hint_images(self):
         hint_images = []
 
         for prompt in self._prompt_of_type("artifact"):
-            if prompt.artifact.type == generation_pb2.ARTIFACT_HINT_IMAGE:
+            if prompt.artifact.type in {
+                generation_pb2.ARTIFACT_HINT_IMAGE,
+                generation_pb2.ARTIFACT_DEPTH,
+            }:
                 weight = 1.0
                 if prompt.HasField("parameters") and prompt.parameters.HasField(
                     "weight"
@@ -619,13 +652,19 @@ class ParameterExtractor:
                     weight = prompt.parameters.weight
 
                 hint_image = self._add_to_echo(
-                    prompt, self._image_from_artifact(prompt.artifact)
+                    prompt,
+                    self._image_from_artifact(prompt.artifact),
                 )
+
+                if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
+                    hint_type = "depth"
+                else:
+                    hint_type = prompt.artifact.hint_image_type
 
                 hint_images.append(
                     HintImage(
                         image=hint_image,
-                        hint_type=prompt.artifact.hint_image_type,
+                        hint_type=hint_type,
                         weight=weight,
                         clip_layer=self._clip_layer_from_prompt(prompt),
                     )
