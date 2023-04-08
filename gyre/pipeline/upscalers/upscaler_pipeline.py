@@ -71,7 +71,12 @@ class UpscalerPipeline(DiffusionPipeline):
             result = torch.cat([result, result_alpha], dim=1)
 
         if width is not None and height is not None:
-            factors = (height / result.shape[-2], width / result.shape[-1])
-            result = images.resize(result, factors)
+            if width > result.shape[-1] or height > result.shape[-2]:
+                logger.warn(
+                    f"Requested size ({width}x{height}) is greated than result after upscale ({result.shape[-2]}x{result.shape[-1]}). "
+                    "Further lower-quality upscaling will occur."
+                )
+
+            result = images.rescale(result, height, width, "cover")
 
         return (result.to(image),)

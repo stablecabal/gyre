@@ -205,6 +205,10 @@ def scale_shape(shape: tuple[int, ...], scale: float) -> tuple[int, ...]:
     return shape[:-2] + (round(shape[-2] * scale), round(shape[-1] * scale))
 
 
+def get_dim(tensor) -> tuple[int, int]:
+    return tensor.shape[-2:]
+
+
 def resize(tensor, factors: float | tuple[float] | tuple[float, float], sharpness=1):
     if not isinstance(factors, typing.Iterable):
         factors = (factors, factors)

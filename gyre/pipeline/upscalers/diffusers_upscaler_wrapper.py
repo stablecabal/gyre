@@ -205,7 +205,6 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
                     "Further lower-quality upscaling will occur."
                 )
 
-            factors = (height / result.shape[-2], width / result.shape[-1])
-            result = images.resize(result, factors)
+            result = images.rescale(result, height, width, "cover")
 
         return result
