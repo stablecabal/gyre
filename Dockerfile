@@ -168,16 +168,22 @@ COPY gyre /gyre/
 COPY server.py .
 
 # Set up some config files
+# - Caches
 RUN mkdir -p /cache
+RUN mkdir -p /huggingface
+RUN mkdir -p /gyrecache
+# - Local weights
 RUN mkdir -p /weights
 RUN mkdir -p /lora
 RUN mkdir -p /embedding
+# - Config
 RUN mkdir -p /config
 COPY gyre/config/. /config/
 
-# /huggingface deprecated but we want to maintain support for now
-RUN mkdir -p /huggingface
+# Link in the individual cache files, so you can override either the whole cache or
+# just the individual folders
 RUN ln -s /huggingface /cache/huggingface
+RUN ln -s /gyrecache /cache/gyre
 
 # Set up some environment files
 ENV XDG_CACHE_HOME=/cache
@@ -252,16 +258,22 @@ COPY gyre /gyre/
 COPY server.py .
 
 # Set up some config files
+# - Caches
 RUN mkdir -p /cache
+RUN mkdir -p /huggingface
+RUN mkdir -p /gyrecache
+# - Local weights
 RUN mkdir -p /weights
 RUN mkdir -p /lora
 RUN mkdir -p /embedding
+# - Config
 RUN mkdir -p /config
 COPY gyre/config/. /config/
 
-# /huggingface deprecated but we want to maintain support for now
-RUN mkdir -p /huggingface
+# Link in the individual cache files, so you can override either the whole cache or
+# just the individual folders
 RUN ln -s /huggingface /cache/huggingface
+RUN ln -s /gyrecache /cache/gyre
 
 # Set up some environment files
 ENV XDG_CACHE_HOME=/cache
