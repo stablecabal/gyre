@@ -842,6 +842,7 @@ class ImageAdjustment(google.protobuf.message.Message):
     NORMAL_FIELD_NUMBER: builtins.int
     BACKGROUND_REMOVAL_FIELD_NUMBER: builtins.int
     AUTOSCALE_FIELD_NUMBER: builtins.int
+    ENGINE_ID_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
     @property
@@ -872,6 +873,7 @@ class ImageAdjustment(google.protobuf.message.Message):
     def background_removal(self) -> global___ImageAdjustment_BackgroundRemoval: ...
     @property
     def autoscale(self) -> global___ImageAdjustment_Autoscale: ...
+    engine_id: builtins.str
     def __init__(
         self,
         *,
@@ -890,9 +892,13 @@ class ImageAdjustment(google.protobuf.message.Message):
         normal: global___ImageAdjustment_Normal | None = ...,
         background_removal: global___ImageAdjustment_BackgroundRemoval | None = ...,
         autoscale: global___ImageAdjustment_Autoscale | None = ...,
+        engine_id: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_engine_id", b"_engine_id"]) -> typing_extensions.Literal["engine_id"] | None: ...
+    @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
@@ -1142,14 +1148,11 @@ class Artifact(google.protobuf.message.Message):
     """Size of the artifact in bytes"""
     @property
     def adjustments(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___ImageAdjustment]:
-        """Adjustments to this image / mask before generation
-        For ARTIFACT_HINT_IMAGE, an autoscale will be added to the end of the chain if one is not included
-        """
+        """Adjustments to this image / mask before generation"""
     @property
     def postAdjustments(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___ImageAdjustment]:
         """Adjustments to this image / mask after generation 
         (primarily for adjusting mask prior to re-applying image in outpaint)
-        A default will be used on masks if nothing is provided
         """
     hint_image_type: builtins.str
     """Indicate the sort of control for image types"""

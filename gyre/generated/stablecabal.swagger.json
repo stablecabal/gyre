@@ -916,14 +916,14 @@
           "items": {
             "$ref": "#/definitions/ImageAdjustment"
           },
-          "title": "Adjustments to this image / mask before generation\nFor ARTIFACT_HINT_IMAGE, an autoscale will be added to the end of the chain if one is not included"
+          "title": "Adjustments to this image / mask before generation"
         },
         "postAdjustments": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/ImageAdjustment"
           },
-          "title": "Adjustments to this image / mask after generation \n(primarily for adjusting mask prior to re-applying image in outpaint)\nA default will be used on masks if nothing is provided"
+          "title": "Adjustments to this image / mask after generation \n(primarily for adjusting mask prior to re-applying image in outpaint)"
         },
         "hintImageType": {
           "type": "string",
@@ -1594,6 +1594,9 @@
         },
         "autoscale": {
           "$ref": "#/definitions/ImageAdjustment_Autoscale"
+        },
+        "engineId": {
+          "type": "string"
         }
       }
     },

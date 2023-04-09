@@ -8,9 +8,9 @@
 - model_id: "clip-common"
   model: "@laion-clip-b"
 
-# Use swin2 instead of beit for depth estimation
+# Use miads swin2 instead of zoe for depth estimation
 
-- id: "depth-midas-beit-large-512"
+- id: "depth-zoe-n"
   enabled: False
   default: False
 

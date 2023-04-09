@@ -5,27 +5,37 @@
 # from images. Generally, we want to keep these engines for internal use only, which
 # is why it's not marked as visible
 - id: "depth-midas-beit-large-512"
+  enabled: False
   task: "depth"
-  # Default is _per task_, so this sets this engine as the default for "depth" tasks
-  default: True
-  # This says that there aren't any models except what is provided via overrides
-  model: "@empty"
-  overrides:
-    midas_depth_estimator: "@midas-beit-large-512"
+  model: "@midas-beit-large-512"
 
 - id: "depth-midas-swin2-large-384"
   enabled: False
   task: "depth"
-  model: "@empty"
-  overrides:
-    midas_depth_estimator: "@midas-swin2-large-384"
+  model: "@midas-swin2-large-384"
 
 - id: "depth-midas-nextvit-large-384"
   enabled: False
   task: "depth"
-  model: "@empty"
-  overrides:
-    midas_depth_estimator: "@midas-nextvit-large-384"
+  model: "@midas-nextvit-large-384"
+
+- id: "depth-zoe-n"
+  default: True
+  task: "depth"
+  model: "@zoe-n"
+  class: "ZoeDepthPipeline"
+
+- id: "depth-zoe-k"
+  enabled: False
+  task: "depth"
+  model: "@zoe-k"
+  class: "ZoeDepthPipeline"
+
+- id: "depth-zoe-nk"
+  enabled: False
+  task: "depth"
+  model: "@zoe-nk"
+  class: "ZoeDepthPipeline"
 
 - id: "depth-stable-diffusion-v2-depth"
   enabled: False

@@ -195,6 +195,10 @@ class ParameterExtractor:
         for adjustment in adjustments:
             which = adjustment.WhichOneof("adjustment")
 
+            engine_id = None
+            if adjustment.HasField("engine_id"):
+                engine_id = adjustment.engine_id
+
             if which == "blur":
                 sigma = adjustment.blur.sigma
                 direction = adjustment.blur.direction
@@ -268,23 +272,16 @@ class ParameterExtractor:
                 )
 
             elif which == "depth":
-                id = self._manager.find_by_hint(
-                    list(adjustment.depth.depth_engine_hint), task="depth"
-                )
-                print("Selected depth estimation engine", id)
-                with self._manager.with_engine(id=id, task="depth") as estimator:
+                with self._manager.with_engine(engine_id, "depth") as estimator:
                     tensor = estimator(tensor)
 
             elif which == "normal":
-                with self._manager.with_engine(task="background-removal") as estimator:
-                    mask = estimator(tensor, mode="mask")
+                with self._manager.with_engine(task="background-removal") as rmvr:
+                    mask = rmvr(tensor, mode="mask")
 
-                id = self._manager.find_by_hint(
-                    list(adjustment.depth.depth_engine_hint), task="depth"
-                )
-                print("Selected depth estimation engine", id)
-                with self._manager.with_engine(id=id, task="depth") as estimator:
-                    tensor = estimator(tensor, normalise=False)
+                with self._manager.with_engine(engine_id, "depth") as estimator:
+                    # 16384 gives roughly same result as normalize=False for MiDaS, but also works with other models like Zoe
+                    tensor = estimator(tensor) * 16384
 
                 kwargs = dict(
                     background_threshold=0, preblur=0, postblur=5, smoothing=0.8
@@ -304,23 +301,23 @@ class ParameterExtractor:
                 )
 
             elif which == "edge_detection":
-                with self._manager.with_engine(task="edge_detection") as estimator:
-                    tensor = estimator(tensor)
+                with self._manager.with_engine(engine_id, "edge_detection") as detector:
+                    tensor = detector(tensor)
 
             elif which == "segmentation":
-                with self._manager.with_engine(task="segmentation") as estimator:
-                    tensor = estimator(tensor)
+                with self._manager.with_engine(engine_id, "segmentation") as segmentor:
+                    tensor = segmentor(tensor)
 
             elif which == "keypose":
-                with self._manager.with_engine(task="pose") as estimator:
+                with self._manager.with_engine(engine_id, "pose") as estimator:
                     tensor = estimator(tensor, output_format="keypose")
 
             elif which == "openpose":
-                with self._manager.with_engine(task="pose") as estimator:
+                with self._manager.with_engine(engine_id, "pose") as estimator:
                     tensor = estimator(tensor, output_format="openpose")
 
             elif which == "background_removal":
-                with self._manager.with_engine(task="background-removal") as estimator:
+                with self._manager.with_engine(engine_id, "background-removal") as rmvr:
                     mode = "alpha"
                     BRM = generation_pb2.BackgroundRemovalMode
                     if adjustment.background_removal.HasField("mode"):
@@ -329,7 +326,7 @@ class ParameterExtractor:
                         elif adjustment.background_removal.mode == BRM.BLUR:
                             mode = "blur"
 
-                    tensor = estimator(tensor, mode=mode)
+                    tensor = rmvr(tensor, mode=mode)
 
             else:
                 raise ValueError(f"Unkown image adjustment {which}")
@@ -645,22 +642,25 @@ class ParameterExtractor:
                 generation_pb2.ARTIFACT_HINT_IMAGE,
                 generation_pb2.ARTIFACT_DEPTH,
             }:
+                # Calculate weight
                 weight = 1.0
-                if prompt.HasField("parameters") and prompt.parameters.HasField(
-                    "weight"
-                ):
-                    weight = prompt.parameters.weight
+                if prompt.HasField("parameters"):
+                    if prompt.parameters.HasField("weight"):
+                        weight = prompt.parameters.weight
 
+                # Build the actual image
                 hint_image = self._add_to_echo(
                     prompt,
                     self._image_from_artifact(prompt.artifact),
                 )
 
+                # Find the hint type (to handle deprecated ARTIFACT_DEPTH type)
                 if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
                     hint_type = "depth"
                 else:
                     hint_type = prompt.artifact.hint_image_type
 
+                # And append the details
                 hint_images.append(
                     HintImage(
                         image=hint_image,

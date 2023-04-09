@@ -11,6 +11,7 @@ SRC_MODULES = [
     "mmdetection",
     "mmpose",
     "BasicSR",
+    "ZoeDepth",
 ]
 
 src_dir = os.path.dirname(__file__)

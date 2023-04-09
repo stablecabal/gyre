@@ -36,3 +36,6 @@
 [submodule "gyre/src/BasicSR"]
 	path = gyre/src/BasicSR
 	url = https://github.com/XPixelGroup/BasicSR.git
+[submodule "gyre/src/ZoeDepth"]
+	path = gyre/src/ZoeDepth
+	url = https://github.com/isl-org/ZoeDepth.git

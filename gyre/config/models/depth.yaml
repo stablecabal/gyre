@@ -17,6 +17,23 @@
   model: "halffried/midas_v3_dpt_large_384"
   type: "midas_depth_estimator"
 
+- model_id: "zoe-n"
+  model: "halffried/gyre_zoedepth"
+  type: "zoe_depth_estimator"
+  allow_patterns: ["ZoeD_M12_N.safetensors", "dpt_beit_large_384.safetensors"]
+
+- model_id: "zoe-k"
+  model: "halffried/gyre_zoedepth"
+  type: "zoe_depth_estimator"
+  class: "ZoeModelWrapper(config_id=zoedepth/kitti)"
+  allow_patterns: ["ZoeD_M12_K.safetensors", "dpt_beit_large_384.safetensors"]
+
+- model_id: "zoe-nk"
+  model: "halffried/gyre_zoedepth"
+  type: "zoe_depth_estimator"
+  class: "ZoeModelWrapper(config_id=zoedepth_nk)"
+  allow_patterns: ["ZoeD_M12_NK.safetensors", "dpt_beit_large_384.safetensors"]
+
 - model_id: "depth-stable-diffusion-v2-depth"
   model: "stabilityai/stable-diffusion-2-depth"
   whitelist: ["depth_estimator", "feature_extractor"]
