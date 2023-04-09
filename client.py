@@ -142,7 +142,7 @@ def open_images(
 
 
 def image_to_prompt(
-    im, init: bool = False, mask: bool = False, depth: bool = False, use_alpha=False
+    im, init: bool = False, mask: bool = False, use_alpha=False
 ) -> generation.Prompt:
     if init and mask:
         raise ValueError("init and mask cannot both be True")
@@ -163,8 +163,6 @@ def image_to_prompt(
     type = generation.ARTIFACT_IMAGE
     if mask:
         type = generation.ARTIFACT_MASK
-    if depth:
-        type = generation.ARTIFACT_DEPTH
 
     prompt = generation.Prompt(
         artifact=generation.Artifact(
@@ -173,73 +171,76 @@ def image_to_prompt(
         parameters=generation.PromptParameters(init=init),
     )
 
+    # bgremove = generation.ImageAdjustment(
+    #     background_removal=generation.ImageAdjustment_BackgroundRemoval(
+    #         mode=generation.BackgroundRemovalMode.ALPHA
+    #     )
+    # )
+    # prompt.artifact.adjustments.append(bgremove)
+
     return prompt
 
 
-def add_converter_to_hint_image_prompt(prompt, converter, args):
+def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
     if converter is None or converter is False:
         return
 
-    bgremove = generation.ImageAdjustment(
-        background_removal=generation.ImageAdjustment_BackgroundRemoval(
-            mode=generation.BackgroundRemovalMode.SOLID
+    if remove_bg:
+        bgremove = generation.ImageAdjustment(
+            background_removal=generation.ImageAdjustment_BackgroundRemoval(
+                mode=generation.BackgroundRemovalMode.SOLID
+            )
         )
-    )
-    prompt.artifact.adjustments.append(bgremove)
+        prompt.artifact.adjustments.append(bgremove)
 
+    adjustment = None
     hint_type = prompt.artifact.hint_image_type
 
     if "depth" in hint_type:
-        depth_estimate = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             depth=generation.ImageAdjustment_Depth()
         )
-        if isinstance(converter, str):
-            depth_estimate.depth.depth_engine_hint.extend(converter)
-
-        prompt.artifact.adjustments.append(depth_estimate)
     elif "canny" in hint_type:
         args = {"low_threshold": 100, "high_threshold": 200, **args}
 
-        canny_edge = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             canny_edge=generation.ImageAdjustment_CannyEdge(**args)
         )
-
-        prompt.artifact.adjustments.append(canny_edge)
     elif "hed" in hint_type or "sketch" in hint_type or "scribble" in hint_type:
-        hed = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             edge_detection=generation.ImageAdjustment_EdgeDetection()
         )
-        prompt.artifact.adjustments.append(hed)
     elif "segment" in hint_type:
-        segmentation = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             segmentation=generation.ImageAdjustment_Segmentation()
         )
-        prompt.artifact.adjustments.append(segmentation)
     elif "keypose" in hint_type:
-        keypose = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             keypose=generation.ImageAdjustment_Keypose()
         )
-        prompt.artifact.adjustments.append(keypose)
     elif "openpose" in hint_type:
-        openpose = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             openpose=generation.ImageAdjustment_Openpose()
         )
-        prompt.artifact.adjustments.append(openpose)
     elif "normal" in hint_type:
         args = {"preblur": 0, "postblur": 0, **args}
 
-        normal = generation.ImageAdjustment(
+        adjustment = generation.ImageAdjustment(
             normal=generation.ImageAdjustment_Normal(**args)
         )
-        prompt.artifact.adjustments.append(normal)
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
+
+    if isinstance(converter, str):
+        adjustment.engine_id = converter
+
+    prompt.artifact.adjustments.append(adjustment)
 
     return prompt
 
 
 def hint_image_to_prompt(
-    image, hint_type, weight=1.0, converter=None, args={}
+    image, hint_type, weight=1.0, remove_bg=False, converter=None, args={}
 ) -> generation.Prompt:
     buf = io.BytesIO()
     image.save(buf, format="PNG")
@@ -258,7 +259,7 @@ def hint_image_to_prompt(
         parameters=generation.PromptParameters(weight=weight),
     )
 
-    add_converter_to_hint_image_prompt(prompt, converter, args)
+    add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args)
 
     return prompt
 
@@ -537,8 +538,8 @@ class StabilityInference:
         self.stub = generation_grpc.GenerationServiceStub(channel)
         self.engine_stub = engines_grpc.EnginesServiceStub(channel)
 
-    def list_engines(self):
-        request = engines.ListEnginesRequest()
+    def list_engines(self, task_group=engines.GENERATE):
+        request = engines.ListEnginesRequest(task_group=task_group)
         print(self.engine_stub.ListEngines(request))
 
     def generate(
@@ -548,8 +549,8 @@ class StabilityInference:
         init_image: Optional[Image.Image] = None,
         mask_image: Optional[Image.Image] = None,
         mask_from_image_alpha: bool = False,
-        height: int = 512,
-        width: int = 512,
+        height: int | None = None,
+        width: int | None = None,
         start_schedule: float = 1.0,
         end_schedule: float = 0.01,
         cfg_scale: float = 7.0,
@@ -626,6 +627,7 @@ class StabilityInference:
         for p in prompt:
             if isinstance(p, str):
                 p = generation.Prompt(text=p)
+                # , parameters=generation.PromptParameters(clip_layer=1)
             elif not isinstance(p, generation.Prompt):
                 raise TypeError("prompt must be a string or generation.Prompt object")
             prompts.append(p)
@@ -724,7 +726,7 @@ class StabilityInference:
                     hint_prompt.parameters.weight = hint["weight"]
 
                     add_converter_to_hint_image_prompt(
-                        hint_prompt, hint["converter"], hint["args"]
+                        hint_prompt, hint["remove_bg"], hint["converter"], hint["args"]
                     )
                 else:
                     hint_prompt = hint_image_to_prompt(**hint)
@@ -799,8 +801,6 @@ class StabilityInference:
 
         image_parameters = generation.ImageParameters(
             transform=generation.TransformType(diffusion=sampler),
-            height=height,
-            width=width,
             seed=seed,
             steps=steps,
             samples=samples,
@@ -808,6 +808,11 @@ class StabilityInference:
             hires=hires,
             **tiling_params,
         )
+
+        if height is not None:
+            image_parameters.height = height
+        if width is not None:
+            image_parameters.width = width
 
         if as_async:
             return self.emit_async_request(
@@ -947,10 +952,10 @@ if __name__ == "__main__":
     # CLI parsing
     parser = ArgumentParser()
     parser.add_argument(
-        "--height", "-H", type=int, default=512, help="[512] height of image"
+        "--height", "-H", type=int, default=None, help="[512] height of image"
     )
     parser.add_argument(
-        "--width", "-W", type=int, default=512, help="[512] width of image"
+        "--width", "-W", type=int, default=None, help="[512] width of image"
     )
     parser.add_argument(
         "--start_schedule",
@@ -1097,12 +1102,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hint_from_image",
         action="append",
-        help="Provide a image to be converted to a hint image, in type:path, type:path:weight, type:converter_id:path or type:converter_id:path:weight format",
+        help="Provide a image to be converted to a hint image, in type:path, type:path:weight, type:converter_id:path or type:converter_id:path:weight format. Prepend with 'nobg:' to remove background.",
     )
     parser.add_argument(
         "--hint_from_init",
         action="append",
-        help="Provide a hint image by converting the init_image, in type, type:weight, type:converter_id or type:converter_id:weight format",
+        help="Provide a hint image by converting the init_image, in type, type:weight, type:converter_id or type:converter_id:weight format. Prepend with 'nobg:' to remove background.",
     )
     parser.add_argument(
         "--lora",
@@ -1119,6 +1124,11 @@ if __name__ == "__main__":
         "-L",
         action="store_true",
         help="Print a list of the engines available on the server",
+    )
+    parser.add_argument(
+        "--list_upscalers",
+        action="store_true",
+        help="Print a list of the upscaler engines available on the server",
     )
     parser.add_argument(
         "--grpc_web",
@@ -1139,6 +1149,10 @@ if __name__ == "__main__":
 
     if args.list_engines:
         stability_api.list_engines()
+        sys.exit(0)
+
+    if args.list_upscalers:
+        stability_api.list_engines(task_group=engines.UPSCALE)
         sys.exit(0)
 
     if not args.prompt and not args.init_image:
@@ -1193,13 +1207,23 @@ if __name__ == "__main__":
 
         parts = hint.split(":")
 
+        remove_bg = False
+        if parts[0] == "nobg":
+            parts.pop(0)
+            remove_bg = True
+
         try:
             weight = float(parts[-1])
             parts = parts[:-1]
         except ValueError:
             weight = 1.0
 
-        hint_info = {"hint_type": parts.pop(0), "weight": weight, "args": args}
+        hint_info = {
+            "hint_type": parts.pop(0),
+            "remove_bg": remove_bg,
+            "weight": weight,
+            "args": args,
+        }
 
         if path:
             if not parts:
