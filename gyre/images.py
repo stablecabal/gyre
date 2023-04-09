@@ -461,3 +461,20 @@ def blend_frequency_split_1(tensor_high, tensor_low, sigma):
     low_lf = gaussianblur(tensor_low, sigma)
 
     return (low_lf + high_hf).clamp(0, 1)
+
+
+def palletize(tensor, colours):
+    down_factors = (colours / tensor.shape[-2], colours / tensor.shape[-1])
+
+    downscaled = kornia.geometry.transform.rescale(
+        tensor,
+        down_factors,
+        "area",
+        antialias=False,
+    ).clamp(0, 1)
+
+    result = kornia.geometry.transform.resize(
+        downscaled, tensor.shape[-2:], "nearest"
+    ).clamp(0, 1)
+
+    return result

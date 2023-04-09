@@ -228,6 +228,12 @@ def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
         adjustment = generation.ImageAdjustment(
             normal=generation.ImageAdjustment_Normal(**args)
         )
+    elif "color" in hint_type:
+        args = {"colours": 8, **args}
+
+        adjustment = generation.ImageAdjustment(
+            palletize=generation.ImageAdjustment_Palletize(**args)
+        )
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
 

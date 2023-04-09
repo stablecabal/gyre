@@ -1595,6 +1595,9 @@
         "autoscale": {
           "$ref": "#/definitions/ImageAdjustment_Autoscale"
         },
+        "palletize": {
+          "$ref": "#/definitions/ImageAdjustment_Palletize"
+        },
         "engineId": {
           "type": "string"
         }
@@ -1757,6 +1760,16 @@
     },
     "ImageAdjustment_Openpose": {
       "type": "object"
+    },
+    "ImageAdjustment_Palletize": {
+      "type": "object",
+      "properties": {
+        "colours": {
+          "type": "integer",
+          "format": "int64",
+          "title": "Number of colours in one dimension (so total colours = colours * colours)"
+        }
+      }
     },
     "ImageAdjustment_Rescale": {
       "type": "object",

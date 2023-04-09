@@ -328,6 +328,13 @@ class ParameterExtractor:
 
                     tensor = rmvr(tensor, mode=mode)
 
+            elif which == "palletize":
+                colours = 8
+                if adjustment.palletize.HasField("colours"):
+                    colours = adjustment.palletize.colours
+
+                tensor = images.palletize(tensor, colours)
+
             else:
                 raise ValueError(f"Unkown image adjustment {which}")
 

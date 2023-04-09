@@ -824,6 +824,24 @@ class ImageAdjustment_BackgroundRemoval(google.protobuf.message.Message):
 global___ImageAdjustment_BackgroundRemoval = ImageAdjustment_BackgroundRemoval
 
 @typing_extensions.final
+class ImageAdjustment_Palletize(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    COLOURS_FIELD_NUMBER: builtins.int
+    colours: builtins.int
+    """Number of colours in one dimension (so total colours = colours * colours)"""
+    def __init__(
+        self,
+        *,
+        colours: builtins.int | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_colours", b"_colours", "colours", b"colours"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_colours", b"_colours", "colours", b"colours"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_colours", b"_colours"]) -> typing_extensions.Literal["colours"] | None: ...
+
+global___ImageAdjustment_Palletize = ImageAdjustment_Palletize
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -842,6 +860,7 @@ class ImageAdjustment(google.protobuf.message.Message):
     NORMAL_FIELD_NUMBER: builtins.int
     BACKGROUND_REMOVAL_FIELD_NUMBER: builtins.int
     AUTOSCALE_FIELD_NUMBER: builtins.int
+    PALLETIZE_FIELD_NUMBER: builtins.int
     ENGINE_ID_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
@@ -873,6 +892,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     def background_removal(self) -> global___ImageAdjustment_BackgroundRemoval: ...
     @property
     def autoscale(self) -> global___ImageAdjustment_Autoscale: ...
+    @property
+    def palletize(self) -> global___ImageAdjustment_Palletize: ...
     engine_id: builtins.str
     def __init__(
         self,
@@ -892,14 +913,15 @@ class ImageAdjustment(google.protobuf.message.Message):
         normal: global___ImageAdjustment_Normal | None = ...,
         background_removal: global___ImageAdjustment_BackgroundRemoval | None = ...,
         autoscale: global___ImageAdjustment_Autoscale | None = ...,
+        palletize: global___ImageAdjustment_Palletize | None = ...,
         engine_id: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_engine_id", b"_engine_id"]) -> typing_extensions.Literal["engine_id"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 
