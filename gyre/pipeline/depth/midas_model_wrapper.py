@@ -82,5 +82,5 @@ class MidasModelWrapper(torch.nn.Module):
         model, transform, _, _ = load_model("cpu", model_path, model_type, False)
 
         result = cls(model, transform)
-        result.to(dtype)
+        # result.to(dtype)
         return result
