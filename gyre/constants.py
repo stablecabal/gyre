@@ -14,3 +14,6 @@ sd_cache_home = os.path.expanduser(
 )
 
 GYRE_BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+
+IS_DEV = os.environ.get("SD_ENV", "prod").lower().startswith("dev")
+IS_PROD = os.environ.get("SD_ENV", "prod").lower().startswith("prod")

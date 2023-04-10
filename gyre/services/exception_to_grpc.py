@@ -6,7 +6,9 @@ import traceback
 
 import grpc
 
-return_traceback = os.environ.get("SD_ENV", "dev").lower().startswith("dev")
+from gyre.constants import IS_DEV
+
+return_traceback = IS_DEV
 
 logger = logging.getLogger(__name__)
 

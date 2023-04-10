@@ -58,6 +58,7 @@ import engines_pb2_grpc
 import generation_pb2_grpc
 
 from gyre import cache, engines_yaml
+from gyre.constants import IS_DEV
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
@@ -426,6 +427,22 @@ def environ_list(key, default=__environ_list_nodefault):
     return result if result else default
 
 
+def environ_bool(key: str, default=False):
+    res = default
+
+    parts = key.split("_", maxsplit=1)
+    negative_keys = {"_".join((parts[0], x, parts[1])) for x in ("DONT", "NO")}
+
+    print(key, negative_keys)
+
+    if key in os.environ:
+        res = True
+    if negative_keys & os.environ.keys():
+        res = False
+
+    return res
+
+
 def main():
     start_time = time.time()
 
@@ -507,9 +524,15 @@ def main():
         help="'*' or a comma-seperated list of model path globs to refresh even if a local cache exists (missing models will always be downloaded)",
     )
     generation_opts.add_argument(
+        "--refresh_on_error",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_REFRESH_ON_ERROR", False if IS_DEV else True),
+        help="If a model exists in cache but fails to load, do / don't try redownloading (to fix a potentially corrupted download.)",
+    )
+    generation_opts.add_argument(
         "--dont_refresh_on_error",
-        action="store_true",
-        help="If a model exists in cache but fails to load, don't try redownloading (to fix a potentially corrupted download.)",
+        dest="refresh_on_error",
+        action="store_false",
     )
     generation_opts.add_argument(
         "--vram_optimisation_level",
@@ -573,14 +596,14 @@ def main():
     logging_opts.add_argument(
         "--log_level",
         type=str,
-        default="INFO",
+        default=os.environ.get("SD_LOG_LEVEL", "DEBUG" if IS_DEV else "INFO"),
         choices=LOG_LEVELS.keys(),
         help="Logging level for gyre logs",
     )
     logging_opts.add_argument(
         "--dep_log_level",
         type=str,
-        default="ERROR",
+        default=os.environ.get("SD_DEP_LOG_LEVEL", "DEBUG" if IS_DEV else "INFO"),
         choices=LOG_LEVELS.keys(),
         help="Logging level for dependancies",
     )
@@ -639,6 +662,7 @@ def main():
     debug_opts.add_argument(
         "--monitor_ram",
         action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_MONITOR_RAM", True if IS_DEV else False),
         help="Enable or disable monitoring of RAM and VRAM usage",
     )
 
@@ -653,9 +677,7 @@ def main():
         args.enable_debug_recording or "SD_ENABLE_DEBUG_RECORDING" in os.environ
     )
     args.supress_metadata = args.supress_metadata or "SD_SUPRESS_METADATA" in os.environ
-    args.dont_refresh_on_error = (
-        args.dont_refresh_on_error or "SD_DONT_REFRESH_ON_ERROR" in os.environ
-    )
+
     args.force_fp32 = args.force_fp32 or "SD_FORCE_FP32" in os.environ
 
     refresh_models = None
@@ -842,7 +864,7 @@ def main():
         engines,
         weight_root=args.weight_root,
         refresh_models=refresh_models,
-        refresh_on_error=not args.dont_refresh_on_error,
+        refresh_on_error=args.refresh_on_error,
         mode=EngineMode(
             vram_optimisation_level=args.vram_optimisation_level,
             force_fp32=args.force_fp32,
