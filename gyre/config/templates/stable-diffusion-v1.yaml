@@ -23,7 +23,7 @@
   hintset: "hintset-sd15-common"
   overrides:
     clip: "@clip-common"
-    vae: "@stability-vae-ema"
+    vae: "{{vae:'@stability-vae-ema'}}"
 
 ---
 !@stable-diffusion-v1/stable-diffusion-v1-5-finetune

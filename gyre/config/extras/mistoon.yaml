@@ -1,0 +1,22 @@
+!stable-diffusion-v1-5-ckpt/mistoon-anime
+name: "Mistoon Anime"
+description: "Mistoon_Anime is a blend that tries to achieve a more 'cartoony' anime style with thick borders and brighter colors."
+source:
+  model: "https://civitai.com/api/download/models/28861"
+vae: "@orange-vae"
+
+---
+!stable-diffusion-v1-5-ckpt/mistoon-ruby
+name: "Mistoon Ruby"
+description: "Mistoon Ruby is a variant of Mistoon Anime that tries to achieve a more 'western cartoon' style while still mantaining some resemblance to the modern anime style."
+source:
+  model: "https://civitai.com/api/download/models/31530"
+vae: "@orange-vae"
+
+---
+!stable-diffusion-v1-5-ckpt/mistoon-amethyst
+name: "Mistoon Amethyst"
+description: "Mistoon Amethyst is a variant of Mistoon Sapphire that tries to achieve a Disney pinup style."
+source:
+  model: "https://civitai.com/api/download/models/39995"
+vae: "@orange-vae"

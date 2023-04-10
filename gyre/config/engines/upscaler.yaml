@@ -105,3 +105,10 @@ type: esrgan_plus
 source:
   model: halffried/gyre_upscalers
   subfolder: "esrgan_valar_x4"
+
+---
+!basicsr-upscaler/esrgan-escale-x4
+type: esrgan_old
+source:
+  model: halffried/gyre_upscalers
+  subfolder: "esrgan_escale_x4"
