@@ -126,7 +126,7 @@ class EngineMode(object):
 
     @property
     def tile_vae(self):
-        return True
+        return False
 
     @property
     def fp16(self):
