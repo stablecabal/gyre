@@ -1,4 +1,6 @@
+import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -6,6 +8,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -13,6 +16,18 @@ from urllib.request import Request, urlopen
 from huggingface_hub.file_download import http_get
 
 from gyre.constants import sd_cache_home
+
+logger = logging.getLogger(__name__)
+
+
+def sha256sum(filename):
+    h = hashlib.sha256()
+    b = bytearray(128 * 1024)
+    mv = memoryview(b)
+    with open(filename, "rb", buffering=0) as f:
+        while n := f.readinto(mv):
+            h.update(mv[:n])
+    return h.hexdigest()
 
 
 @dataclass
@@ -115,7 +130,9 @@ def store_local_candidates(modelref: CivitaiModelReference, files):
             )
 
 
-def get_model(modelref: CivitaiModelReference, local_only=False):
+def get_model(
+    modelref: CivitaiModelReference, local_only=False, check_sha=False
+) -> str:
 
     # Find the files data for the model reference
     files = None
@@ -171,11 +188,15 @@ def get_model(modelref: CivitaiModelReference, local_only=False):
             ckpt = file
 
     if safetensor:
-        sha256 = safetensor["hashes"]["SHA256"]
+        sha256 = safetensor.get("hashes", {}).get("SHA256", None)
+        fallback_hashstr = (
+            f"{safetensor['name']}:{safetensor['sizeKB']}:{safetensor['metadata']}"
+        )
         url = safetensor["downloadUrl"]
         name = "model.safetensors"
     elif ckpt:
-        sha256 = ckpt["hashes"]["SHA256"]
+        sha256 = ckpt.get("hashes", {}).get("SHA256", None)
+        fallback_hashstr = f"{ckpt['name']}:{ckpt['sizeKB']}:{ckpt['metadata']}"
         url = ckpt["downloadUrl"]
         name = "model.ckpt"
     else:
@@ -184,17 +205,58 @@ def get_model(modelref: CivitaiModelReference, local_only=False):
             "have a safetensors or ckpt file"
         )
 
-    # Just use the first 24 characters, we're trying to avoid an on-disk collision,
-    # not potect against pre-image attacks
+    fallback_hasher = hashlib.sha256()
+    fallback_hasher.update(fallback_hashstr.encode("utf-8"))
+    fallback_hash = fallback_hasher.hexdigest()
 
-    filehash = sha256[:24]
+    def get_path(fullhash: str):
+        # Just use the first 24 characters, we're trying to avoid an on-disk collision,
+        # not protect against pre-image attacks
+        filehash = fullhash[:24].upper()
 
-    # Download the file if not already available
+        base_cache = Path(cache_path) / filehash
+        full_name = base_cache / name
 
-    base_cache = os.path.join(cache_path, filehash)
-    full_name = os.path.join(base_cache, name)
+        return base_cache, full_name
 
-    if not os.path.exists(full_name) and not local_only:
+    full_base, full_name = get_path(sha256) if sha256 else (None, None)
+    fallback_base, fallback_name = get_path(fallback_hash)
+
+    # If sha256 named file exists, return it (after potentially checking hash)
+
+    if full_name and full_name.exists():
+        real_sha256 = sha256sum(full_name) if check_sha else sha256
+        if real_sha256.upper() == sha256.upper():
+            return str(full_base)
+
+    # sha256 named file doesn't exist (or doesn't match sha), check fallback
+
+    if fallback_name and fallback_name.exists():
+        # If we know the right sha256 hash, rename it & return the renamed version
+        if sha256:
+            if sha256sum(fallback_name).upper() == sha256.upper():
+                logger.info("Moving {fallback_name} to {full_name}")
+                full_base.mkdir(exist_ok=True)
+                fallback_name.rename(str(full_name))
+                try:
+                    fallback_base.rmdir()
+                except Exception:
+                    pass
+
+                return str(full_base)
+
+        else:
+            return str(fallback_base)
+
+    # Both sha256 and fallback named files don't exist (or don't match hash).
+    # Download if allowed
+
+    if not local_only:
+        if full_name:
+            download_base, download_name = full_base, full_name
+        else:
+            download_base, download_name = fallback_base, fallback_name
+
         temp_path = os.path.join(sd_cache_home, "temp")
         os.makedirs(temp_path, exist_ok=True)
 
@@ -206,10 +268,9 @@ def get_model(modelref: CivitaiModelReference, local_only=False):
             temp_name = temp_file.name
 
         if temp_name:
-            os.makedirs(base_cache, exist_ok=True)
-            os.replace(temp_name, full_name)
+            os.makedirs(download_base, exist_ok=True)
+            os.replace(temp_name, download_name)
 
-    if os.path.exists(full_name):
-        return base_cache
-    else:
-        raise ValueError("Couldn't download Civitai model")
+        return str(download_base)
+
+    raise ValueError("No local copy of Civitai model, and local_only set")
