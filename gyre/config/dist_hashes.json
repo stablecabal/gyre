@@ -29,6 +29,15 @@
     "505815d4f2b0233892dcc2b5a760fb7a09d936cd",
     "03151dc340c76bf76f3b4d13b8d5570af3c86013"
   ],
+  "models/clip.yaml": [
+    "aaebe42e33d4712bbfec593d5f8d1e407e16694b",
+    "b078215c2d76d899a589abf5d1176298931ff6fe",
+    "9affd325e17ff091169f51a7a7b0ef009728da14"
+  ],
+  "models/controlnet.yaml": [
+    "43a64e09f0c4bee4aaedf53d426eeee8f46d7e0f",
+    "84b1f248bb506098ad26ad670da4a7580db8d8d6"
+  ],
   "engines/hintsets.yaml": [
     "ca914626a0ae1099ffd6906a28d8e59455b0e351",
     "a1bf17a3ff60aec41e6a79b1eef9a05e2402024f",
@@ -154,9 +163,6 @@
     "56e1b4d9eb5c48e8417dc46e6b80306554d2e575",
     "24a458825c27c3e9dc2f1d9a0d031bc17d20f6bc"
   ],
-  "models/controlnet.yaml": [
-    "84b1f248bb506098ad26ad670da4a7580db8d8d6"
-  ],
   "models/stable-diffusion-v2.yaml": [
     "d5c60391935de3fa70b1016f0b16b56fd403a583",
     "fa2b9bdbf5a4f87f252a2dc36c78f46809830e44"
@@ -186,10 +192,6 @@
   "models/waifu.yaml": [
     "bdc544630f61313cf95d623cef79d93bd4f4a4ec",
     "58b0e6cba7ab09300b879942bf48ca8fbf8b61ab"
-  ],
-  "models/clip.yaml": [
-    "b078215c2d76d899a589abf5d1176298931ff6fe",
-    "9affd325e17ff091169f51a7a7b0ef009728da14"
   ],
   "models/midas.yaml": [
     "3680c2adfcbfa58dae33c6e72436ba25f5353f25"
