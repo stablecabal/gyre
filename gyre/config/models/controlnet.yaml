@@ -27,5 +27,5 @@
   type: "controlnet"
 
 - model_id: "controlnet-seg"
-  model: "fusing/stable-diffusion-v1-5-controlnet-seg"
+  model: "lllyasviel/sd-controlnet-seg"
   type: "controlnet"

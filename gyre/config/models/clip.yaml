@@ -5,15 +5,19 @@
 - model_id: "laion-clip-h"
   type: "clip"
   model: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+  ignore_patterns: ["open_clip_*"]
 - model_id: "laion-clip-g"
   type: "clip"
   model: "laion/CLIP-ViT-g-14-laion2B-s12B-b42K"
+  ignore_patterns: ["open_clip_*"]
 - model_id: "laion-clip-l"
   type: "clip"
   model: "laion/CLIP-ViT-L-14-laion2B-s32B-b82K"
+  ignore_patterns: ["open_clip_*"]
 - model_id: "laion-clip-b"
   type: "clip"
   model: "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+  ignore_patterns: ["open_clip_*"]
 
 # The original OpenAI models
 
