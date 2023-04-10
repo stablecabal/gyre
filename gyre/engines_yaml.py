@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 import yaml
 
@@ -355,6 +356,16 @@ def git_object_hash(bs: bytes):
     return hasher.hexdigest()
 
 
+def git_hashes(content: str):
+    unix_ending = content.replace("\r\n", "\n")
+    win_ending = unix_ending.replace("\n", "\r\n")
+
+    unix_hash = git_object_hash(unix_ending.encode("utf-8"))
+    win_hash = git_object_hash(win_ending.encode("utf-8"))
+
+    return unix_hash, win_hash
+
+
 def check_and_update(config_path):
 
     with open(GENHASH_PATH, "r") as f:
@@ -367,13 +378,18 @@ def check_and_update(config_path):
             # Check the current config file to see if it matches a distribution hash
             # (if not we ingore it, as it's user edited)
 
-            current_hash = None
+            current_unix_hash = current_win_hash = None
             current_path = os.path.join(config_path, path)
 
             if os.path.isfile(current_path):
                 exists = True
-                current_hash = git_object_hash(open(current_path, "rb").read())
-                if current_hash not in hashes:
+
+                # Check both unix & windows ending, since github can convert them
+                # on checkout, and then the hash won't match
+                content = open(current_path, "r", encoding="utf-8").read()
+                current_unix_hash, current_win_hash = git_hashes(content)
+
+                if current_unix_hash not in hashes and current_win_hash not in hashes:
                     update = False
 
             # Now check the distribution config file to see if it
@@ -383,8 +399,10 @@ def check_and_update(config_path):
             dist_path = os.path.join(DIST_CONFIG_PATH, path)
 
             if os.path.isfile(dist_path):
-                dist_hash = git_object_hash(open(dist_path, "rb").read())
-                if current_hash != dist_hash:
+                content = open(dist_path, "r", encoding="utf-8").read()
+                dist_unix_hash, _ = git_hashes(content)
+
+                if current_unix_hash != dist_unix_hash:
                     if not update:
                         print(
                             f"Config file {path} has been edited, and won't be changed."
@@ -395,10 +413,8 @@ def check_and_update(config_path):
                         shutil.copyfile(dist_path, current_path)
             elif update and exists:
                 print(
-                    "Config file",
-                    path,
-                    "appears to be obsolete and can be removed."
-                    "(For safety reasons, Gyre won't do this for you, you'll need to do it manually).",
+                    f"Config file {path} appears to be obsolete and can be removed.\n"
+                    "(For safety reasons, Gyre won't do this for you, you'll need to do it manually)."
                 )
 
 
@@ -440,6 +456,10 @@ def gen_hashes(outpath):
                 text=True,
             )
 
+            if res.returncode:
+                # If file is deleted on this commit, rev-parse will fail. Just skip.
+                continue
+
             basefile = file
             for path in DIST_CONFIG_PATHS[1:]:
                 if basefile.startswith(path):
@@ -449,8 +469,24 @@ def gen_hashes(outpath):
             hashes.setdefault(basefile, []).append(file_hash)
 
     with open(outpath, "w") as f:
-        json.dump(hashes, f)
+        json.dump(hashes, f, indent=2)
 
 
 if __name__ == "__main__":
-    gen_hashes(GENHASH_PATH)
+    # Get the action
+    action = "gen_hashes"
+    if len(sys.argv) > 1:
+        action = sys.argv[1]
+
+    # Action: gen_hashes
+    if action == "gen_hashes":
+        gen_hashes(GENHASH_PATH)
+
+    # Action: check_and_update
+    elif action == "check_and_update":
+        assert len(sys.argv) > 2, f"{action} needs an argument for the config path"
+        check_and_update(sys.argv[2])
+
+    else:
+        print(f"Unknown action {action}")
+        sys.exit(-1)
