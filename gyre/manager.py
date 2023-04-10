@@ -95,13 +95,13 @@ class EngineMode(object):
     def __init__(
         self,
         vram_optimisation_level=0,
-        force_fp32=False,
+        vram_overrides={},
         enable_cuda=True,
         enable_mps=False,
         vram_fraction=1.0,
     ):
         self._vramO = vram_optimisation_level
-        self._force_fp32 = force_fp32
+        self._overrides = vram_overrides
         self._enable_cuda = enable_cuda
         self._enable_mps = enable_mps
         self._vram_fraction = vram_fraction
@@ -122,24 +122,39 @@ class EngineMode(object):
 
     @property
     def attention_slice(self):
-        return self.device == "cuda" and self._vramO > 0
+        return self._overrides.get(
+            "attention_slice",
+            self.device == "cuda" and self._vramO > 0,
+        )
 
     @property
     def tile_vae(self):
-        return False
+        return self._overrides.get(
+            "tile_vae",
+            False,
+        )
 
     @property
     def fp16(self):
-        return self.device == "cuda" and self._vramO > 1 and not self._force_fp32
+        return self._overrides.get(
+            "fp16",
+            self.device == "cuda" and self._vramO > 1,
+        )
 
     @property
     def gpu_offload(self):
-        return self.device == "cuda" and self._vramO > 2
+        return self._overrides.get(
+            "gpu_offload",
+            self.device == "cuda" and self._vramO > 2,
+        )
 
     @property
     def model_vram_limit(self):
         if not self.gpu_offload:
             return -1
+
+        if "model_vram_limit" in self._overrides:
+            return self._overrides["model_vram_limit"]
 
         GB = 1024 * 1024 * 1024
 
@@ -163,6 +178,9 @@ class EngineMode(object):
     def model_max_limit(self):
         if not self.gpu_offload:
             return -1
+
+        if "model_max_limit" in self._overrides:
+            return self._overrides["model_max_limit"]
 
         return 1 if self._vramO >= 5 else -1
 

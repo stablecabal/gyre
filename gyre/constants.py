@@ -17,3 +17,7 @@ GYRE_BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 IS_DEV = os.environ.get("SD_ENV", "prod").lower().startswith("dev")
 IS_PROD = os.environ.get("SD_ENV", "prod").lower().startswith("prod")
+
+KB = 1024
+MB = 1024 * KB
+GB = 1024 * MB

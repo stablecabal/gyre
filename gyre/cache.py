@@ -8,14 +8,11 @@ from typing import Any
 
 from safetensors import torch as safe_torch
 
+from gyre.constants import GB, KB, MB
 from gyre.protobuf_safetensors import UserSafetensors
 
 logger = logging.getLogger(__name__)
 
-
-KB = 1024
-MB = 1024 * KB
-GB = 1024 * MB
 
 NOT_PASSED_MARKER = object()
 

@@ -58,7 +58,7 @@ import engines_pb2_grpc
 import generation_pb2_grpc
 
 from gyre import cache, engines_yaml
-from gyre.constants import IS_DEV
+from gyre.constants import GB, IS_DEV, KB, MB
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
@@ -427,13 +427,11 @@ def environ_list(key, default=__environ_list_nodefault):
     return result if result else default
 
 
-def environ_bool(key: str, default=False):
+def environ_bool(key: str, default: bool | None = False):
     res = default
 
     parts = key.split("_", maxsplit=1)
     negative_keys = {"_".join((parts[0], x, parts[1])) for x in ("DONT", "NO")}
-
-    print(key, negative_keys)
 
     if key in os.environ:
         res = True
@@ -441,6 +439,22 @@ def environ_bool(key: str, default=False):
         res = False
 
     return res
+
+
+def parse_size(sizestr: str):
+    sizestr = sizestr.strip().lower()
+    mult = 1
+    if sizestr.endswith("gb"):
+        mult = GB
+        sizestr = sizestr[:-2].strip()
+    elif sizestr.endswith("mb"):
+        mult = MB
+        sizestr = sizestr[:-2].strip()
+    elif sizestr.endswith("kb"):
+        mult = KB
+        sizestr = sizestr[:-2].strip()
+
+    return int(sizestr) * mult
 
 
 def main():
@@ -451,6 +465,7 @@ def main():
     )
 
     generation_opts = parser.add_argument_group("generation")
+    vram_opts = parser.add_argument_group("vram")
     resource_opts = parser.add_argument_group("resource management")
     logging_opts = parser.add_argument_group("logging")
     networking_opts = parser.add_argument_group("networking")
@@ -535,18 +550,6 @@ def main():
         action="store_false",
     )
     generation_opts.add_argument(
-        "--vram_optimisation_level",
-        "-V",
-        type=int,
-        default=os.environ.get("SD_VRAM_OPTIMISATION_LEVEL", 2),
-        help="How much to trade off performance to reduce VRAM usage (0 = none, 5 = max)",
-    )
-    generation_opts.add_argument(
-        "--force_fp32",
-        action="store_true",
-        help="Regardless of VRAM optimisation level, don't use fp16 anywhere (needed for GTX1660)",
-    )
-    generation_opts.add_argument(
         "--nsfw_behaviour",
         "-N",
         type=str,
@@ -562,6 +565,55 @@ def main():
     generation_opts.add_argument(
         "--enable_mps", action="store_true", help="Use MPS on MacOS where available"
     )
+
+    vram_opts.add_argument(
+        "--vram_optimisation_level",
+        "-V",
+        type=int,
+        default=os.environ.get("SD_VRAM_OPTIMISATION_LEVEL", 2),
+        help=(
+            "How much to trade off performance to reduce VRAM usage (0 = none, 5 = max). "
+            "Sets the defaults for the other arguments below - normally you'd only override for a specific purpose."
+        ),
+    )
+    vram_opts.add_argument(
+        "--attention_slice",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_ATTENTION_SLICE", None),
+        help="Override whether to use attention slicing",
+    )
+    vram_opts.add_argument(
+        "--tile_vae",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_TILE_VAE", None),
+        help="Override whether to use VAE tiling",
+    )
+    vram_opts.add_argument(
+        "--fp16",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_FP16", None),
+        help="Override whether to use fp16",
+    )
+    vram_opts.add_argument(
+        "--gpu_offload",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_GPU_OFFLOAD", None),
+        help="Override whether to offload models from GPU during pipeline execution",
+    )
+    vram_opts.add_argument(
+        "--model_vram_limit",
+        type=parse_size,
+        default=os.environ.get("SD_MODEL_VRAM_LIMIT", None),
+        help="During GPU offload, override the max vram used for the LRU cache of models. Can suffix with KB, MB or GB.",
+    )
+    vram_opts.add_argument(
+        "--model_max_limit",
+        type=int,
+        default=os.environ.get("SD_MODEL_MAX_LIMIT", None),
+        help="During GPU offload, override the max number of models in the LRU cache. -1 is no limit.",
+    )
+    # Deprecated
+    vram_opts.add_argument("--force_fp32", action="store_false", dest="fp16")
 
     resource_opts.add_argument(
         "--cache_ram",
@@ -677,8 +729,6 @@ def main():
         args.enable_debug_recording or "SD_ENABLE_DEBUG_RECORDING" in os.environ
     )
     args.supress_metadata = args.supress_metadata or "SD_SUPRESS_METADATA" in os.environ
-
-    args.force_fp32 = args.force_fp32 or "SD_FORCE_FP32" in os.environ
 
     refresh_models = None
     if args.refresh_models:
@@ -859,6 +909,19 @@ def main():
                 if fnmatch(engine_id, pattern):
                     engine["enabled"] = False
 
+    vram_overrides = {
+        k: getattr(args, k)
+        for k in (
+            "attention_slice",
+            "tile_vae",
+            "fp16",
+            "gpu_offload",
+            "model_vram_limit",
+            "model_max_limit",
+        )
+        if getattr(args, k, None) is not None
+    }
+
     # Create engine manager
     manager = EngineManager(
         engines,
@@ -867,7 +930,7 @@ def main():
         refresh_on_error=args.refresh_on_error,
         mode=EngineMode(
             vram_optimisation_level=args.vram_optimisation_level,
-            force_fp32=args.force_fp32,
+            vram_overrides=vram_overrides,
             enable_cuda=True,
             enable_mps=args.enable_mps,
             vram_fraction=args.vram_fraction,
