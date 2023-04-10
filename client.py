@@ -1302,23 +1302,18 @@ if __name__ == "__main__":
             for artifact in artifacts:
                 pass
     except Exception as e:
-        if isinstance(e, grpc.Call):
-            if e.code() is grpc.StatusCode.FAILED_PRECONDITION:
-                print("Cache miss, retrying")
+        if isinstance(e, grpc.Call) and e.code() is grpc.StatusCode.FAILED_PRECONDITION:
+            answers = stability_api.generate(args.prompt, **request, from_cache=False)
 
-                answers = stability_api.generate(
-                    args.prompt, **request, from_cache=False
-                )
+            artifacts = process_artifacts_from_answers(
+                args.prefix, answers, write=not args.no_store, verbose=True
+            )
 
-                artifacts = process_artifacts_from_answers(
-                    args.prefix, answers, write=not args.no_store, verbose=True
-                )
-
-                if args.show:
-                    for artifact in open_images(artifacts, verbose=True):
-                        pass
-                else:
-                    for artifact in artifacts:
-                        pass
+            if args.show:
+                for artifact in open_images(artifacts, verbose=True):
+                    pass
+            else:
+                for artifact in artifacts:
+                    pass
         else:
             raise e
