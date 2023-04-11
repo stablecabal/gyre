@@ -58,7 +58,7 @@ import engines_pb2_grpc
 import generation_pb2_grpc
 
 from gyre import cache, engines_yaml
-from gyre.constants import GB, IS_DEV, KB, MB
+from gyre.constants import GB, IS_DEV, KB, MB, sd_cache_home
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
@@ -847,13 +847,18 @@ def main():
         engines_yaml.check_and_update(os.path.dirname(enginecfg[0]))
 
     tensor_cache = cache.TensorLRUCache_Dual(
-        memlimit=args.cache_ram * cache.MB, disklimit=args.cache_disk * cache.MB
+        os.path.join(sd_cache_home, "resource_cache"),
+        memlimit=args.cache_ram * cache.MB,
+        disklimit=args.cache_disk * cache.MB,
     )
 
+    rpkwargs = {}
     if args.no_default_whitelist:
-        resource_provider = ResourceProvider(cache=tensor_cache, whitelist=[])
-    else:
-        resource_provider = ResourceProvider(cache=tensor_cache)
+        rpkwargs["whitelist"] = []
+
+    resource_provider = ResourceProvider(
+        cache=tensor_cache.keyspace("resources:"), **rpkwargs
+    )
 
     for line in args.whitelist:
         line_dict = yaml.load(
@@ -960,7 +965,7 @@ def main():
 
     generation_servicer = GenerationServiceServicer(
         manager,
-        tensor_cache=tensor_cache,
+        tensor_cache=tensor_cache.keyspace("generation:"),
         resource_provider=resource_provider,
         supress_metadata=args.supress_metadata,
         debug_recorder=debug_recorder,

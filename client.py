@@ -325,25 +325,6 @@ def lora_to_prompt(path, weights, from_cache=False):
             parameters=parameters,
         )
 
-    elif USE_DEPRECATED:
-        ext = os.path.splitext(path)[1]
-
-        if ext in {".bin", ".pt"}:
-            tensordict = torch.load(path, "cpu")
-            lora = generation.Lora(lora=serialize_safetensor_from_dict(tensordict))
-        else:
-            safetensors = safe_open(path, framework="pt", device="cpu")
-            lora = generation.Lora(lora=serialize_safetensor(safetensors))
-
-        return generation.Prompt(
-            artifact=generation.Artifact(
-                type=generation.ARTIFACT_LORA,
-                lora=lora,
-                cache_control=generation.CacheControl(cache_id=cache_id(path)),
-            ),
-            parameters=parameters,
-        )
-
     else:
         ext = os.path.splitext(path)[1]
 
@@ -358,7 +339,9 @@ def lora_to_prompt(path, weights, from_cache=False):
             artifact=generation.Artifact(
                 type=generation.ARTIFACT_LORA,
                 safetensors=grpc_safetensors,
-                cache_control=generation.CacheControl(cache_id=cache_id(path)),
+                cache_control=generation.CacheControl(
+                    cache_id=cache_id(path), max_age=60 * 60  # Cache for an hour
+                ),
             ),
             parameters=parameters,
         )
@@ -392,29 +375,13 @@ def ti_to_prompts(path, override_tokens, from_cache=False):
         if "string_to_param" in data:
             data = data["string_to_param"]
 
-        if USE_DEPRECATED:
-            # Make sure we don't have more override tokens than items in the TI
-            override_tokens = override_tokens[: len(data.keys())]
-
-            return [
-                generation.Prompt(
-                    artifact=generation.Artifact(
-                        type=generation.ARTIFACT_TOKEN_EMBEDDING,
-                        token_embedding=generation.TokenEmbedding(
-                            text=override or token, tensor=serialize_tensor(tensor)
-                        ),
-                    )
-                )
-                for (token, tensor), override in zip_longest(
-                    data.items(), override_tokens
-                )
-            ]
-
         prompt = generation.Prompt(
             artifact=generation.Artifact(
                 type=generation.ARTIFACT_TOKEN_EMBEDDING,
                 safetensors=serialize_safetensor_from_dict(data),
-                cache_control=generation.CacheControl(cache_id=cache_id(path)),
+                cache_control=generation.CacheControl(
+                    cache_id=cache_id(path), max_age=60 * 60  # Cache for an hour
+                ),
             ),
             parameters=parameters,
         )

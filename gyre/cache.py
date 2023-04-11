@@ -1,14 +1,20 @@
+import hashlib
 import logging
 import os
+import sqlite3
 import tempfile
 import threading
 import time
-from dataclasses import asdict, dataclass
+from contextlib import nullcontext
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
+import safetensors
+import torch
 from safetensors import torch as safe_torch
 
-from gyre.constants import GB, KB, MB
+from gyre.constants import GB, KB, MB, sd_cache_home
 from gyre.protobuf_safetensors import UserSafetensors
 
 logger = logging.getLogger(__name__)
@@ -22,44 +28,53 @@ class CacheDetails:
     key: str
     access_ctr: int
     size: int
-    expires: float | None = None
-    tensors: dict | None = None
-    metadata: Any | None = None
+    tensors: dict[str, torch.Tensor] = field(default_factory=dict)
+    metadata: dict[str, str] = field(default_factory=dict)
+    expires: float = -1
     path: str | None = None
 
     def params(self):
-        return {
-            k: v for k, v in asdict(self).items() if k not in {"access_ctr", "path"}
-        }
+        return {k: getattr(self, k) for k in {"key", "tensors", "metadata", "expires"}}
 
 
-class CacheKeyError(KeyError):
+class CacheLookupError(RuntimeError):
     pass
 
 
-class CacheExpiredError(ValueError):
+class CacheKeyError(CacheLookupError):
     pass
+
+
+class CacheExpiredError(CacheLookupError):
+    pass
+
+
+TensorMetadataTuple = tuple[dict[str, torch.Tensor], dict[str, str]]
+TensorMetadataExpiresTuple = tuple[dict[str, torch.Tensor], dict[str, str], float]
 
 
 class TensorLRUCache_LockBase:
     def __init__(self, lock=None):
         self.lock = lock or threading.Lock()
 
-    def get(self, key):
+    def get(self, key: str) -> TensorMetadataTuple:
         with self.lock:
-            return self._get(key)
+            tensors, metadata, _ = self._get(key)
+            return tensors, metadata
 
-    def metadata(self, key):
-        with self.lock:
-            return self._metadata(key)
+    def get_with_expires(self, key: str) -> TensorMetadataExpiresTuple:
+        return self._get(key)
 
-    def get_safetensors(self, key):
+    def get_safetensors(self, key: str) -> UserSafetensors:
         with self.lock:
-            return UserSafetensors(metadata=self._metadata(key), tensors=self._get(key))
+            tensors, metadata, _ = self._get(key)
+            return UserSafetensors(tensors=tensors, metadata=metadata)
 
-    def set(self, *args, **kwargs):
+    def set(self, key, tensors, metadata=None, expires=None, max_age=None):
         with self.lock:
-            return self._set(*args, **kwargs)
+            return self._set(
+                key, tensors, metadata=metadata, expires=expires, max_age=max_age
+            )
 
     def set_safetensors(self, key, safetensors, *args, **kwargs):
         if hasattr(safetensors, "tensors"):
@@ -71,39 +86,71 @@ class TensorLRUCache_LockBase:
             key=key, tensors=tensors, metadata=safetensors.metadata(), *args, **kwargs
         )
 
+    def keyspace(self, key_prefix):
+        return TensorLRUCache_Keyspace(key_prefix, self)
+
     def __getitem__(self, key):
         return self.get(key)
 
     def __setitem__(self, key, tensors):
         self.set(key, tensors)
 
+    def _get(self, key: str) -> TensorMetadataExpiresTuple:
+        raise NotImplementedError()
 
-class TensorLRUCache_Base(TensorLRUCache_LockBase):
-    def __init__(self, limit, lock=None):
-        super().__init__(lock)
-        self.limit = limit
-        self.cache = {}
-        self.access_ctr = 0
+    def _set(self, key, tensors, metadata=None, expires=None, max_age=None):
+        raise NotImplementedError()
+
+    def __contains__(self, key):
+        raise NotImplementedError()
+
+
+class TensorLRUCache_Mem(TensorLRUCache_LockBase):
+    def __init__(self, limit, lock=None, on_evict=None):
+        super().__init__(lock=lock)
+
+        self.limit: int = limit
+        self.cache: dict[str, CacheDetails] = {}
+        self.access_ctr: int = 0
+
+        self.on_evict = on_evict
 
     @property
     def next_ctr(self):
         self.access_ctr += 1
         return self.access_ctr
 
-    def keys(self):
-        return self.cache.keys()
-
-    def _metadata(self, key):
-        if key in self.cache:
-            return self.cache[key].metadata
-
-        raise CacheKeyError(key)
+    def _size_of(self, tensors):
+        return sum((t.nelement() * t.element_size() for t in tensors.values()))
 
     def __contains__(self, key):
         return key in self.cache
 
-    def _size_of(self, tensors):
-        return sum((t.nelement() * t.element_size() for t in tensors.values()))
+    def _get(self, key: str) -> TensorMetadataExpiresTuple:
+        if key in self.cache:
+            expires = self.cache[key].expires
+            if expires > 0 and expires < time.time():
+                raise CacheExpiredError(f"{expires} has passed")
+
+            self.cache[key].access_ctr = self.next_ctr
+            return self.cache[key].tensors, self.cache[key].metadata, expires
+
+        raise CacheKeyError(key)
+
+    def _set(self, key, tensors, metadata=None, expires=None, max_age=None):
+        if expires is None:
+            expires = time.time() + max_age if max_age else -1
+
+        self.cache[key] = CacheDetails(
+            key=key,
+            access_ctr=self.next_ctr,
+            size=self._size_of(tensors),
+            tensors=tensors,
+            metadata={} if metadata is None else metadata,
+            expires=expires,
+        )
+
+        self._evict()
 
     def _needs_evicting(self):
         items = self.cache.values()
@@ -115,44 +162,14 @@ class TensorLRUCache_Base(TensorLRUCache_LockBase):
 
         if items:
             logger.debug(
-                f"{total} bytes in cache, {len(items)} too many items in mem cache, evicting"
+                f"{total} bytes in mem cache, {len(items)} too many items, evicting"
             )
         else:
-            logger.debug(f"{total} bytes in cache")
+            logger.debug(f"{total} bytes in mem cache")
 
         yield from items
 
-
-class TensorLRUCache_Mem(TensorLRUCache_Base):
-    def __init__(self, limit, lock=None, on_evict=None):
-        super().__init__(limit=limit, lock=lock)
-        self.on_evict = on_evict
-
-    def _get(self, key):
-        if key in self.cache:
-            self.cache[key].access_ctr = self.next_ctr
-            return self.cache[key].tensors
-
-        raise CacheKeyError(key)
-
-    def _set(self, key, tensors, metadata=None, expires=None, max_age=None, size=None):
-        if size is None:
-            size = self._size_of(tensors)
-        if expires is None:
-            expires = time.time() + max_age if max_age else None
-
-        self.cache[key] = CacheDetails(
-            key=key,
-            access_ctr=self.next_ctr,
-            size=size,
-            tensors=tensors,
-            metadata=metadata,
-            expires=expires,
-        )
-
-        self.__evict()
-
-    def __evict(self):
+    def _evict(self):
         for item in self._needs_evicting():
             if self.on_evict is not None:
                 logger.debug(f"Evicting {item.key}")
@@ -161,94 +178,132 @@ class TensorLRUCache_Mem(TensorLRUCache_Base):
             del self.cache[item.key]
 
 
-class TensorLRUCache_Disk(TensorLRUCache_Base):
-    def __init__(self, limit, basepath=None, lock=None):
-        super().__init__(limit=limit, lock=lock)
-        self.tempdir = tempfile.TemporaryDirectory(dir=basepath)
-        self.basepath = self.tempdir.name
+class TensorLRUCache_Disk(TensorLRUCache_LockBase):
+    def __init__(self, limit, basepath, lock=None):
+        super().__init__(lock=lock)
+        self.limit: int = limit
+        self.basepath: Path = Path(basepath)
+        self.basepath.mkdir(parents=True, exist_ok=True)
+
         logger.debug(f"Cache disk folder: {self.basepath}")
 
-    def _get(self, key):
-        if key in self.cache:
-            self.cache[key].access_ctr = self.next_ctr
-            return safe_torch.load_file(self.cache[key].path)
+    def _path(self, key):
+        hashedkey = hashlib.sha256(key.encode("utf-8")).hexdigest().lower()
+        return self.basepath / (hashedkey + ".safetensors")
 
-        raise CacheKeyError()
+    def __contains__(self, key):
+        return self._path(key).exists()
 
-    def _set(self, key, tensors, metadata=None, expires=None, max_age=None, size=None):
-        if size is None:
-            size = self._size_of(tensors)
-        if expires is None:
-            expires = time.time() + max_age if max_age else None
+    def _get(self, key) -> TensorMetadataExpiresTuple:
+        if (path := self._path(key)).exists():
+            safedata = safetensors.safe_open(str(path), framework="pt", device="cpu")
+            metadata = safedata.metadata()
+            tensors = {k: safedata.get_tensor(k) for k in safedata.keys()}
 
-        ctr = self.next_ctr
+            expires = float(metadata.pop("__expires", -1))
+            if expires > 0 and expires < time.time():
+                raise CacheExpiredError(f"{expires} has passed")
 
-        if key in self.cache:
-            path = self.cache[key].path
-        else:
-            path = os.path.join(self.basepath, f"cache_{ctr}.safetensors")
-
-        safe_torch.save_file(tensors, path)
-
-        self.cache[key] = CacheDetails(
-            key=key,
-            access_ctr=ctr,
-            size=size,
-            path=path,
-            metadata=metadata,
-            expires=expires,
-        )
-
-        self.__evict()
-
-    def __evict(self):
-        for item in self._needs_evicting():
-            os.remove(item.path)
-            del self.cache[item.key]
-
-
-class TensorLRUCache_Dual(TensorLRUCache_LockBase):
-    def __init__(self, basepath=None, memlimit=1 * GB, disklimit=10 * GB):
-        super().__init__(threading.RLock())
-        self.disk_cache = TensorLRUCache_Disk(
-            disklimit, basepath=basepath, lock=self.lock
-        )
-        self.mem_cache = TensorLRUCache_Mem(memlimit, lock=self.lock)
-
-        self.mem_cache.on_evict = self._on_mem_evict
-
-    def _get(self, key, default=NOT_PASSED_MARKER):
-        try:
-            return self.mem_cache.get(key)
-        except CacheKeyError:
-            pass
-
-        try:
-            res = self.disk_cache.get(key)
-            self.mem_cache.set(key, res)
-            return res
-        except CacheKeyError:
-            pass
-
-        if default is not NOT_PASSED_MARKER:
-            return default
+            path.touch(exist_ok=True)
+            return tensors, metadata, expires
 
         raise CacheKeyError(key)
 
-    def _metadata(self, key):
+    def _set(self, key, tensors, metadata=None, expires=None, max_age=None):
+        if expires is None:
+            expires = time.time() + max_age if max_age else -1
+
+        if metadata is None:
+            metadata = {}
+
+        path = self._path(key)
+        safe_torch.save_file(tensors, str(path), metadata | {"__expires": str(expires)})
+        self._evict()
+
+    def _needs_evicting(self):
+        items = [(st, st.stat()) for st in self.basepath.glob("*.safetensors")]
+        items = sorted(items, key=lambda entry: entry[1].st_mtime)
+
+        total = 0
+        while items and total < self.limit:
+            total += items.pop()[1].st_size
+
+        if items:
+            logger.debug(
+                f"{total} bytes in disk cache, {len(items)} too many items, evicting"
+            )
+        else:
+            logger.debug(f"{total} bytes in disk cache")
+
+        yield from (item[0] for item in items)
+
+    def _evict(self):
+        for item in self._needs_evicting():
+            os.remove(item)
+
+
+class TensorLRUCache_Dual(TensorLRUCache_LockBase):
+    def __init__(self, basepath, memlimit=1 * GB, disklimit=10 * GB):
+        super().__init__(threading.RLock())
+        self.disk_cache = TensorLRUCache_Disk(disklimit, basepath, lock=self.lock)
+        self.mem_cache = TensorLRUCache_Mem(memlimit, lock=self.lock)
+
+    def _get(self, key) -> TensorMetadataExpiresTuple:
         try:
-            return self.mem_cache.metadata(key)
-        except CacheKeyError:
-            return self.disk_cache.metadata(key)
+            return self.mem_cache.get_with_expires(key)
+        except CacheLookupError:
+            pass
+
+        try:
+            tensor, metadata, expires = self.disk_cache.get_with_expires(key)
+            self.mem_cache.set(key, tensor, metadata=metadata, expires=expires)
+            return tensor, metadata, expires
+        except CacheLookupError:
+            pass
+
+        raise CacheLookupError(key)
 
     def _set(self, *args, **kwargs):
         self.mem_cache.set(*args, **kwargs)
-
-    def keys(self):
-        return set(self.mem_cache.keys()) | set(self.disk_cache.keys())
+        self.disk_cache.set(*args, **kwargs)
 
     def __contains__(self, key):
         return key in self.mem_cache or key in self.disk_cache
 
+
+class TensorLRUCache_Spillover(TensorLRUCache_Dual):
+    def __init__(self, basepath=None, memlimit=1 * GB, disklimit=10 * GB):
+        super().__init__(basepath=basepath, memlimit=memlimit, disklimit=disklimit)
+        self.mem_cache.on_evict = self._on_mem_evict
+
+    def _set(self, *args, **kwargs):
+        # Unlike Dual, only set in memory cache
+        self.mem_cache.set(*args, **kwargs)
+
     def _on_mem_evict(self, item):
+        # If expired from memory cache, spill over to disk cache
         self.disk_cache.set(**item.params())
+
+
+class TensorLRUCache_Keyspace(TensorLRUCache_LockBase):
+    def __init__(self, key_prefix, wrapped):
+        super().__init__(nullcontext())
+        self._key_prefix = key_prefix
+        self._wrapped = wrapped
+
+    def _get(self, key: str) -> TensorMetadataExpiresTuple:
+        key = self._key_prefix + key
+        return self._wrapped._get(key)
+
+    def _set(self, key, tensors, metadata=None, expires=None, max_age=None):
+        key = self._key_prefix + key
+        return self._wrapped._set(
+            key, tensors, metadata=metadata, expires=expires, max_age=max_age
+        )
+
+    def __contains__(self, key):
+        key = self._key_prefix + key
+        return key in self._wrapped
+
+    def keyspace(self, key_prefix):
+        return self._wrapped.keyspace(key_prefix + self._key_prefix)

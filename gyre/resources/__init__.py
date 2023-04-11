@@ -11,7 +11,7 @@ from safetensors import safe_open
 from safetensors.torch import load as safe_load_bytes
 
 from gyre import torch_safe_unpickler
-from gyre.cache import MB, CacheKeyError, TensorLRUCache_LockBase
+from gyre.cache import MB, CacheLookupError, TensorLRUCache_LockBase
 from gyre.protobuf_safetensors import UserSafetensors
 
 # from gyre.resources.civitai import Civitai
@@ -107,7 +107,7 @@ class ResourceProvider:
             # If it's in the cache, it doesn't need to be whitelisted
             try:
                 return self.cache.get_safetensors(key)
-            except CacheKeyError:
+            except CacheLookupError:
                 pass
 
         self._precheck_whilelist(type=restype)

@@ -18,7 +18,7 @@ import torch
 from google.protobuf import json_format as pb_json_format
 
 from gyre import constants, images
-from gyre.cache import CacheKeyError
+from gyre.cache import CacheLookupError
 from gyre.debug_recorder import DebugNullRecorder
 from gyre.manager import EngineNotFoundError
 from gyre.pipeline.prompt_types import HintImage, Prompt, PromptFragment
@@ -173,15 +173,18 @@ class ParameterExtractor:
             max_age=artifact.cache_control.max_age,
         )
 
-    def _cache_safetensors(self, artifact, safetensors):
-        self._cache_tensors(artifact, safetensors.tensors(), safetensors.metadata())
+    def _cache_set(self, artifact, safetensors):
+        if not artifact.HasField("cache_control"):
+            return
 
-    def _from_cache(self, cache_id):
-        return (self._tensor_cache.get(cache_id), self._tensor_cache.metadata(cache_id))
+        self._tensor_cache.set_safetensors(
+            artifact.cache_control.cache_id,
+            safetensors,
+            max_age=artifact.cache_control.max_age,
+        )
 
-    def _safetensors_from_cache(self, cache_id):
-        tensors, metadata = self._from_cache(cache_id)
-        return UserSafetensors(tensors=tensors, metadata=metadata)
+    def _cache_get(self, cache_id):
+        return self._tensor_cache.get_safetensors(cache_id)
 
     def _apply_image_adjustment(self, tensor, adjustments):
         if not adjustments:
@@ -382,7 +385,7 @@ class ParameterExtractor:
         return image
 
     def _lora_from_artifact_cache(self, artifact: generation_pb2.Artifact):
-        return self._safetensors_from_cache(artifact.cache_id)
+        return self._cache_get(artifact.cache_id)
 
     def _lora_from_artifact_lora(self, artifact: generation_pb2.Artifact):
         logger.warn("artifact.lora is deprecated, use artifact.safetensors instead")
@@ -408,11 +411,11 @@ class ParameterExtractor:
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an LoRA"
             )
 
-        self._cache_safetensors(artifact, lora)
+        self._cache_set(artifact, lora)
         return lora
 
     def _token_embedding_from_artifact_cache(self, artifact: generation_pb2.Artifact):
-        return self._safetensors_from_cache(artifact.cache_id)
+        return self._cache_get(artifact.cache_id)
 
     def _token_embedding_from_artifact_te(self, artifact: generation_pb2.Artifact):
         logger.warn(
@@ -444,7 +447,7 @@ class ParameterExtractor:
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an token embedding"
             )
 
-        self._cache_safetensors(artifact, embedding)
+        self._cache_set(artifact, embedding)
         return embedding
 
     def _image_stepparameter(self, field):
@@ -840,7 +843,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
         {
             EngineNotFoundError: grpc.StatusCode.NOT_FOUND,
             NotImplementedError: grpc.StatusCode.UNIMPLEMENTED,
-            CacheKeyError: lambda e, d: (
+            CacheLookupError: lambda e, d: (
                 grpc.StatusCode.FAILED_PRECONDITION,
                 e.args[0],
                 f"Cache miss, key {e.args[0]}",
@@ -940,14 +943,19 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     results = engine(**batchargs, stop_event=stop_event)
 
                 meta = pb_json_format.MessageToDict(request)
+                binary_fields = [
+                    "binary",
+                    "tokens",
+                    "tensor",
+                    "safetensors",
+                    "lora",
+                    "token_embedding",
+                ]
                 for prompt in meta["prompt"]:
                     if "artifact" in prompt:
-                        if "binary" in prompt["artifact"]:
-                            del prompt["artifact"]["binary"]
-                        if "lora" in prompt["artifact"]:
-                            del prompt["artifact"]["lora"]
-                        if "token_embedding" in prompt["artifact"]:
-                            del prompt["artifact"]["token_embedding"]
+                        for field in binary_fields:
+                            if field in prompt["artifact"]:
+                                prompt["artifact"][field] = "-binary-"
 
                 if results is None:
                     result_images, nsfws = [], []
