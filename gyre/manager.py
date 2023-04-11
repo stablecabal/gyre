@@ -7,13 +7,12 @@ import json
 import logging
 import math
 import os
-import queue
 import shutil
 import tempfile
+from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from queue import Queue
 from types import SimpleNamespace as SN
 from typing import Any, Callable, Iterable, Literal
 from urllib.parse import urlparse
@@ -36,6 +35,7 @@ from transformers import PreTrainedModel
 from gyre import civitai, ckpt_utils, torch_safe_unpickler
 from gyre.constants import sd_cache_home
 from gyre.hints import HintsetManager
+from gyre.monitoring_queue import MonitoringQueue
 from gyre.pipeline import pipeline_meta
 from gyre.pipeline.model_utils import clone_model
 from gyre.pipeline.pipeline_wrapper import DiffusionPipelineWrapper, PipelineWrapper
@@ -545,11 +545,18 @@ class EngineManager(object):
 
         self._ram_monitor = ram_monitor
 
-        self._device_queue = Queue()
-        self._available_pipelines: dict[str, Queue] = {}
+        # A queue that holds all available slots, so threads can take a slot off the pile
+        self._device_queue = MonitoringQueue()
+        # All device slots, whether in the queue or in use. For monitoring purposes only.
+        self._device_slots = []
+        # A set of pipelines created for a specific engine id, which are not currently allocated to a slot
+        # We may need more than one copy of a pipeline if it's being run more than once in parallel.
+        self._available_pipelines: dict[str, deque] = {}
 
         for i in range(torch.cuda.device_count()):
-            self._device_queue.put(DeviceQueueSlot(device=torch.device("cuda", i)))
+            device_queue_slot = DeviceQueueSlot(device=torch.device("cuda", i))
+            self._device_queue.put(device_queue_slot)
+            self._device_slots.append(device_queue_slot)
 
     @property
     def mode(self):
@@ -1650,6 +1657,7 @@ class EngineManager(object):
     def loadPipelines(self):
 
         logger.info("Loading engines...")
+        self.status = "loading"
 
         for engine in self.engines:
             if not engine.enabled:
@@ -1883,8 +1891,8 @@ class EngineManager(object):
         slot.pipeline = None
 
         # Return it to the pool (creating a pool if needed)
-        pool = self._available_pipelines.setdefault(pipeline.id, Queue())
-        pool.put(pipeline)
+        pool = self._available_pipelines.setdefault(pipeline.id, deque())
+        pool.append(pipeline)
 
     def _get_pipeline_from_pool(self, slot, id):
         assert not slot.pipeline, "Cannot allocate pipeline to full device slot"
@@ -1896,8 +1904,8 @@ class EngineManager(object):
 
         # Try getting a pipeline from the pool. Again, if none available, just return
         try:
-            pipeline = pool.get(block=False)
-        except queue.Empty:
+            pipeline = pool.pop()
+        except IndexError:
             return None
 
         # Assign the pipeline to the slot and activate

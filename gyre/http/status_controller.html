@@ -4,15 +4,28 @@
 <head>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.css">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+
 
     <script id="data-island" type="application/json">
         $DATA$
     </script>
 
+    <script type="importmap">
+        {
+            "imports": {
+                "preact": "https://unpkg.com/preact@latest/dist/preact.module.js",
+                "preact/hooks": "https://unpkg.com/preact@latest/hooks/dist/hooks.module.js",
+                "preact/compat": "https://unpkg.com/preact@latest/compat/dist/compat.module.js",
+                "htm": "https://unpkg.com/htm?module"
+            }
+        }
+    </script>
+
     <script type="module">
-        import { h, Component, render, createContext } from 'https://unpkg.com/preact@latest?module';
-        import { useState, useContext, useCallback, useEffect, useLayoutEffect, useRef } from 'https://unpkg.com/preact@latest/hooks/dist/hooks.module.js?module';
-        import htm from 'https://unpkg.com/htm?module';
+        import { h, Component, render, createContext } from 'preact';
+        import { useState, useContext, useCallback, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
+        import htm from 'htm';
 
         // Initialize htm with Preact
         const html = htm.bind(h);
@@ -52,22 +65,69 @@
 
             // Render
             return html`<div>
-                <h6>Logs</h6>
+                <h3>Logs</h3>
                 <pre><code class="log" onscroll=${onScrollHandler} ref=${scrollRef}>
                     ${data.logs.map((line, i) => html`<${LogLine} key=${i} ...${line} />`)}
                 </code></pre>
             </div>`;
         }
 
-
         function Status(props) {
             const data = useContext(dataContext);
 
+            var icon = null;
+            if (data.status == "created") {
+                icon = "clock_loader_40";
+            }
+            if (data.status == "loading") {
+                icon = "clock_loader_60";
+            }
+            if (data.status == "ready") {
+                icon = "check_circle";
+            }
+            if (data.status == "error") {
+                icon = "error";
+            }
+
+            const status = data.status[0].toUpperCase() + data.status.substr(1);
+
             return html`
-                <h4>
-                    Status: ${data.status}
+                <h3 className="status-${data.status}">
+                    ${icon ? html`<span class="material-symbols-outlined">${icon}</span>` : ""}
+                    ${status}
+
                     ${data.substatus ? html`<div class="subh">${data.substatus}</div>` : ""}
-                </h4>
+                </h3>
+            `;
+        }
+
+        function Slot(props) {
+            return html`
+                <tr>
+                    <td>${props.device}</td>
+                    <td>${props.pipeline || "none"}</td>
+                </tr>
+            `;
+        }
+
+
+        function SubDetails(props) {
+            const data = useContext(dataContext);
+
+            return html`
+                <h3>Device pipeline allocation</h3>
+                <table>
+                    <tr>
+                        <th>Device</th>
+                        <th>Active Pipeline</th>
+                    </tr>
+                    ${data.slots.map(slot => html`<${Slot} ...${slot} key=${slot.device} />`)}
+                </table>
+                <h3>System stats</h3>
+                <ul>
+                    <li>Total threads: ${data.active_threads}</li>
+                    <li>Threads waiting for slot: ${data.queue_depth}</li>
+                </ul>
             `;
         }
 
@@ -87,7 +147,7 @@
                     data = await res.json();
                 }
                 catch (e) {
-                    data = { ...dataStore, "status": "error ", "substatus": "" + e };
+                    data = { ...dataStore, "status": "error", "substatus": "" + e };
                 }
 
                 setDataStore(data)
@@ -101,6 +161,7 @@
                     <h1><img src='https://gyre.ai/img/gyrelogo-256.png' alt='Gyre.ai logo'/>Gyre server status</h1>
                     <${Status} />
                     <${Log} />
+                    <${SubDetails} />
                 </${dataContext.Provider}>
                 `;
         }
@@ -136,6 +197,19 @@
         .log {
             max-height: 200px;
             overflow: auto;
+        }
+
+        h3.status-error {
+            color: red;
+        }
+
+        h3.status-ready {
+            color: green;
+        }
+
+        h3 .material-symbols-outlined {
+            margin: 0 0.5rem;
+            vertical-align: middle;
         }
     </style>
 </head>
