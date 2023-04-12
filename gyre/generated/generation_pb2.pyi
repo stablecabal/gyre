@@ -58,7 +58,7 @@ class _ArtifactTypeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._E
     ARTIFACT_TENSOR: _ArtifactType.ValueType  # 9
     ARTIFACT_LORA: _ArtifactType.ValueType  # 500
     ARTIFACT_DEPTH: _ArtifactType.ValueType  # 501
-    """Deprecated - use IMAGE with an image control type of "depth" instead"""
+    """Deprecated - use HINT_IMAGE with an image control type of "depth" instead"""
     ARTIFACT_TOKEN_EMBEDDING: _ArtifactType.ValueType  # 502
     ARTIFACT_HINT_IMAGE: _ArtifactType.ValueType  # 503
     """Controlnet or T2I input image"""
@@ -77,7 +77,7 @@ ARTIFACT_LATENT: ArtifactType.ValueType  # 8
 ARTIFACT_TENSOR: ArtifactType.ValueType  # 9
 ARTIFACT_LORA: ArtifactType.ValueType  # 500
 ARTIFACT_DEPTH: ArtifactType.ValueType  # 501
-"""Deprecated - use IMAGE with an image control type of "depth" instead"""
+"""Deprecated - use HINT_IMAGE with an image control type of "depth" instead"""
 ARTIFACT_TOKEN_EMBEDDING: ArtifactType.ValueType  # 502
 ARTIFACT_HINT_IMAGE: ArtifactType.ValueType  # 503
 """Controlnet or T2I input image"""
@@ -2104,6 +2104,7 @@ class Request(google.protobuf.message.Message):
     CLASSIFIER_FIELD_NUMBER: builtins.int
     ASSET_FIELD_NUMBER: builtins.int
     CONDITIONER_FIELD_NUMBER: builtins.int
+    ACCEPT_FIELD_NUMBER: builtins.int
     engine_id: builtins.str
     request_id: builtins.str
     requested_type: global___ArtifactType.ValueType
@@ -2117,6 +2118,8 @@ class Request(google.protobuf.message.Message):
     def asset(self) -> global___AssetParameters: ...
     @property
     def conditioner(self) -> global___ConditionerParameters: ...
+    accept: builtins.str
+    """The accept header, in the same format as for http requests. Not guaranteed to be obeyed by server."""
     def __init__(
         self,
         *,
@@ -2128,9 +2131,10 @@ class Request(google.protobuf.message.Message):
         classifier: global___ClassifierParameters | None = ...,
         asset: global___AssetParameters | None = ...,
         conditioner: global___ConditionerParameters | None = ...,
+        accept: builtins.str = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["_conditioner", b"_conditioner", "asset", b"asset", "classifier", b"classifier", "conditioner", b"conditioner", "image", b"image", "params", b"params"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_conditioner", b"_conditioner", "asset", b"asset", "classifier", b"classifier", "conditioner", b"conditioner", "engine_id", b"engine_id", "image", b"image", "params", b"params", "prompt", b"prompt", "request_id", b"request_id", "requested_type", b"requested_type"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_conditioner", b"_conditioner", "accept", b"accept", "asset", b"asset", "classifier", b"classifier", "conditioner", b"conditioner", "engine_id", b"engine_id", "image", b"image", "params", b"params", "prompt", b"prompt", "request_id", b"request_id", "requested_type", b"requested_type"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_conditioner", b"_conditioner"]) -> typing_extensions.Literal["conditioner"] | None: ...
     @typing.overload

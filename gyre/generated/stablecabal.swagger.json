@@ -92,7 +92,7 @@
           },
           {
             "name": "requestedType",
-            "description": " - ARTIFACT_DEPTH: Deprecated - use IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image",
+            "description": " - ARTIFACT_DEPTH: Deprecated - use HINT_IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image",
             "in": "query",
             "required": false,
             "type": "string",
@@ -354,6 +354,13 @@
           },
           {
             "name": "conditioner.conditioner.alias",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "accept",
+            "description": "The accept header, in the same format as for http requests. Not guaranteed to be obeyed by server.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -483,7 +490,7 @@
           },
           {
             "name": "requestedType",
-            "description": " - ARTIFACT_DEPTH: Deprecated - use IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image",
+            "description": " - ARTIFACT_DEPTH: Deprecated - use HINT_IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image",
             "in": "query",
             "required": false,
             "type": "string",
@@ -745,6 +752,13 @@
           },
           {
             "name": "conditioner.conditioner.alias",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "accept",
+            "description": "The accept header, in the same format as for http requests. Not guaranteed to be obeyed by server.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -978,7 +992,7 @@
         "ARTIFACT_HINT_IMAGE"
       ],
       "default": "ARTIFACT_NONE",
-      "title": "- ARTIFACT_DEPTH: Deprecated - use IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image"
+      "title": "- ARTIFACT_DEPTH: Deprecated - use HINT_IMAGE with an image control type of \"depth\" instead\n - ARTIFACT_HINT_IMAGE: Controlnet or T2I input image"
     },
     "AssetAction": {
       "type": "string",
@@ -2043,6 +2057,10 @@
         },
         "conditioner": {
           "$ref": "#/definitions/ConditionerParameters"
+        },
+        "accept": {
+          "type": "string",
+          "description": "The accept header, in the same format as for http requests. Not guaranteed to be obeyed by server."
         }
       },
       "description": "A Request is a set of Artifacts, which can be of any type with model or\ntransform parameters. It is sent to the server, which will respond with an\nAnswer."

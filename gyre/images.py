@@ -62,7 +62,14 @@ def toCV(tensor):
     if tensor.ndim == 3:
         tensor = tensor[None, ...]
 
-    bgrBCHW = tensor[:, [2, 1, 0, 3][: tensor.shape[1]]]
+    # Handle single channel
+    if tensor.shape[1] < 3:
+        bgrBCHW = tensor
+    # Handle 3 / 4 channel, convert rgb(a) to bgr(a)
+    else:
+        bgrBCHW = tensor[:, [2, 1, 0, 3][: tensor.shape[1]]]
+
+    # Move from channel-last to channel-first
     bgrBHWC = bgrBCHW.permute(0, 2, 3, 1)
 
     return (bgrBHWC.to(torch.float32) * 255).round().to(torch.uint8).cpu().numpy()
@@ -94,6 +101,60 @@ def toPngBytes(tensor):
         return []
 
 
+SUPPORTS_WEBP = any(
+    (
+        "build" in line or "yes" in line
+        for line in cv.getBuildInformation().lower().splitlines()
+        if "webp:" in line
+    )
+)
+
+
+def fromWebpBytes(bytes):
+    cvimage = cv.imdecode(np.frombuffer(bytes, dtype=np.uint8), cv.IMREAD_UNCHANGED)
+    return normalise_tensor(fromCV(cvimage), 4)
+
+
+def toWebpBytes(tensor):
+    if tensor.ndim == 3:
+        tensor = tensor[None, ...]
+
+    images = toCV(tensor)
+
+    # quality > 100 == lossless
+    return [
+        cv.imencode(".webp", image, [cv.IMWRITE_WEBP_QUALITY, 500])[1].tobytes()
+        for image in images
+    ]
+
+
+def fromAuto(image):
+    if isinstance(image, torch.Tensor):
+        return normalise_tensor(image, channels=None)
+
+    # Handle PIL image
+    elif isinstance(image, PILImage.Image):
+        return fromPIL(image)
+
+    # Handle nparray in various forms (0..1, 0..255, BCHW / BHWC / CHW / HWC format)
+    elif isinstance(image, np.ndarray):
+        # Handle 2 dim (mono, HW) or 3 dim (CHW or HWC)
+        while image.ndim < 4:
+            image = image[None, ...]
+
+        # Determine if BCHW or BHWC by assuming H and W will be > 16, and C will be <
+        if image.shape[1] < 16:
+            image = np.moveaxis(image, 1, 3)
+
+        # Detect if range is 0..1 or 0..255 already
+        if image.dtype != np.uint8 and image.max() <= 1:
+            image = (image * 255).round().astype("uint8")
+
+        return fromCV(image)
+
+    raise RuntimeError("Can't determine type of image to convert to tensor")
+
+
 def addTextChunkToPngBytes(binary, key: str, text: str):
     txt_chunk = key.encode("utf-8") + b"\0" + text.encode("utf-8")
 
@@ -113,6 +174,50 @@ def addTextChunkToPngBytes(binary, key: str, text: str):
     return b"".join(
         (img_data_pre, length, chunktype, txt_chunk, chunk_crc, img_data_post)
     )
+
+
+def addTextChunkToWebpBytes(binary, info_fourcc: bytes, text: str):
+    assert len(info_fourcc) == 4, f"{info_fourcc} needs to a be four byte FourCC"
+
+    txt_body = text.encode("utf-8")
+    txt_chunk = (
+        b"LIST"
+        + struct.pack("<I", 4 + 4 + 4 + len(txt_body))
+        + b"INFO"
+        + info_fourcc
+        + struct.pack("<I", len(txt_body))
+        + txt_body
+        + bytes(len(txt_body) % 2)
+    )
+
+    # Check if this is simple or complex webp
+    if binary[12:16] == b"VP8L":
+        remainder = binary[12:]
+        info = struct.unpack("<I", binary[21:25])[0]
+        width = (info & 0x3FFF) + 1
+        height = ((info >> 14) & 0x3FFF) + 1
+        alpha = bool((info >> 28) & 0x1)
+
+        header_chunk = (
+            b"VP8X"
+            + struct.pack("<I", 10)
+            + bytes([0b10000 if alpha else 0, 0, 0, 0])
+            + struct.pack("<I", width - 1)[0:3]
+            + struct.pack("<I", height - 1)[0:3]
+        )
+
+        totallen = 4 + len(header_chunk) + len(remainder) + len(txt_chunk)
+
+        return (
+            b"RIFF"
+            + struct.pack("<I", totallen)
+            + b"WEBP"
+            + header_chunk
+            + remainder
+            + txt_chunk
+        )
+
+    raise NotImplementedError("Can only apply chunk to simple lossless webp")
 
 
 def normalise_tensor(tensor: torch.Tensor, channels: int | None = 3) -> torch.Tensor:

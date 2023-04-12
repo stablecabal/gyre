@@ -83,6 +83,26 @@ NOISE_TYPES: Dict[str, int] = {
 }
 
 
+class GrpcAsyncError(Exception):
+    def __init__(self, code, message):
+        super().__init__()
+
+        for possible in grpc.StatusCode:
+            if possible.value[0] == code:
+                self._code = possible
+                break
+        else:
+            self._code = grpc.StatusCode.UNKNOWN
+
+        self._message = message
+
+    def code(self):
+        return self._code
+
+    def message(self):
+        return self._message
+
+
 def floatlike(s: str) -> bool:
     try:
         float(s)
@@ -416,7 +436,10 @@ def process_artifacts_from_answers(
                 generation.ARTIFACT_MASK,
                 generation.ARTIFACT_HINT_IMAGE,
             }:
-                ext = mimetypes.guess_extension(artifact.mime)
+                if artifact.mime == "image/webp":
+                    ext = ".webp"
+                else:
+                    ext = mimetypes.guess_extension(artifact.mime)
                 contents = artifact.binary
             elif artifact.type == generation.ARTIFACT_CLASSIFICATIONS:
                 ext = ".pb.json"
@@ -554,6 +577,7 @@ class StabilityInference:
         ti: list[tuple[str, list[str]]] | None = None,
         as_async=False,
         from_cache=True,
+        accept_webp=True,
     ) -> Generator[generation.Answer, None, None]:
         """
         Generate images from a prompt.
@@ -789,10 +813,16 @@ class StabilityInference:
 
         if as_async:
             return self.emit_async_request(
-                prompt=prompts, image_parameters=image_parameters
+                prompt=prompts,
+                image_parameters=image_parameters,
+                accept_webp=accept_webp,
             )
         else:
-            return self.emit_request(prompt=prompts, image_parameters=image_parameters)
+            return self.emit_request(
+                prompt=prompts,
+                image_parameters=image_parameters,
+                accept_webp=accept_webp,
+            )
 
     # The motivation here is to facilitate constructing requests by passing protobuf objects directly.
     def emit_request(
@@ -801,17 +831,23 @@ class StabilityInference:
         image_parameters: generation.ImageParameters,
         engine_id: str = None,
         request_id: str = None,
+        accept_webp: bool = True,
     ):
         if not request_id:
             request_id = str(uuid.uuid4())
         if not engine_id:
             engine_id = self.engine
 
+        extra_kwargs = {}
+        if accept_webp:
+            extra_kwargs["accept"] = "image/webp, image/png"
+
         rq = generation.Request(
             engine_id=engine_id,
             request_id=request_id,
             prompt=prompt,
             image=image_parameters,
+            **extra_kwargs,
         )
 
         # with open("request.json", "w") as f:
@@ -857,17 +893,23 @@ class StabilityInference:
         image_parameters: generation.ImageParameters,
         engine_id: str = None,
         request_id: str = None,
+        accept_webp: bool = True,
     ):
         if not request_id:
             request_id = str(uuid.uuid4())
         if not engine_id:
             engine_id = self.engine
 
+        extra_kwargs = {}
+        if accept_webp:
+            extra_kwargs["accept"] = "image/webp, image/png"
+
         rq = generation.Request(
             engine_id=engine_id,
             request_id=request_id,
             prompt=prompt,
             image=image_parameters,
+            **extra_kwargs,
         )
 
         if self.verbose:
@@ -892,6 +934,9 @@ class StabilityInference:
                 yield answer
 
             if answers.complete:
+                if answers.status.code:
+                    raise GrpcAsyncError(answers.status.code, answers.status.message)
+
                 print("Done")
                 break
 
@@ -1108,6 +1153,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Use GRPC-WEB to connect to the server (instead of GRPC)",
     )
+    parser.add_argument(
+        "--accept_webp",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Accept webp responses from server (when server supports it)",
+    )
     parser.add_argument("--as_async", action="store_true", help="Run asyncronously")
     parser.add_argument("prompt", nargs="*")
     args = parser.parse_args()
@@ -1256,7 +1307,9 @@ if __name__ == "__main__":
     }
 
     try:
-        answers = stability_api.generate(args.prompt, **request, from_cache=True)
+        answers = stability_api.generate(
+            args.prompt, **request, from_cache=True, accept_webp=args.accept_webp
+        )
 
         artifacts = process_artifacts_from_answers(
             args.prefix, answers, write=not args.no_store, verbose=True
@@ -1269,7 +1322,10 @@ if __name__ == "__main__":
             for artifact in artifacts:
                 pass
     except Exception as e:
-        if isinstance(e, grpc.Call) and e.code() is grpc.StatusCode.FAILED_PRECONDITION:
+        if (
+            isinstance(e, grpc.Call | GrpcAsyncError)
+            and e.code() is grpc.StatusCode.FAILED_PRECONDITION
+        ):
             answers = stability_api.generate(args.prompt, **request, from_cache=False)
 
             artifacts = process_artifacts_from_answers(

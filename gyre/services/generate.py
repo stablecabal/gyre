@@ -15,6 +15,7 @@ import generation_pb2
 import generation_pb2_grpc
 import grpc
 import torch
+from accept_types import get_best_match
 from google.protobuf import json_format as pb_json_format
 
 from gyre import constants, images
@@ -25,7 +26,6 @@ from gyre.pipeline.prompt_types import HintImage, Prompt, PromptFragment
 from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
 from gyre.protobuf_tensors import deserialize_tensor
 from gyre.services.exception_to_grpc import exception_to_grpc
-from gyre.utils import artifact_to_image, image_to_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +47,40 @@ def buildDefaultMaskPostAdjustments():
 DEFAULT_POST_ADJUSTMENTS = buildDefaultMaskPostAdjustments()
 
 
-def autoscale(mode):
-    return generation_pb2.ImageAdjustment(
-        autoscale=generation_pb2.ImageAdjustment_Autoscale(mode=mode)
-    )
+def image_to_artifact(
+    image,
+    artifact_type=generation_pb2.ARTIFACT_IMAGE,
+    accept=None,
+    encoded_parameters=None,
+):
+    tensor = images.fromAuto(image)
 
+    if tensor.shape[0] > 1:
+        raise RuntimeError("Can't encode tensors with batch > 1")
 
-debugCtr = 0
+    # See what types are available
+    available_types = ["image/png"]
+    if images.SUPPORTS_WEBP:
+        available_types.append("image/webp")
+
+    # Compare with what types are acceptable. image/png is always acceptable
+    mimetype = get_best_match(accept, available_types)
+    if mimetype is None:
+        mimetype = "image/png"
+
+    if mimetype == "image/webp":
+        binary = images.toWebpBytes(tensor)[0]
+        if encoded_parameters:
+            binary = images.addTextChunkToWebpBytes(binary, b"ICMT", encoded_parameters)
+
+    else:
+        binary = images.toPngBytes(tensor)[0]
+        if encoded_parameters:
+            binary = images.addTextChunkToPngBytes(
+                binary, "generation_parameters", encoded_parameters
+            )
+
+    return generation_pb2.Artifact(type=artifact_type, binary=binary, mime=mimetype)
 
 
 class AsyncContext:
@@ -131,6 +158,9 @@ def rescale_mode_to_fit_and_pad(mode):
     return fit, pad_mode
 
 
+debugCtr = 0
+
+
 class ParameterExtractor:
     """
     ParameterExtractor pulls fields out of a deeply nested GRPC structure.
@@ -142,8 +172,9 @@ class ParameterExtractor:
     memo-ise the result.
     """
 
-    def __init__(self, manager, request, tensor_cache, resource_provider):
+    def __init__(self, manager, context, request, tensor_cache, resource_provider):
         self._manager = manager
+        self._context = context
         self._request = request
         self._tensor_cache = tensor_cache
         self._resource_provider = resource_provider
@@ -346,6 +377,27 @@ class ParameterExtractor:
         return tensor
 
     def _image_from_artifact_binary(self, artifact):
+        # Handle webp artifacts
+        if artifact.mime == "image/webp" or artifact.magic == "WEBP":
+            if not images.SUPPORTS_WEBP:
+                self._context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, "Server does not support webp"
+                )
+
+            return images.fromWebpBytes(artifact.binary).to(self._manager.mode.device)
+
+        # Check mime and magic to make sure it's not some unknown type
+        elif artifact.mime and artifact.mime != "image/png":
+            self._context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, f"Unknown mime type {artifact.mime}"
+            )
+
+        elif artifact.magic and artifact.magic != "PNG":
+            self._context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, f"Unknown magic code {artifact.magic}"
+            )
+
+        # So assume it's a PNG (either no mime / magic, or they are for PNG)
         return images.fromPngBytes(artifact.binary).to(self._manager.mode.device)
 
     def _image_from_artifact_reference(self, artifact):
@@ -617,7 +669,9 @@ class ParameterExtractor:
                 answer.answer_id = "echo"
                 self._echo = answer
 
-            artifact = image_to_artifact(image, artifact_type=prompt.artifact.type)
+            artifact = image_to_artifact(
+                image, artifact_type=prompt.artifact.type, accept=self._request.accept
+            )
             artifact.index = len(self._echo.artifacts) + 1
             self._echo.artifacts.append(artifact)
 
@@ -863,6 +917,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
 
             extractor = ParameterExtractor(
                 request=request,
+                context=context,
                 manager=self._manager,
                 tensor_cache=self._tensor_cache,
                 resource_provider=self._resource_provider,
@@ -889,9 +944,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     answer = generation_pb2.Answer()
                     answer.request_id = request.request_id
                     answer.answer_id = "noop"
-                    artifact = image_to_artifact(
-                        image, artifact_type=generation_pb2.ARTIFACT_IMAGE
-                    )
+                    artifact = image_to_artifact(image, accept=request.accept)
                     artifact.index = 1
                     answer.artifacts.append(artifact)
                     yield answer
@@ -976,13 +1029,16 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     img_seed = seeds[i] if i < len(seeds) else 0
 
                     if self._supress_metadata:
-                        artifact = image_to_artifact(result_image)
+                        artifact = image_to_artifact(
+                            result_image, accept=request.accept
+                        )
                     else:
                         meta.setdefault("image", {})["samples"] = 1
                         meta.setdefault("image", {})["seed"] = [img_seed]
                         artifact = image_to_artifact(
                             result_image,
-                            meta={"generation_parameters": json.dumps(meta)},
+                            accept=request.accept,
+                            encoded_parameters=json.dumps(meta),
                         )
 
                     artifact.finish_reason = (
