@@ -7,6 +7,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import sys
 import tempfile
 import threading
@@ -63,7 +64,7 @@ from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.http.grpc_gateway import GrpcGatewayRouter
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
-from gyre.logging import LOG_LEVELS, configure_logging
+from gyre.logging import LOG_LEVELS, LogImagesController, configure_logging
 from gyre.manager import BatchMode, EngineManager, EngineMode
 from gyre.resources import ResourceProvider
 from gyre.services.dashboard import DashboardServiceServicer
@@ -312,6 +313,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         self.stability_rest_api = StabilityRESTAPIRouter()
         self.grpc_gateway = GrpcGatewayRouter()
         self.status_controller = StatusController()
+        self.log_controller = LogImagesController()
         self.wsgi = wsgiapp
 
         self.access_token = access_token
@@ -346,6 +348,9 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         if child == b"status":
             return self.status_controller, 1
 
+        if child == b"log":
+            return self.log_controller, 1
+
         # -- These handler are all overlapped on root
 
         # Resert path to include the first section of the URL
@@ -368,7 +373,15 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
 
         return NoResource(), 0
 
+    def _update_log_host(self, request):
+        domain = request.getRequestHostname().decode("utf-8")
+        port = request.getHost().port
+
+        self.log_controller.set_host_and_path(f"http://{domain}:{port}/log")
+
     def getChild(self, child, request):
+        self._update_log_host(request)
+
         child, level = self._getChildAndLevel(child, request)
 
         if level == 2:
@@ -388,10 +401,10 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
             raise RuntimeError(f"Level {level} is unknown")
 
     def render(self, request):
+        self._update_log_host(request)
+
         if not self._checkAuthorization(request):
             return ForbiddenResource().render(request)
-
-        print("render", request)
 
         if self.files:
             return self.files.render(request)

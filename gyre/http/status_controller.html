@@ -33,8 +33,44 @@
         // Load the data island
         const dataContext = createContext(JSON.parse(document.getElementById("data-island").innerText));
 
+        function Thumbnail(props) {
+            return html`<a href="${props.url}" onclick=${(e) => { e.preventDefault(); props.setImagePopupUrl(props.url) }}>
+                <img src="data:image/png;base64,${props.thumbnail}" />
+            </a>`;
+        }
+
         function LogLine(props) {
-            return html`<div>${props.message}</div>`;
+            if (props.message) {
+                return html`<div>${props.message}</div>`;
+            }
+            else {
+                return props.fragments.map(frag =>
+                    typeof (frag) == "string" ?
+                        html`<span>${frag}</span>` :
+                        html`<${Thumbnail} setImagePopupUrl=${props.setImagePopupUrl} ...${frag} />`
+                );
+            }
+        }
+
+        const icons = {
+            "DEBUG": "bug_report",
+            "INFO": "info",
+            "WARNING": "warning",
+            "ERROR": "error",
+            "CRITICAL": "release_alert"
+        }
+
+        function LogGroup(props) {
+            const icon = icons[props.group[0].level]
+
+            return html`<div class="log-group ${props.group[0].level}">
+                <div class="log-margin">
+                    <span class="material-symbols-outlined">${icon}</span>
+                </div>
+                <div class="log-lines">
+                    ${props.group.map((line, i) => html`<${LogLine} setImagePopupUrl=${props.setImagePopupUrl} key=${i} ...${line} />`)}
+                </div>
+            </div>`;
         }
 
         function Log(props) {
@@ -63,11 +99,26 @@
             // If no log, show nothing
             if (!data.logs) return null;
 
+            const grouped = []
+            let last = null
+            let group = []
+
+            for (let line of data.logs) {
+                if (last !== null && (last.name != line.name || last.level != line.level)) {
+                    grouped.push(group)
+                    group = []
+                }
+                group.push(line)
+                last = line
+            }
+
+            grouped.push(group)
+
             // Render
             return html`<div>
                 <h3>Logs</h3>
                 <pre><code class="log" onscroll=${onScrollHandler} ref=${scrollRef}>
-                    ${data.logs.map((line, i) => html`<${LogLine} key=${i} ...${line} />`)}
+                    ${grouped.map((group, i) => html`<${LogGroup} setImagePopupUrl=${props.setImagePopupUrl} key=${i} group=${group} />`)} 
                 </code></pre>
             </div>`;
         }
@@ -131,8 +182,18 @@
             `;
         }
 
+        function Modal(props) {
+            return html`<div onclick=${(e) => { e.stopPropagation(); props.setImagePopupUrl(null) }} class="modal-bg">
+                <div class="modal">
+                    <img src=${props.url} />
+                </div>
+            </div>`
+        }
+
         function App(props) {
             const [dataStore, setDataStore] = useState(JSON.parse(document.getElementById("data-island").innerText));
+
+            const [imagePopupUrl, setImagePopupUrl] = useState(null)
 
             const refreshData = useCallback(async () => {
                 let data;
@@ -160,8 +221,9 @@
                 <${dataContext.Provider} value=${dataStore}>
                     <h1><img src='https://gyre.ai/img/gyrelogo-256.png' alt='Gyre.ai logo'/>Gyre server status</h1>
                     <${Status} />
-                    <${Log} />
+                    <${Log} setImagePopupUrl=${setImagePopupUrl} />
                     <${SubDetails} />
+                    ${imagePopupUrl ? html`<${Modal} url=${imagePopupUrl} setImagePopupUrl=${setImagePopupUrl} />` : ''}
                 </${dataContext.Provider}>
                 `;
         }
@@ -195,8 +257,36 @@
         }
 
         .log {
-            max-height: 200px;
+            max-height: 400px;
             overflow: auto;
+        }
+
+        .log-group {
+            padding: 5px 0;
+            display: flex;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .log-group .log-margin {
+            width: 48px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .log-group.DEBUG .log-margin {
+            color: rgb(38, 112, 38);
+        }
+
+        .log-group.WARNING .log-margin {
+            color: rgb(117, 79, 13);
+        }
+
+        .log-group.ERROR .log-margin {
+            background: rgb(106, 18, 18);
+        }
+
+        .log-group .log-lines {
+            flex-grow: 1;
         }
 
         h3.status-error {
@@ -210,6 +300,28 @@
         h3 .material-symbols-outlined {
             margin: 0 0.5rem;
             vertical-align: middle;
+        }
+
+        .modal-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal {
+            min-height: 128px;
+            min-width: 128px;
+            background: white;
+        }
+
+        .modal>img {
+            display: block;
         }
     </style>
 </head>

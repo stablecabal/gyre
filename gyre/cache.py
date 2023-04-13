@@ -36,6 +36,10 @@ class CacheDetails:
     def params(self):
         return {k: getattr(self, k) for k in {"key", "tensors", "metadata", "expires"}}
 
+    @property
+    def has_expired(self):
+        return self.expires > 0 and self.expires < time.time()
+
 
 class CacheLookupError(RuntimeError):
     pass
@@ -129,7 +133,8 @@ class TensorLRUCache_Mem(TensorLRUCache_LockBase):
     def _get(self, key: str) -> TensorMetadataExpiresTuple:
         if key in self.cache:
             expires = self.cache[key].expires
-            if expires > 0 and expires < time.time():
+
+            if self.cache[key].has_expired:
                 raise CacheExpiredError(f"{expires} has passed")
 
             self.cache[key].access_ctr = self.next_ctr
@@ -171,10 +176,10 @@ class TensorLRUCache_Mem(TensorLRUCache_LockBase):
 
     def _evict(self):
         for item in self._needs_evicting():
-            if self.on_evict is not None:
-                logger.debug(f"Evicting {item.key}")
+            if self.on_evict is not None and not item.has_expired:
                 self.on_evict(item)
 
+            logger.debug(f"Evicting {item.key}")
             del self.cache[item.key]
 
 

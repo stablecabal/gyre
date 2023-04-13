@@ -1,3 +1,4 @@
+import dataclasses
 import functools
 import json
 import logging
@@ -21,6 +22,7 @@ from google.protobuf import json_format as pb_json_format
 from gyre import constants, images
 from gyre.cache import CacheLookupError
 from gyre.debug_recorder import DebugNullRecorder
+from gyre.logging import VisualRecord as vr
 from gyre.manager import EngineNotFoundError
 from gyre.pipeline.prompt_types import HintImage, Prompt, PromptFragment
 from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
@@ -158,7 +160,169 @@ def rescale_mode_to_fit_and_pad(mode):
     return fit, pad_mode
 
 
-debugCtr = 0
+def apply_image_adjustment(
+    manager, tensor, adjustments, native_width=None, native_height=None
+):
+    if not adjustments:
+        return tensor
+
+    log_message = "{}"
+    log_args = [tensor]
+
+    for adjustment in adjustments:
+        which = adjustment.WhichOneof("adjustment")
+
+        engine_id = None
+        if adjustment.HasField("engine_id"):
+            engine_id = adjustment.engine_id
+
+        if which == "blur":
+            sigma = adjustment.blur.sigma
+            direction = adjustment.blur.direction
+
+            if direction == generation_pb2.DIRECTION_DOWN:
+                tensor = images.directionalblur(tensor, sigma, "down")
+            elif direction == generation_pb2.DIRECTION_UP:
+                tensor = images.directionalblur(tensor, sigma, "up")
+            else:
+                tensor = images.gaussianblur(tensor, sigma)
+
+        elif which == "invert":
+            tensor = images.invert(tensor)
+
+        elif which == "levels":
+            tensor = images.levels(
+                tensor,
+                adjustment.levels.input_low,
+                adjustment.levels.input_high,
+                adjustment.levels.output_low,
+                adjustment.levels.output_high,
+            )
+
+        elif which == "channels":
+            tensor = images.channelmap(
+                tensor,
+                [
+                    adjustment.channels.r,
+                    adjustment.channels.g,
+                    adjustment.channels.b,
+                    adjustment.channels.a,
+                ],
+            )
+
+        elif which == "rescale" or which == "autoscale":
+            if which == "autoscale":
+                mode = adjustment.autoscale.mode
+
+                width = height = None
+                if adjustment.autoscale.HasField("width"):
+                    width = adjustment.autoscale.width
+                if adjustment.autoscale.HasField("height"):
+                    height = adjustment.autoscale.height
+
+                if width is None and height is None:
+                    if native_width is None or native_height is None:
+                        raise ValueError(
+                            "Can't use a full autoscale - insufficiently bound width or height"
+                        )
+
+                    width = native_width
+                    height = native_height
+                elif width is None:
+                    assert height is not None
+                    width = height / tensor.shape[-2] * tensor.shape[-1]
+                elif height is None:
+                    assert width is not None
+                    height = width / tensor.shape[-1] * tensor.shape[-2]
+
+            else:
+                mode = adjustment.rescale.mode
+                width, height = adjustment.rescale.width, adjustment.rescale.height
+
+            # Rescale only if needed
+            if tensor.shape[-2] != height or tensor.shape[-1] != width:
+                fit, pad_mode = rescale_mode_to_fit_and_pad(mode)
+                tensor = images.rescale(tensor, height, width, fit, pad_mode)
+
+        elif which == "crop":
+            tensor = images.crop(
+                tensor,
+                adjustment.crop.top,
+                adjustment.crop.left,
+                adjustment.crop.height,
+                adjustment.crop.width,
+            )
+
+        elif which == "depth":
+            with manager.with_engine(engine_id, "depth") as estimator:
+                tensor = estimator(tensor)
+
+        elif which == "normal":
+            with manager.with_engine(task="background-removal") as remover:
+                mask = remover(tensor, mode="mask")
+
+            with manager.with_engine(engine_id, "depth") as estimator:
+                # 16384 gives roughly same result as normalize=False for MiDaS, but also works with other models like Zoe
+                tensor = estimator(tensor) * 16384
+
+            kwargs = dict(background_threshold=0, preblur=0, postblur=5, smoothing=0.8)
+
+            for f in kwargs.keys():
+                if adjustment.normal.HasField(f):
+                    kwargs[f] = getattr(adjustment.normal, f)
+
+            tensor = images.normalmap_from_depthmap(tensor, mask=mask, **kwargs)
+
+        elif which == "canny_edge":
+            tensor = images.canny_edge(
+                tensor,
+                adjustment.canny_edge.low_threshold,
+                adjustment.canny_edge.high_threshold,
+            )
+
+        elif which == "edge_detection":
+            with manager.with_engine(engine_id, "edge_detection") as detector:
+                tensor = detector(tensor)
+
+        elif which == "segmentation":
+            with manager.with_engine(engine_id, "segmentation") as segmentor:
+                tensor = segmentor(tensor)
+
+        elif which == "keypose":
+            with manager.with_engine(engine_id, "pose") as estimator:
+                tensor = estimator(tensor, output_format="keypose")
+
+        elif which == "openpose":
+            with manager.with_engine(engine_id, "pose") as estimator:
+                tensor = estimator(tensor, output_format="openpose")
+
+        elif which == "background_removal":
+            with manager.with_engine(engine_id, "background-removal") as remover:
+                mode = "alpha"
+                BRM = generation_pb2.BackgroundRemovalMode
+                if adjustment.background_removal.HasField("mode"):
+                    if adjustment.background_removal.mode == BRM.SOLID:
+                        mode = "solid"
+                    elif adjustment.background_removal.mode == BRM.BLUR:
+                        mode = "blur"
+
+                tensor = remover(tensor, mode=mode)
+
+        elif which == "palletize":
+            colours = 8
+            if adjustment.palletize.HasField("colours"):
+                colours = adjustment.palletize.colours
+
+            tensor = images.palletize(tensor, colours)
+
+        else:
+            raise ValueError(f"Unkown image adjustment {which}")
+
+        log_message += " > {} > {}"
+        log_args += [which, tensor]
+
+    logger.debug(vr(log_message, *log_args))
+    return tensor
 
 
 class ParameterExtractor:
@@ -184,15 +348,6 @@ class ParameterExtractor:
         # Add a cache to self.get to prevent multiple requests from recalculating
         # self.get = functools.cache(self.get)
 
-    def _save_debug_tensor(self, tensor):
-        return
-        global debugCtr
-        debugCtr += 1
-        with open(
-            f"{constants.debug_path}/debug-adjustments-{debugCtr}.png", "wb"
-        ) as f:
-            f.write(images.toPngBytes(tensor)[0])
-
     def _cache_tensors(self, artifact, tensors, metadata=None):
         if not artifact.HasField("cache_control"):
             return
@@ -216,165 +371,6 @@ class ParameterExtractor:
 
     def _cache_get(self, cache_id):
         return self._tensor_cache.get_safetensors(cache_id)
-
-    def _apply_image_adjustment(self, tensor, adjustments):
-        if not adjustments:
-            return tensor
-
-        if type(tensor) is bytes:
-            tensor = images.fromPngBytes(tensor)
-
-        self._save_debug_tensor(tensor)
-
-        for adjustment in adjustments:
-            which = adjustment.WhichOneof("adjustment")
-
-            engine_id = None
-            if adjustment.HasField("engine_id"):
-                engine_id = adjustment.engine_id
-
-            if which == "blur":
-                sigma = adjustment.blur.sigma
-                direction = adjustment.blur.direction
-
-                if direction == generation_pb2.DIRECTION_DOWN:
-                    tensor = images.directionalblur(tensor, sigma, "down")
-                elif direction == generation_pb2.DIRECTION_UP:
-                    tensor = images.directionalblur(tensor, sigma, "up")
-                else:
-                    tensor = images.gaussianblur(tensor, sigma)
-
-            elif which == "invert":
-                tensor = images.invert(tensor)
-
-            elif which == "levels":
-                tensor = images.levels(
-                    tensor,
-                    adjustment.levels.input_low,
-                    adjustment.levels.input_high,
-                    adjustment.levels.output_low,
-                    adjustment.levels.output_high,
-                )
-
-            elif which == "channels":
-                tensor = images.channelmap(
-                    tensor,
-                    [
-                        adjustment.channels.r,
-                        adjustment.channels.g,
-                        adjustment.channels.b,
-                        adjustment.channels.a,
-                    ],
-                )
-
-            elif which == "rescale" or which == "autoscale":
-                if which == "autoscale":
-                    mode = adjustment.autoscale.mode
-
-                    width = height = None
-                    if adjustment.autoscale.HasField("width"):
-                        width = adjustment.autoscale.width
-                    if adjustment.autoscale.HasField("height"):
-                        height = adjustment.autoscale.height
-
-                    if width is None and height is None:
-                        width = self.width()
-                        height = self.height()
-                    elif width is None:
-                        assert height is not None
-                        width = height / tensor.shape[-2] * tensor.shape[-1]
-                    elif height is None:
-                        assert width is not None
-                        height = width / tensor.shape[-1] * tensor.shape[-2]
-
-                else:
-                    mode = adjustment.rescale.mode
-                    width, height = adjustment.rescale.width, adjustment.rescale.height
-
-                # Rescale only if needed
-                if tensor.shape[-2] != height or tensor.shape[-1] != width:
-                    fit, pad_mode = rescale_mode_to_fit_and_pad(mode)
-                    tensor = images.rescale(tensor, height, width, fit, pad_mode)
-
-            elif which == "crop":
-                tensor = images.crop(
-                    tensor,
-                    adjustment.crop.top,
-                    adjustment.crop.left,
-                    adjustment.crop.height,
-                    adjustment.crop.width,
-                )
-
-            elif which == "depth":
-                with self._manager.with_engine(engine_id, "depth") as estimator:
-                    tensor = estimator(tensor)
-
-            elif which == "normal":
-                with self._manager.with_engine(task="background-removal") as rmvr:
-                    mask = rmvr(tensor, mode="mask")
-
-                with self._manager.with_engine(engine_id, "depth") as estimator:
-                    # 16384 gives roughly same result as normalize=False for MiDaS, but also works with other models like Zoe
-                    tensor = estimator(tensor) * 16384
-
-                kwargs = dict(
-                    background_threshold=0, preblur=0, postblur=5, smoothing=0.8
-                )
-
-                for f in kwargs.keys():
-                    if adjustment.normal.HasField(f):
-                        kwargs[f] = getattr(adjustment.normal, f)
-
-                tensor = images.normalmap_from_depthmap(tensor, mask=mask, **kwargs)
-
-            elif which == "canny_edge":
-                tensor = images.canny_edge(
-                    tensor,
-                    adjustment.canny_edge.low_threshold,
-                    adjustment.canny_edge.high_threshold,
-                )
-
-            elif which == "edge_detection":
-                with self._manager.with_engine(engine_id, "edge_detection") as detector:
-                    tensor = detector(tensor)
-
-            elif which == "segmentation":
-                with self._manager.with_engine(engine_id, "segmentation") as segmentor:
-                    tensor = segmentor(tensor)
-
-            elif which == "keypose":
-                with self._manager.with_engine(engine_id, "pose") as estimator:
-                    tensor = estimator(tensor, output_format="keypose")
-
-            elif which == "openpose":
-                with self._manager.with_engine(engine_id, "pose") as estimator:
-                    tensor = estimator(tensor, output_format="openpose")
-
-            elif which == "background_removal":
-                with self._manager.with_engine(engine_id, "background-removal") as rmvr:
-                    mode = "alpha"
-                    BRM = generation_pb2.BackgroundRemovalMode
-                    if adjustment.background_removal.HasField("mode"):
-                        if adjustment.background_removal.mode == BRM.SOLID:
-                            mode = "solid"
-                        elif adjustment.background_removal.mode == BRM.BLUR:
-                            mode = "blur"
-
-                    tensor = rmvr(tensor, mode=mode)
-
-            elif which == "palletize":
-                colours = 8
-                if adjustment.palletize.HasField("colours"):
-                    colours = adjustment.palletize.colours
-
-                tensor = images.palletize(tensor, colours)
-
-            else:
-                raise ValueError(f"Unkown image adjustment {which}")
-
-            self._save_debug_tensor(tensor)
-
-        return tensor
 
     def _image_from_artifact_binary(self, artifact):
         # Handle webp artifacts
@@ -415,6 +411,7 @@ class ParameterExtractor:
         artifact: generation_pb2.Artifact,
         stage=generation_pb2.ARTIFACT_AFTER_ADJUSTMENTS,
         extra=None,
+        no_autoscale=False,
     ):
         if artifact.WhichOneof("data") == "binary":
             image = self._image_from_artifact_binary(artifact)
@@ -425,14 +422,21 @@ class ParameterExtractor:
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an image"
             )
 
+        kwargs = dict(manager=self._manager, tensor=image)
+
+        if not no_autoscale:
+            kwargs["native_width"] = self.width()
+            kwargs["native_height"] = self.height()
+
         if stage != generation_pb2.ARTIFACT_BEFORE_ADJUSTMENTS:
-            image = self._apply_image_adjustment(image, artifact.adjustments)
+            image = apply_image_adjustment(**kwargs, adjustments=artifact.adjustments)
         if stage == generation_pb2.ARTIFACT_AFTER_POSTADJUSTMENTS:
-            image = self._apply_image_adjustment(image, artifact.postAdjustments)
-        if extra is not None:
-            image = self._apply_image_adjustment(
-                image, extra if isinstance(extra, list) else [extra]
+            image = apply_image_adjustment(
+                **kwargs, adjustments=artifact.postAdjustments
             )
+        if extra is not None:
+            extra = extra if isinstance(extra, list) else [extra]
+            image = apply_image_adjustment(**kwargs, adjustments=extra)
 
         return image
 
@@ -575,7 +579,7 @@ class ParameterExtractor:
         if (height := self._image_parameter("height")) is not None:
             return height
         # If not passed, first try and use the size from init image
-        if (image := self.get("image")) is not None:
+        if (image := self.image(no_autoscale=True)) is not None:
             # If width parameter _was_ passed, calculate height to maintain aspect ratio
             if (width := self._image_parameter("width")) is not None:
                 return round(image.shape[-2] / image.shape[-1] * width)
@@ -589,7 +593,7 @@ class ParameterExtractor:
         if (width := self._image_parameter("width")) is not None:
             return width
         # If not passed, first try and use the size from init image
-        if (image := self.get("image")) is not None:
+        if (image := self.image(no_autoscale=True)) is not None:
             # If height parameter _was_ passed, calculate width to maintain aspect ratio
             if (height := self._image_parameter("height")) is not None:
                 return round(image.shape[-1] / image.shape[-2] * height)
@@ -677,11 +681,14 @@ class ParameterExtractor:
 
         return image
 
-    def image(self):
+    def image(self, no_autoscale=False):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_IMAGE:
                 return self._add_to_echo(
-                    prompt, self._image_from_artifact(prompt.artifact)
+                    prompt,
+                    self._image_from_artifact(
+                        prompt.artifact, no_autoscale=no_autoscale
+                    ),
                 )
 
     def mask_image(self):
@@ -1048,6 +1055,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     artifact.seed = img_seed
                     answer.artifacts.append(artifact)
 
+                    logger.debug(vr("Result {image}", image=result_image))
                     recorder.store("pipe.generate result", artifact)
 
                     yield answer

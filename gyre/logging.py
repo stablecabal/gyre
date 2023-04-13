@@ -1,12 +1,29 @@
+import base64
 import functools
 import inspect
 import io
 import logging
+import os
+import string
 import sys
 import traceback
+import uuid
+from dataclasses import dataclass
+from typing import ClassVar
 
+import torch
 import tqdm
 from colorama import Back, Fore, Style, just_fix_windows_console
+from twisted.web import resource
+from twisted.web.resource import NoResource
+
+from gyre import images
+from gyre.cache import (
+    CacheLookupError,
+    TensorLRUCache_LockBase,
+    TensorLRUCache_Spillover,
+)
+from gyre.constants import GB, MB, sd_cache_home
 
 just_fix_windows_console()
 
@@ -59,6 +76,153 @@ tqdm.tqdm.__init__ = functools.partialmethod(
 )  # type: ignore
 
 
+log_cache = TensorLRUCache_Spillover(
+    os.path.join(sd_cache_home, "log_cache"),
+    memlimit=32 * MB,
+    disklimit=1 * GB,
+)
+
+
+@dataclass
+class CachedImage:
+    image_key: str
+    thumbnail: str  # base64-encoded png
+
+    @property
+    def url(self):
+        return f"/log/{self.image_key}"
+
+    def __str__(self):
+        url = LogImagesController.get_url(self.image_key)
+        if url:
+            return f"[Image at {url}]"
+        else:
+            return "[Image]"
+
+
+class SplitFormatter(string.Formatter):
+
+    # Taken from https://github.com/python/cpython/blob/main/Lib/string.py
+    # Changes to return a list[string | CachedImage], rather than a single string
+    def vformat(self, format_string, args, kwargs):
+        result = []
+
+        auto_arg_index = 0
+        auto_arg_error_msg = (
+            "cannot switch from manual field specification to automatic field numbering"
+        )
+
+        for literal_text, field_name, format_spec, conversion in self.parse(
+            format_string
+        ):
+            if literal_text:
+                result.append(literal_text)
+
+            if field_name is not None:
+                if field_name == "":
+                    if auto_arg_index is False:
+                        raise ValueError(auto_arg_error_msg)
+                    field_name = str(auto_arg_index)
+                    auto_arg_index += 1
+                elif field_name.isdigit():
+                    if auto_arg_index:
+                        raise ValueError(auto_arg_error_msg)
+                    auto_arg_index = False
+
+                obj, _ = self.get_field(field_name, args, kwargs)
+
+                if isinstance(obj, CachedImage):
+                    result.append(obj)
+                else:
+                    obj = self.convert_field(obj, conversion)
+
+                    format_spec, auto_arg_index = self._vformat(
+                        format_spec, args, kwargs, set(), 1, auto_arg_index
+                    )
+
+                    result.append(self.format_field(obj, format_spec))
+
+        return result
+
+
+class VisualRecord:
+    def __init__(self, message, *args, **kwargs):
+        self.message = self._translate_image(message)
+        self.args = [self._translate_image(arg) for arg in args]
+        self.kwargs = {k: self._translate_image(v) for k, v in kwargs.items()}
+
+    def _translate_image(self, arg):
+        try:
+            tensor = images.fromAuto(arg)
+        except RuntimeError:
+            return arg
+        else:
+            tensor = tensor.contiguous().to("cpu", torch.float32)
+
+            key = str(uuid.uuid4())
+            log_cache.set(key, {"image": tensor}, max_age=60 * 15)
+            thumbnail = base64.b64encode(
+                images.toPngBytes(images.rescale(tensor, 64, 64, "contain"))[0]
+            ).decode("utf-8")
+
+            return CachedImage(image_key=key, thumbnail=thumbnail)
+
+    def __str__(self):
+        if isinstance(self.message, CachedImage):
+            return str(self.message)
+
+        else:
+            return self.message.format(*self.args, **self.kwargs)
+
+    def as_fragments(self):
+        if isinstance(self.message, CachedImage):
+            return [{"thumbnail": self.message.thumbnail, "url": self.message.url}]
+
+        formatted = SplitFormatter().format(self.message, *self.args, **self.kwargs)
+
+        return [
+            {"thumbnail": part.thumbnail, "url": part.url}
+            if isinstance(part, CachedImage)
+            else part
+            for part in formatted
+        ]
+
+
+class LogImagesController(resource.Resource):
+    log_host: ClassVar[str | None] = None
+
+    def __init__(self, tensor: torch.Tensor | None = None):
+        super().__init__()
+        self.tensor = tensor
+
+    def render_GET(self, request):
+        if self.tensor is None:
+            return NoResource().render(request)
+
+        request.setHeader(b"Content-type", b"image/png")
+        return bytes(images.toPngBytes(self.tensor)[0])
+
+    def getChild(self, path, request):
+        try:
+            tensors, _ = log_cache.get(path.decode("utf-8"))
+            return LogImagesController(tensors["image"])
+        except CacheLookupError:
+            pass
+
+        return NoResource()
+
+    def set_host_and_path(self, host_and_path):
+        if host_and_path and host_and_path.endswith("/"):
+            host_and_path = host_and_path[:-1]
+
+        LogImagesController.host_and_path = host_and_path
+
+    @classmethod
+    def get_url(cls, key):
+        if cls.host_and_path:
+            return cls.host_and_path + "/" + key
+
+
 class ColorFormatter(logging.Formatter):
 
     FORMATS = {
@@ -84,9 +248,14 @@ class StoreHandler(logging.Handler):
 
     def emit(self, record):
         if self.filter(record):
-            self.logs.append(
-                dict(created=record.created, name=record.name, message=record.message)
+            base = dict(
+                created=record.created, name=record.name, level=record.levelname
             )
+
+            if isinstance(record.msg, VisualRecord):
+                self.logs.append({**base, "fragments": record.msg.as_fragments()})
+            else:
+                self.logs.append({**base, "message": record.getMessage()})
 
             self.logs = self.logs[-self.max_len :]
 
