@@ -18,6 +18,7 @@ def tile(
     pad_mode="reflect",
     feather: int | None = None,
     progress_bar=tqdm.tqdm,
+    **progress_bar_kwargs,
 ):
     # Check ndim
     assert input.ndim == 4, "Tile input must be in BCHW format"
@@ -117,7 +118,7 @@ def tile(
         else:
             assert output.shape[0] == t.shape[0] and output.shape[1] == t.shape[1]
 
-    with progress_bar(total=tiles_x * tiles_y) as t:
+    with progress_bar(total=tiles_x * tiles_y, **progress_bar_kwargs) as t:
 
         for y in y_offsets:
             oy = y * scale

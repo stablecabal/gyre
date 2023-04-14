@@ -33,6 +33,8 @@ just_fix_windows_console()
 original_stdout = sys.stdout
 original_stderr = sys.stderr
 
+tqdm_offsets = {}
+
 
 class StdCapture:
     def __init__(self, std, level):
@@ -75,6 +77,32 @@ tqdm.tqdm.__init__ = functools.partialmethod(
     tqdm.tqdm.__init__, file=original_stderr, dynamic_ncols=True
 )  # type: ignore
 
+
+# And while we're at it, patch tqdm to track all in progress bars, so that
+# we can manage interlacing tqdm and logging output
+
+tqdm_in_progress = set()
+
+
+def tqdm_monitor_refresh(self, *args, **kwargs):
+    tqdm_in_progress.add(self)
+    return orig_tqdm_refresh(self, *args, **kwargs)
+
+
+def tqdm_monitor_close(self, *args, **kwargs):
+    try:
+        tqdm_in_progress.remove(self)
+    except KeyError:
+        pass
+
+    return orig_tqdm_close(self, *args, **kwargs)
+
+
+orig_tqdm_close, tqdm.tqdm.close = tqdm.tqdm.close, tqdm_monitor_close
+orig_tqdm_refresh, tqdm.tqdm.refresh = tqdm.tqdm.refresh, tqdm_monitor_refresh
+
+
+# Handle images either as the message or as some of the arguments via VisualRecord
 
 log_cache = TensorLRUCache_Spillover(
     os.path.join(sd_cache_home, "log_cache"),
@@ -260,12 +288,25 @@ class StoreHandler(logging.Handler):
             self.logs = self.logs[-self.max_len :]
 
 
-root_handler = logging.StreamHandler(original_stderr)
-root_handler.setFormatter(
-    ColorFormatter(fmt="%(color)s%(name)-18.18s%(reset)s | %(message)s")
-)
+class TqdmInterlacedStreamHandler(logging.StreamHandler):
+    def emit(self, record):
 
-stream_handler = logging.StreamHandler(original_stderr)
+        with tqdm.tqdm.get_lock():
+            # Before we write anything, clear all current tqdms - this'll mean they
+            # move below the log lines on next update.
+
+            for bar in tqdm_in_progress:
+                bar.clear(nolock=True)
+
+            # Emit the line
+            super().emit(record)
+
+            # Redisplay the bars
+            for bar in tqdm_in_progress:
+                bar.refresh(nolock=True)
+
+
+stream_handler = TqdmInterlacedStreamHandler(original_stderr)
 stream_handler.setFormatter(
     ColorFormatter(fmt="%(color)s%(name)-18.18s%(reset)s | %(message)s")
 )
@@ -282,7 +323,7 @@ def configure_logging():
     logging.captureWarnings(True)
 
     # Default config is to not log anything except errors
-    logging.basicConfig(level=logging.ERROR, handlers=[root_handler])
+    logging.basicConfig(level=logging.ERROR, handlers=[stream_handler])
 
     # Gyre config
     gyre_logger = logging.getLogger("gyre")

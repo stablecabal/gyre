@@ -123,6 +123,22 @@
             </div>`;
         }
 
+        function ProgressBar({ n, total, prefix, postfix, ...props }) {
+            let barsize = (n * 10) % 100;
+            let barlabel = n;
+            if (total) {
+                barsize = Math.round(n / total * 100);
+                barlabel = barsize + "%";
+            }
+
+            return html`<div class="progress">
+                ${prefix ? html`<div class="progress-prefix">${prefix}</div>` : ""}
+                <div class="progress-bar" style="flex: ${barsize}">${barlabel}</div>
+                <div class="progress-spacer" style="flex: ${100 - barsize}"></div>
+                ${postfix ? html`<div class="progress-postfix">${postfix}</div>` : ""}
+            </div>`;
+        }
+
         function Status(props) {
             const data = useContext(dataContext);
 
@@ -157,23 +173,33 @@
                 <tr>
                     <td>${props.device}</td>
                     <td>${props.pipeline || "none"}</td>
+                    <td>${props.progress ? html`<${ProgressBar} ...${props.progress} />` : ""}</td>
                 </tr>
             `;
         }
 
+        function Slots({ slots, ...props }) {
+            return html`
+                <table>
+                    <tr>
+                        <th class="col-device">Device</th>
+                        <th class="col-pipeline">Active Pipeline</th>
+                        <th class="col-progress">Progress</th>
+                    </tr>
+                    ${slots.map(slot => html`<${Slot} ...${slot} key=${slot.device} />`)}
+                </table>
+            `;
+        }
 
         function SubDetails(props) {
             const data = useContext(dataContext);
 
             return html`
-                <h3>Device pipeline allocation</h3>
-                <table>
-                    <tr>
-                        <th>Device</th>
-                        <th>Active Pipeline</th>
-                    </tr>
-                    ${data.slots.map(slot => html`<${Slot} ...${slot} key=${slot.device} />`)}
-                </table>
+                <h3>Activity monitor</h3>
+                <p>
+                    ${data.progress ? data.progress.map(bar => html`<${ProgressBar} ...${bar} />`) : ""}
+                </p>
+                ${data.slots ? html`<${Slots} slots=${data.slots} />` : ""}
                 <h3>System stats</h3>
                 <ul>
                     <li>Total threads: ${data.active_threads}</li>
@@ -209,6 +235,14 @@
                 }
                 catch (e) {
                     data = { ...dataStore, "status": "error", "substatus": "" + e };
+                }
+
+                if (!data.status) {
+                    data = {
+                        ...dataStore,
+                        status: "error",
+                        substatus: "Data was returned from server malformed",
+                    }
                 }
 
                 setDataStore(data)
@@ -259,18 +293,22 @@
         .log {
             max-height: 400px;
             overflow: auto;
+            white-space: pre-wrap;
         }
 
         .log-group {
-            padding: 5px 0;
             display: flex;
-            border-top: 1px solid rgba(0, 0, 0, 0.1);
         }
 
         .log-group .log-margin {
-            width: 48px;
+            width: 42px;
             text-align: center;
             flex-shrink: 0;
+            margin-right: 6px;
+        }
+
+        .log-group .log-margin span {
+            margin-top: 6px;
         }
 
         .log-group.DEBUG .log-margin {
@@ -283,10 +321,18 @@
 
         .log-group.ERROR .log-margin {
             background: rgb(106, 18, 18);
+            color: white;
         }
 
         .log-group .log-lines {
+            padding: 6px 0;
             flex-grow: 1;
+            min-height: 24px;
+            border-top: 1px solid #ddd;
+        }
+
+        .log-group .log-lines img {
+            vertical-align: bottom;
         }
 
         h3.status-error {
@@ -322,6 +368,24 @@
 
         .modal>img {
             display: block;
+        }
+
+        .progress {
+            display: flex
+        }
+
+        .progress-prefix {
+            margin-right: 6px;
+        }
+
+        .progress-bar {
+            background-color: lightslategray;
+            color: white;
+            padding: 0 6px;
+        }
+
+        .progress-postfix {
+            margin-left: 6px;
         }
     </style>
 </head>

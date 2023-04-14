@@ -442,7 +442,7 @@ def denoise(tensor, max_loss=None, iter_min=200, iter_max=5000):
     # define the optimizer to optimize the 1 parameter of tv_denoiser
     optimizer = torch.optim.SGD(denoiser.parameters(), lr=0.1, momentum=0.9)
 
-    progress = tqdm(range(iter_max))
+    progress = tqdm(range(iter_max), desc="Denoising")
     for i in progress:
         optimizer.zero_grad()
         loss = denoiser().sum()

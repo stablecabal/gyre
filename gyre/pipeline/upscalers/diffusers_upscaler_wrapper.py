@@ -25,6 +25,9 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
         super().__init__(id, mode, pipeline)
         pipeline.decode_latents = self.decode_latents
 
+        # Upscaler-4x always enables tiling, even on 24GB cards, it's brutal on memory without it
+        pipeline.vae.enable_tiling()
+
     # A version of decode_latents that just returns the tensor directly
     def decode_latents(self, latents):
         latents = 1 / self._pipeline.vae.config.scaling_factor * latents
@@ -42,7 +45,8 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
             lambda tile: images.resize(tile, scale),
             scale,
             tile_size,
-            progress_bar=lambda *a, **k: tqdm(*a, disable=True, **k),
+            # Progress bar kwargs
+            disable=True,
         )
 
     def _pipeline_upscale(
@@ -107,7 +111,9 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
                 del self._pipeline.low_res_scheduler.add_noise
 
         try:
-            return upscaler_utils.tile(tiler_input, tiled_callback, scale, tile_size)
+            return upscaler_utils.tile(
+                tiler_input, tiled_callback, scale, tile_size, desc="Tiling upscaler"
+            )
         except ProgressBarAbort:
             return None
 
@@ -137,6 +143,7 @@ class DiffusionUpscalerPipelineWrapper(DiffusionPipelineWrapper):
 
         # Inject progress bar to enable cancellation support
         self._pipeline.progress_bar = ProgressBarWrapper(
+            self,
             progress_callback,
             stop_event,
             suppress_output,

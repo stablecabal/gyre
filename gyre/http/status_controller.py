@@ -4,7 +4,7 @@ import threading
 
 from gyre.constants import IS_DEV
 from gyre.http.json_api_controller import JSONAPIController
-from gyre.logging import store_handler
+from gyre.logging import store_handler, tqdm_in_progress
 from gyre.manager import EngineManager
 
 if IS_DEV:
@@ -42,6 +42,18 @@ class StatusController(JSONAPIController):
         return html_template().replace("$DATA$", json.dumps(data))
 
     def handle_GET(self, request, _):
+        progress_bars = [bar.format_dict for bar in tqdm_in_progress]
+
+        pipeline_bars = {
+            bar.get("pipeline_unique_id"): bar
+            for bar in progress_bars
+            if bar.get("pipeline_unique_id")
+        }
+
+        regular_bars = [
+            bar for bar in progress_bars if not bar.get("pipeline_unique_id")
+        ]
+
         if self._manager is None:
             status = "Pending"
             slots = []
@@ -50,10 +62,15 @@ class StatusController(JSONAPIController):
         else:
             status = self._manager.status
             slots = [
-                {
-                    "device": str(slot.device),
-                    "pipeline": slot.pipeline.id if slot.pipeline is not None else None,
-                }
+                {"device": str(slot.device), "pipeline": None, "progress": None}
+                | (
+                    {
+                        "pipeline": slot.pipeline.id,
+                        "progress": pipeline_bars.get(id(slot.pipeline)),
+                    }
+                    if slot.pipeline is not None
+                    else {}
+                )
                 for slot in self._manager._device_slots
             ]
             queue_depth = self._manager._device_queue.wait_count()
@@ -64,4 +81,5 @@ class StatusController(JSONAPIController):
             "queue_depth": queue_depth,
             "active_threads": threading.active_count(),
             "logs": store_handler.logs,
+            "progress": regular_bars,
         }

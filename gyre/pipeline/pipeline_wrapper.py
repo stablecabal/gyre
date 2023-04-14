@@ -25,7 +25,8 @@ class ProgressBarAbort(BaseException):
 
 class ProgressBarWrapper(object):
     class InternalTqdm(tqdm):
-        def __init__(self, progress_callback, stop_event, *args, **kwargs):
+        def __init__(self, pipeline, progress_callback, stop_event, *args, **kwargs):
+            self._pipeline = pipeline
             self._progress_callback = progress_callback
             self._stop_event = stop_event
             super().__init__(*args, **kwargs)
@@ -45,16 +46,29 @@ class ProgressBarWrapper(object):
 
             return displayed
 
+        @property
+        def format_dict(self):
+            return super().format_dict | {
+                "pipeline_id": self._pipeline.id,
+                "pipeline_unique_id": id(self._pipeline),
+            }
+
     def __init__(
-        self, progress_callback, stop_event, suppress_output=False, **extra_args
+        self,
+        pipeline,
+        progress_callback,
+        stop_event,
+        suppress_output=False,
+        **extra_args,
     ):
+        self._pipeline = pipeline
         self._progress_callback = progress_callback
         self._stop_event = stop_event
         self._suppress_output = suppress_output
         self._extra_args = extra_args
 
     def __call__(self, iterable=None, total=None):
-        args = [self._progress_callback, self._stop_event]
+        args = [self._pipeline, self._progress_callback, self._stop_event]
         kwargs = {"disable": self._suppress_output, **self._extra_args}
 
         if iterable is not None:
@@ -329,7 +343,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
 
         # Inject progress bar to enable cancellation support
         self._pipeline.progress_bar = ProgressBarWrapper(
-            progress_callback, stop_event, suppress_output
+            self, progress_callback, stop_event, suppress_output
         )
 
         pipeline_args = dict(
