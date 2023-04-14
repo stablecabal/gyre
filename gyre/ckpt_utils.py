@@ -59,6 +59,14 @@ from transformers import (
 from gyre import torch_safe_unpickler
 
 
+def from_pretrained(cls, model, *args, **kwargs):
+    method = getattr(cls, "from_pretrained")
+    try:
+        return method(model, *args, **kwargs, local_files_only=True)
+    except Exception:
+        return method(model, *args, **kwargs)
+
+
 def shave_segments(path, n_shave_prefix_segments=1):
     """
     Removes segments. Positive values shave the first segments, negative shave the last segments.
@@ -821,7 +829,7 @@ def convert_ldm_clip_checkpoint(checkpoint):
     _level = logging.getLogger("transformers.modeling_utils").level
     logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
 
-    text_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14")
+    text_model = from_pretrained(CLIPTextModel, "openai/clip-vit-large-patch14")
 
     logging.getLogger("transformers.modeling_utils").setLevel(_level)
 
@@ -877,7 +885,7 @@ textenc_pattern = re.compile("|".join(protected.keys()))
 
 
 def convert_paint_by_example_checkpoint(checkpoint):
-    config = CLIPVisionConfig.from_pretrained("openai/clip-vit-large-patch14")
+    config = from_pretrained(CLIPVisionConfig, "openai/clip-vit-large-patch14")
     model = PaintByExampleImageEncoder(config)
 
     keys = list(checkpoint.keys())
@@ -946,8 +954,8 @@ def convert_paint_by_example_checkpoint(checkpoint):
 
 
 def convert_open_clip_checkpoint(checkpoint):
-    text_model = CLIPTextModel.from_pretrained(
-        "stabilityai/stable-diffusion-2", subfolder="text_encoder"
+    text_model = from_pretrained(
+        CLIPTextModel, "stabilityai/stable-diffusion-2", subfolder="text_encoder"
     )
 
     keys = list(checkpoint.keys())
@@ -1187,15 +1195,15 @@ def load_as_models(
         if should_load("text_encoder"):
             models["text_encoder"] = convert_open_clip_checkpoint(checkpoint)
         if should_load("tokenizer"):
-            models["tokenizer"] = CLIPTokenizer.from_pretrained(
-                "stabilityai/stable-diffusion-2", subfolder="tokenizer"
+            models["tokenizer"] = from_pretrained(
+                CLIPTokenizer, "stabilityai/stable-diffusion-2", subfolder="tokenizer"
             )
     elif model_type == "FrozenCLIPEmbedder":
         if should_load("text_encoder"):
             models["text_encoder"] = convert_ldm_clip_checkpoint(checkpoint)
         if should_load("tokenizer"):
-            models["tokenizer"] = CLIPTokenizer.from_pretrained(
-                "openai/clip-vit-large-patch14"
+            models["tokenizer"] = from_pretrained(
+                CLIPTokenizer, "openai/clip-vit-large-patch14"
             )
     else:
         if should_load("text_encoder") or should_load("tokenizer"):
