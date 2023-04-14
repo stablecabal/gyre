@@ -9,6 +9,7 @@ import math
 import os
 import shutil
 import tempfile
+import traceback
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -33,7 +34,7 @@ from huggingface_hub.file_download import http_get
 from transformers import PreTrainedModel
 
 from gyre import civitai, ckpt_utils, torch_safe_unpickler
-from gyre.constants import sd_cache_home
+from gyre.constants import IS_DEV, sd_cache_home
 from gyre.hints import HintsetManager
 from gyre.monitoring_queue import MonitoringQueue
 from gyre.pipeline import pipeline_meta
@@ -1025,6 +1026,7 @@ class EngineManager(object):
         weight_path: str,
         name: str,
         fqclass_name: str | tuple[str, str] | None = None,
+        local_only: bool = False,
         fp16: bool | None = None,
         ignore_patterns=None,
         allow_patterns=None,
@@ -1297,6 +1299,7 @@ class EngineManager(object):
         ckpt_config,
         whitelist=None,
         blacklist=None,
+        local_only=False,
         fp16=None,
         ignore_patterns=None,
         allow_patterns=None,
@@ -1339,14 +1342,15 @@ class EngineManager(object):
                     f"Folder contained {len(ckpt_paths)} .ckpt files, there must be at most one."
                 )
 
-            extra_kwargs["ckpt_path"] = os.path.join(weight_path, ckpt_paths[0])
+            extra_kwargs["checkpoint_path"] = os.path.join(weight_path, ckpt_paths[0])
 
         else:
             raise EnvironmentError(
                 f"Folder did not contain a .safetensors or .ckpt file."
             )
 
-        models = ckpt_utils.load_as_models(ckpt_config, **extra_kwargs)
+        with ckpt_utils.local_only(local_only):
+            models = ckpt_utils.load_as_models(ckpt_config, **extra_kwargs)
 
         for model in models.values():
             model._source = (
@@ -1355,10 +1359,13 @@ class EngineManager(object):
 
         return ModelSet(models)
 
-    def _load_from_weights(self, spec: EngineSpec, weight_path: str) -> ModelSet:
+    def _load_from_weights(
+        self, spec: EngineSpec, weight_path: str, local_only=False
+    ) -> ModelSet:
         fp16 = False if spec.fp16 == "prevent" else None
 
         kwargs = dict(
+            local_only=local_only,
             fp16=fp16,
             ignore_patterns=spec.ignore_patterns,
             allow_patterns=spec.allow_patterns,
@@ -1414,15 +1421,18 @@ class EngineManager(object):
             weight_path = None
             try:
                 weight_path = callback(spec, *args, **kwargs)
-                return self._load_from_weights(spec, weight_path)
+                return self._load_from_weights(
+                    spec, weight_path, local_only=kwargs.get("local_only")
+                )
             except ValueError as e:
                 if str(e) not in failures:
                     failures.append(str(e))
             except Exception as e:
+                message = "".join(traceback.format_exception(e)) if IS_DEV else str(e)
                 if weight_path:
                     errstr = (
                         f"Error when trying to load weights from {weight_path}. "
-                        + str(e)
+                        + message
                     )
                     if errstr not in failures:
                         failures.append(errstr)

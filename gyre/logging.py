@@ -14,6 +14,8 @@ from typing import ClassVar
 import torch
 import tqdm
 from colorama import Back, Fore, Style, just_fix_windows_console
+from diffusers import logging as diffusers_logging
+from transformers import logging as transformers_logging
 from twisted.web import resource
 from twisted.web.resource import NoResource
 
@@ -332,6 +334,13 @@ def configure_logging():
     gyre_logger.propagate = False
     gyre_logger.addHandler(stream_handler)
     gyre_logger.addHandler(store_handler)
+
+    # Override Transformers & Diffusers defaults
+    diffusers_logging.disable_default_handler()
+    diffusers_logging.enable_propagation()
+
+    transformers_logging.disable_default_handler()
+    transformers_logging.enable_propagation()
 
 
 LOG_LEVELS = {
