@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.5
+
 ARG CUDA_VER=118
 ARG CUDA_FULLVER=11.8.0
 
