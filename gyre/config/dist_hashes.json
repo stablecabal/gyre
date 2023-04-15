@@ -29,6 +29,18 @@
     "505815d4f2b0233892dcc2b5a760fb7a09d936cd",
     "03151dc340c76bf76f3b4d13b8d5570af3c86013"
   ],
+  "engines/hintsets.yaml": [
+    "42953d604600017bb026494bdb23d4a4c29fc147",
+    "ca914626a0ae1099ffd6906a28d8e59455b0e351",
+    "a1bf17a3ff60aec41e6a79b1eef9a05e2402024f",
+    "e8bfa00172d4cf105fdf10ba02a17db9125b9baa",
+    "4dc743ba18b3b02661c50e39bfa4ac991ab8df83",
+    "68e67679a4eeb2d041051dd5839cd549f85aa128",
+    "a8189807724ab53c6abacb7d9fa391a6e3a9ba83"
+  ],
+  "models/controlnet-11.yaml": [
+    "d7edd6d9a491b556be3d0e1b1c27c4e909efe9bd"
+  ],
   "models/clip.yaml": [
     "aaebe42e33d4712bbfec593d5f8d1e407e16694b",
     "b078215c2d76d899a589abf5d1176298931ff6fe",
@@ -37,14 +49,6 @@
   "models/controlnet.yaml": [
     "43a64e09f0c4bee4aaedf53d426eeee8f46d7e0f",
     "84b1f248bb506098ad26ad670da4a7580db8d8d6"
-  ],
-  "engines/hintsets.yaml": [
-    "ca914626a0ae1099ffd6906a28d8e59455b0e351",
-    "a1bf17a3ff60aec41e6a79b1eef9a05e2402024f",
-    "e8bfa00172d4cf105fdf10ba02a17db9125b9baa",
-    "4dc743ba18b3b02661c50e39bfa4ac991ab8df83",
-    "68e67679a4eeb2d041051dd5839cd549f85aa128",
-    "a8189807724ab53c6abacb7d9fa391a6e3a9ba83"
   ],
   "engines/upscaler.yaml": [
     "c1d467f42f3040f979970e734a9d2db92836096a",
