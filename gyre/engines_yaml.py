@@ -1,6 +1,7 @@
 import glob
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -8,6 +9,8 @@ import subprocess
 import sys
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST_CONFIG_PATH = os.path.join(BASE_PATH, "gyre/config")
@@ -115,6 +118,7 @@ def load_raw_yaml(paths, context):
 
     data = []
     sources = [*paths]
+    all_sources = set(paths)
     cache = {}
 
     while sources:
@@ -133,8 +137,13 @@ def load_raw_yaml(paths, context):
             )
         )
 
+        # Check for recursion
+        if repeated := all_sources & set(includes):
+            raise ValueError(f"Include recursion detected on {repeated}")
+
         # Append all includes to the beginning so we do depth-first
         sources[0:0] = includes
+        all_sources |= set(includes)
 
         for doc in docs:
             if isinstance(doc, list):
@@ -142,7 +151,7 @@ def load_raw_yaml(paths, context):
             else:
                 data.append(doc)
 
-    return data
+    return data, all_sources
 
 
 class Bubble:
@@ -336,7 +345,7 @@ def apply_templates(items):
 
 
 def load(paths, context):
-    data = load_raw_yaml(paths, context)
+    data, all_sources = load_raw_yaml(paths, context)
     data = flatten_templates(data)
     data = apply_templates(data)
     data = merge_dicts(data)
@@ -344,7 +353,7 @@ def load(paths, context):
     # yaml.dump(data, stream=open("/weights/config.log", "w"))
     # sys.exit(-1)
 
-    return data
+    return data, all_sources
 
 
 def git_object_hash(bs: bytes):
@@ -380,6 +389,7 @@ def check_and_update(config_path):
 
             current_unix_hash = current_win_hash = None
             current_path = os.path.join(config_path, path)
+            attic_path = os.path.join(config_path, "_attic", path)
 
             if os.path.isfile(current_path):
                 exists = True
@@ -404,18 +414,22 @@ def check_and_update(config_path):
 
                 if current_unix_hash != dist_unix_hash:
                     if not update:
-                        print(
+                        logger.info(
                             f"Config file {path} has been edited, and won't be changed."
                         )
                     else:
-                        print("Updating config file", path)
+                        logger.info(f"Updating config file {path}")
                         os.makedirs(os.path.dirname(current_path), exist_ok=True)
                         shutil.copyfile(dist_path, current_path)
             elif update and exists:
-                print(
-                    f"Config file {path} appears to be obsolete and can be removed.\n"
-                    "(For safety reasons, Gyre won't do this for you, you'll need to do it manually)."
+                logger.warn(
+                    f"Config file {path} appears to be obsolete and will be moved to the '_attic' folder."
                 )
+                logger.warn(
+                    "(If you want to keep it, move it back and edit it slightly - by add a comment for instance)."
+                )
+                os.makedirs(os.path.dirname(attic_path), exist_ok=True)
+                shutil.move(current_path, attic_path)
 
 
 def gen_hashes(outpath):

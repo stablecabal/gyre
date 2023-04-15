@@ -755,6 +755,7 @@ def main():
     if args.localtunnel and not args.access_token:
         args.access_token = secrets.token_urlsafe(16)
 
+    reloader = None
     if args.reload:
         # start_reloader will only return in a monitored subprocess
         reloader = hupper.start_reloader(
@@ -907,7 +908,7 @@ def main():
         print("Xformers defaults to on")
 
     # Parse yaml (handle includes, process templates, merge changes)
-    engines = engines_yaml.load(
+    engines, sources = engines_yaml.load(
         enginecfg,
         {
             "vram2": args.vram_optimisation_level >= 2,
@@ -916,6 +917,9 @@ def main():
             "vram5": args.vram_optimisation_level >= 5,
         },
     )
+
+    if reloader is not None:
+        reloader.watch_files(list(sources))
 
     # Enable or disable any engines that were overriddden via server args
     for engine in engines:

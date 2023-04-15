@@ -24,7 +24,7 @@
     aliases: "style"
     model: "@t2i-adapter-style"
   t2i/zoedepth:
-    aliases: "zoedepth"
+    aliases: ["depth", "depth/zoe"]
     priority: 25
     model: "@t2i-adapter-zoedepth"
 
@@ -55,7 +55,7 @@
     priority: 50
     model: "@controlnet-depth"
   controlnet/hed:
-    aliases: "hed"
+    aliases: ["hed", "softedge"]
     model: "@controlnet-hed"
   controlnet/mlsd:
     aliases: "mlsd"
@@ -75,16 +75,42 @@
     aliases: ["segmentation", "segmentation/ade20k"]
     model: "@controlnet-seg"
 
+- hintset_id: "hintset-sd15-controlnet11"
+  controlnet11/canny:
+    aliases: "canny"
+    model: "@controlnet11-canny"
+    priority: 300
+  controlnet11/normalbae:
+    aliases: ["normal", "normal/bae"]
+    model: "@controlnet11-normalbae"
+    priority: 200
+  controlnet11/openpose:
+    aliases: ["pose", "openpose", "pose/openpose"]
+    model: "@controlnet11-openpose"
+    priority: 200
+  controlnet11/scribble:
+    aliases: ["sketch", "scribble"]
+    model: "@controlnet11-scribble"
+    priority: 75
+  controlnet11/seg:
+    aliases: ["segmentation", "segmentation/ade20k"]
+    model: "@controlnet11-softedge"
+  controlnet11/softedge:
+    aliases: ["hed", "softedge"]
+    model: "@controlnet11-softedge"
+    priority: 200
+
 - hintset_id: "hintset-sd15-common"
   "@hintset-sd15-coadapter": "*"
   "@hintset-sd15-t2i":
     - "t2i/keypose"
     - "t2i/openpose"
   "@hintset-sd15-controlnet":
-    - "controlnet/canny"
-    - "controlnet/hed"
-    - "controlnet/normal"
-    - "controlnet/seg"
+    - "controlnet/normal" # Don't support normal/bae hinting yet
+  "@hintset-sd15-controlnet11":
+    - "controlnet11/canny"
+    - "controlnet11/softedge"
+    - "controlnet11/seg"
 
 - hintset_id: "hintset-sd15-complete"
   "@hintset-sd15-coadapter": "*"

@@ -1,0 +1,29 @@
+- model_id: "controlnet11-canny"
+  model: "halffried/gyre_controlnet_11"
+  subfolder: "control_v11p_sd15_canny"
+  type: "controlnet"
+
+- model_id: "controlnet11-normalbae"
+  model: "halffried/gyre_controlnet_11"
+  subfolder: "control_v11p_sd15_normalbae"
+  type: "controlnet"
+
+- model_id: "controlnet11-openpose"
+  model: "halffried/gyre_controlnet_11"
+  subfolder: "control_v11p_sd15_openpose"
+  type: "controlnet"
+
+- model_id: "controlnet11-scribble"
+  model: "halffried/gyre_controlnet_11"
+  subfolder: "control_v11p_sd15_scribble"
+  type: "controlnet"
+
+- model_id: "controlnet11-seg"
+  model: "halffried/gyre_controlnet_11"
+  subfolder: "control_v11p_sd15_seg"
+  type: "controlnet"
+
+- model_id: "controlnet11-softedge"
+  model: "halffried/gyre_controlnet_11"
+  subfolder: "control_v11p_sd15_softedge"
+  type: "controlnet"
