@@ -94,7 +94,7 @@
     priority: 75
   controlnet11/seg:
     aliases: ["segmentation", "segmentation/ade20k"]
-    model: "@controlnet11-softedge"
+    model: "@controlnet11-seg"
   controlnet11/softedge:
     aliases: ["hed", "softedge"]
     model: "@controlnet11-softedge"
@@ -105,10 +105,9 @@
   "@hintset-sd15-t2i":
     - "t2i/keypose"
     - "t2i/openpose"
-  "@hintset-sd15-controlnet":
-    - "controlnet/normal" # Don't support normal/bae hinting yet
   "@hintset-sd15-controlnet11":
     - "controlnet11/canny"
+    - "controlnet11/normalbae"
     - "controlnet11/softedge"
     - "controlnet11/seg"
 

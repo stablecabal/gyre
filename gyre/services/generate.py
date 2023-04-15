@@ -258,20 +258,46 @@ def apply_image_adjustment(
                 tensor = estimator(tensor)
 
         elif which == "normal":
-            with manager.with_engine(task="background-removal") as remover:
-                mask = remover(tensor, mode="mask")
-
-            with manager.with_engine(engine_id, "depth") as estimator:
-                # 16384 gives roughly same result as normalize=False for MiDaS, but also works with other models like Zoe
-                tensor = estimator(tensor) * 16384
-
+            # Defaults
             kwargs = dict(background_threshold=0, preblur=0, postblur=5, smoothing=0.8)
 
+            # Update with fields from adjustment
             for f in kwargs.keys():
                 if adjustment.normal.HasField(f):
                     kwargs[f] = getattr(adjustment.normal, f)
 
-            tensor = images.normalmap_from_depthmap(tensor, mask=mask, **kwargs)
+            # Handle auto-masking
+            mask = None
+            if kwargs["background_threshold"] < 0:
+                kwargs["background_threshold"] = 0
+                with manager.with_engine(task="background-removal") as remover:
+                    mask = remover(tensor, mode="mask")
+
+            # Normal calculation can use depth or normal estimator pipelines
+            task = "normal"
+            if engine_id:
+                spec = manager._find_spec(id=engine_id)
+                task = spec.task
+
+            if task == "depth":
+                with manager.with_engine(engine_id, "depth") as estimator:
+                    # 16384 gives roughly same result as normalise=False for MiDaS, but also works with other models like Zoe
+                    # A slightly lower number doesn't blow out result so much though.
+                    tensor = estimator(tensor) * 2048  # * 16384
+
+                tensor = images.normalmap_from_depthmap(tensor, mask=mask, **kwargs)
+
+            elif task == "normal":
+                with manager.with_engine(engine_id, "normal") as baenormal:
+                    tensor = baenormal(tensor)
+
+                if mask is not None:
+                    tensor = torch.cat([tensor, mask], dim=1)
+
+            else:
+                raise ValueError(
+                    f"Engine ID {engine_id} is for task '{task}' not normal or depth"
+                )
 
         elif which == "canny_edge":
             tensor = images.canny_edge(

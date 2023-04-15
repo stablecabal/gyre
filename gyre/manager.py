@@ -65,6 +65,8 @@ DEFAULT_LIBRARIES = {
     "MmposePipeline": "gyre.pipeline.hinters.mmpose_pipeline",
     "InSPyReNet_SwinB": "gyre.pipeline.hinters.inspyrenet.InSPyReNet",
     "InSPyReNetPipeline": "gyre.pipeline.hinters.inspyrenet_pipeline",
+    "BaenormalLoader": "gyre.pipeline.hinters.baenormal_loader",
+    "BaenormalPipeline": "gyre.pipeline.hinters.baenormal_pipeline",
     "UpscalerLoader": "gyre.pipeline.upscalers.upscaler_loader",
     "UpscalerPipeline": "gyre.pipeline.upscalers.upscaler_pipeline",
 }

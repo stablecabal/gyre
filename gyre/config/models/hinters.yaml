@@ -1,4 +1,7 @@
+---
+# -------------------
 # Dexined (edge detector)
+# -------------------
 
 - model_id: "hinters-dexined"
   model: "halffried/gyre_hinters"
@@ -14,7 +17,9 @@
   overrides:
     module: "@hinters-dexined"
 
+# -------------------
 # Uniformer (segmenter)
+# -------------------
 
 - model_id: "hinters-uniformer-base"
   model: "halffried/gyre_hinters"
@@ -36,7 +41,9 @@
   overrides:
     module: "@hinters-uniformer-small"
 
+# -------------------
 # Mmdet / Mmpose (pose estimator)
+# -------------------
 
 - model_id: "hinters-keypose-detector-r50"
   model: "halffried/gyre_hinters"
@@ -71,7 +78,9 @@
     detector: "@hinters-keypose-detector-x101"
     posemodel: "@hinters-keypose-posemodel-384"
 
+# -------------------
 # InSPyReNet (background remover)
+# -------------------
 
 - model_id: "inspyrenet"
   model: "halffried/gyre_hinters"
@@ -96,3 +105,19 @@
   model: "@empty"
   overrides:
     module: "@inspyrenet"
+
+# -------------------
+# Normal/bae
+# -------------------
+
+- model_id: "hinters-baenormal"
+  model: "halffried/gyre_hinters"
+  subfolder: "baenormal"
+  type: "module"
+  class: BaenormalLoader/load
+
+- id: "hinters-baenormal"
+  task: "normal"
+  default: True
+  class: BaenormalPipeline
+  model: "@hinters-baenormal"

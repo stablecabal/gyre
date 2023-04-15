@@ -221,7 +221,11 @@
 
             const [imagePopupUrl, setImagePopupUrl] = useState(null)
 
-            const refreshData = useCallback(async () => {
+            const refreshData = useCallback(async (previous) => {
+                // This callback isn't rebuilt when dataStore updates, so we pass
+                // the previous value through to use in case of error
+                if (previous === null) previous = dataStore;
+
                 let data;
 
                 try {
@@ -234,19 +238,19 @@
                     data = await res.json();
                 }
                 catch (e) {
-                    data = { ...dataStore, "status": "error", "substatus": "" + e };
+                    data = { ...previous, "status": "error", "substatus": "" + e };
                 }
 
                 if (!data.status) {
                     data = {
-                        ...dataStore,
+                        ...previous,
                         status: "error",
                         substatus: "Data was returned from server malformed",
                     }
                 }
 
                 setDataStore(data)
-                setTimeout(refreshData, data.status == "ready" ? 2000 : 500);
+                setTimeout(refreshData, data.status == "ready" ? 2000 : 500, data);
             }, []);
 
             useEffect(refreshData, []);

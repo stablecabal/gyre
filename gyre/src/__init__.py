@@ -3,6 +3,7 @@ import importlib.util
 import os
 import sys
 import types
+import warnings
 
 SRC_MODULES = [
     "xtcocoapi",
@@ -69,7 +70,9 @@ def fix_mmpose_version_constraint():
     Rather than dealing with cross-version hell between various mmXXX packages,
     we just trick mmpose into thinking we have the right mmcv version
     """
-    import mmcv
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import mmcv
 
     if mmcv.__version__ == "1.7.1":
         mmcv.__actual_version__ = mmcv.__version__
