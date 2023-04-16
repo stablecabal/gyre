@@ -11,6 +11,10 @@
   model: "lllyasviel/control_v11p_sd15_inpaint"
   type: "controlnet"
 
+- model_id: "controlnet11-pix2pix"
+  model: "lllyasviel/control_v11e_sd15_ip2p"
+  type: "controlnet"
+
 - model_id: "controlnet11-lineart"
   model: "lllyasviel/control_v11p_sd15_lineart"
   type: "controlnet"
@@ -46,4 +50,8 @@
 
 - model_id: "controlnet11-softedge"
   model: "lllyasviel/control_v11p_sd15_softedge"
+  type: "controlnet"
+
+- model_id: "controlnet11-tile"
+  model: "lllyasviel/control_v11u_sd15_tile"
   type: "controlnet"

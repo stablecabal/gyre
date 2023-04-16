@@ -297,14 +297,17 @@ class TqdmInterlacedStreamHandler(logging.StreamHandler):
             # Before we write anything, clear all current tqdms - this'll mean they
             # move below the log lines on next update.
 
-            for bar in tqdm_in_progress:
+            # Copy so changes don't affect us
+            bars = set(tqdm_in_progress)
+
+            for bar in bars:
                 bar.clear(nolock=True)
 
             # Emit the line
             super().emit(record)
 
             # Redisplay the bars
-            for bar in tqdm_in_progress:
+            for bar in bars:
                 bar.refresh(nolock=True)
 
 

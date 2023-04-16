@@ -87,6 +87,9 @@
   controlnet11/inpaint:
     aliases: "inpaint"
     model: "@controlnet11-inpaint"
+  controlnet11/pix2pix:
+    aliases: "pix2pix"
+    model: "@controlnet11-pix2pix"
   controlnet11/lineart:
     aliases: "lineart"
     model: "@controlnet11-lineart"

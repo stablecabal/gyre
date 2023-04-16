@@ -68,6 +68,8 @@ DEFAULT_LIBRARIES = {
     "InSPyReNetPipeline": "gyre.pipeline.hinters.inspyrenet_pipeline",
     "BaenormalLoader": "gyre.pipeline.hinters.baenormal_loader",
     "BaenormalPipeline": "gyre.pipeline.hinters.baenormal_pipeline",
+    "DrawingGenerator": "gyre.pipeline.hinters.models.informative_drawings",
+    "InformativeDrawingPipeline": "gyre.pipeline.hinters.informative_drawing_pipeline",
     "UpscalerLoader": "gyre.pipeline.upscalers.upscaler_loader",
     "UpscalerPipeline": "gyre.pipeline.upscalers.upscaler_pipeline",
 }
@@ -1549,6 +1551,9 @@ class EngineManager(object):
 
         failures = []
 
+        def exception_to_str(e):
+            return "".join(traceback.format_exception(e)) if IS_DEV else str(e)
+
         for callback, args, kwargs in candidates:
             weight_path = None
             try:
@@ -1557,14 +1562,13 @@ class EngineManager(object):
                     spec, weight_path, local_only=kwargs.get("local_only")
                 )
             except ValueError as e:
-                if str(e) not in failures:
-                    failures.append(str(e))
+                if (message := exception_to_str(e)) not in failures:
+                    failures.append(message)
             except Exception as e:
-                message = "".join(traceback.format_exception(e)) if IS_DEV else str(e)
                 if weight_path:
                     errstr = (
                         f"Error when trying to load weights from {weight_path}. "
-                        + message
+                        + exception_to_str(e)
                     )
                     if errstr not in failures:
                         failures.append(errstr)

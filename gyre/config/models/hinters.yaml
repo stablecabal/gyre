@@ -18,6 +18,44 @@
     module: "@hinters-dexined"
 
 # -------------------
+# Linedrawing - these are all "edge detection" as far as Gyre is concerned, although
+# results will vary a lot if you use the wrong one for the wrong hint prompt handler
+# -------------------
+
+- model_id: "hinters-lineart-anime"
+  model: "halffried/gyre_hinters"
+  subfolder: "lineart_anime"
+  type: "module"
+  class: DrawingGenerator(input_nc=3, output_nc=1, n_residual_blocks=3)
+
+- id: "hinters-lineart-anime"
+  task: "edge_detection"
+  class: InformativeDrawingPipeline
+  model: "@hinters-lineart-anime"
+
+- model_id: "hinters-lineart-contour"
+  model: "halffried/gyre_hinters"
+  subfolder: "lineart_contour"
+  type: "module"
+  class: DrawingGenerator(input_nc=3, output_nc=1, n_residual_blocks=3)
+
+- id: "hinters-lineart-contour"
+  task: "edge_detection"
+  class: InformativeDrawingPipeline
+  model: "@hinters-lineart-contour"
+
+- model_id: "hinters-lineart-opensketch"
+  model: "halffried/gyre_hinters"
+  subfolder: "lineart_opensketch"
+  type: "module"
+  class: DrawingGenerator(input_nc=3, output_nc=1, n_residual_blocks=3)
+
+- id: "hinters-lineart-opensketch"
+  task: "edge_detection"
+  class: InformativeDrawingPipeline
+  model: "@hinters-lineart-opensketch"
+
+# -------------------
 # Uniformer (segmenter)
 # -------------------
 

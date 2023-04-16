@@ -226,7 +226,7 @@ def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
         adjustment = generation.ImageAdjustment(
             canny_edge=generation.ImageAdjustment_CannyEdge(**args)
         )
-    elif "hed" in hint_type or "softedge" in hint_type:
+    elif "hed" in hint_type or "softedge" in hint_type or "lineart" in hint_type:
         adjustment = generation.ImageAdjustment(
             edge_detection=generation.ImageAdjustment_EdgeDetection()
         )
