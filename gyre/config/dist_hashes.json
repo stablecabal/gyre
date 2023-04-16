@@ -30,6 +30,8 @@
     "03151dc340c76bf76f3b4d13b8d5570af3c86013"
   ],
   "engines/hintsets.yaml": [
+    "d747628f034bc0d211ccc3e28c6296362ad29a0c",
+    "b7d4ebaf3b048ee34d4c6d76710f4371e333e56b",
     "42953d604600017bb026494bdb23d4a4c29fc147",
     "ca914626a0ae1099ffd6906a28d8e59455b0e351",
     "a1bf17a3ff60aec41e6a79b1eef9a05e2402024f",
@@ -38,8 +40,19 @@
     "68e67679a4eeb2d041051dd5839cd549f85aa128",
     "a8189807724ab53c6abacb7d9fa391a6e3a9ba83"
   ],
+  "examples.yaml": [
+    "23d07eefb56a8f386a09c6ea126141df70bda9bf",
+    "5647e412cb6da2f6b4a39cf879e428a76311e493"
+  ],
   "models/controlnet-11.yaml": [
+    "d491538a30d9941583e836d0d5e47ab96f4b19bd",
     "d7edd6d9a491b556be3d0e1b1c27c4e909efe9bd"
+  ],
+  "models/hinters.yaml": [
+    "1eb46fcfd2f3658349e5833b9979890a5ef5eba8",
+    "f205ae7064c81972648839d3e1a54a459c42f758",
+    "56e1b4d9eb5c48e8417dc46e6b80306554d2e575",
+    "24a458825c27c3e9dc2f1d9a0d031bc17d20f6bc"
   ],
   "models/clip.yaml": [
     "aaebe42e33d4712bbfec593d5f8d1e407e16694b",
@@ -162,11 +175,6 @@
     "b4d84010a4e892604242b09ef9f7f9f684260509",
     "446f5fe9e68fa2caf4e29d5063afc8b6f335a148"
   ],
-  "models/hinters.yaml": [
-    "f205ae7064c81972648839d3e1a54a459c42f758",
-    "56e1b4d9eb5c48e8417dc46e6b80306554d2e575",
-    "24a458825c27c3e9dc2f1d9a0d031bc17d20f6bc"
-  ],
   "models/stable-diffusion-v2.yaml": [
     "d5c60391935de3fa70b1016f0b16b56fd403a583",
     "fa2b9bdbf5a4f87f252a2dc36c78f46809830e44"
@@ -185,9 +193,6 @@
   "engines/waifu.yaml": [
     "c974e39fd320bf21d6e821fbb74ce842463f1920",
     "7611151e4ba4d97f3c1b1287f654fb837b7b251d"
-  ],
-  "examples.yaml": [
-    "5647e412cb6da2f6b4a39cf879e428a76311e493"
   ],
   "models/inkpunk.yaml": [
     "1855239efac5f1682a7090eaabbb91baf39459ed",
