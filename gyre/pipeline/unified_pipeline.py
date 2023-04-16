@@ -694,7 +694,9 @@ class UnifiedPipelineHint:
     weight: float
 
     @classmethod
-    def for_model(cls, models, image, mask=None, weight=1.0, clip_layer=None):
+    def for_model(
+        cls, models, image, mask=None, weight=1.0, clip_layer=None, batch_total=None
+    ):
 
         clip_model = models.pop("clip_model", None)
         feature_extractor = models.pop("feature_extractor", None)
@@ -719,7 +721,9 @@ class UnifiedPipelineHint:
             )
         # Handle Controlnets
         elif isinstance(model, controlnet.ControlNetModel):
-            return UnifiedPipelineHint_Controlnet(model, image, mask, weight)
+            return UnifiedPipelineHint_Controlnet(
+                model, image, mask, weight, batch_total
+            )
 
     def __init__(self, model, image, mask=None, weight=1.0, channels=3):
         if type(self) is UnifiedPipelineHint:
@@ -882,20 +886,41 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
     patch_unet = controlnet.patch_unet
     wrap_unet = UNetWithControlnet
 
+    def __init__(self, model, image, mask, weight, batch_total):
+        self.batch_total = batch_total
+        super().__init__(model, image, mask, weight)
+
+    def _basic_process(self, r):
+        return r * self.weight * self.resized_mask(r)
+
+    def _pooled_process(self, r):
+        if self.batch_total == r.shape[0]:
+            # TODO: This needs fixing. We need to pass this down from the CFG wrappers.
+            logger.warn(
+                "Can't tell if this is the unconditional or guided side. Probably result will be wrong."
+            )
+            return torch.mean(self._basic_process(r), dim=(2, 3), keepdim=True)
+
+        else:
+            u, g = r.chunk(2)
+            res_g = torch.mean(self._basic_process(g), dim=(2, 3), keepdim=True)
+            res_u = torch.zeros_like(res_g)
+            return torch.cat([res_u, res_g], dim=0)
+
     def __call__(self, *args, **kwargs):
         res = self.model(*args, **kwargs, controlnet_cond=self.image)
-        weight = self.weight
+
+        process_residual = (
+            self._pooled_process
+            if self.model.config.get("global_average_pooling", False)
+            else self._basic_process
+        )
 
         down_block_residuals = [
-            residual * weight * self.resized_mask(residual)
-            for residual in res.down_block_res_samples
+            process_residual(residual) for residual in res.down_block_res_samples
         ]
 
-        mid_block_residual = (
-            res.mid_block_res_sample
-            * weight
-            * self.resized_mask(res.mid_block_res_sample)
-        )
+        mid_block_residual = process_residual(res.mid_block_res_sample)
 
         return SN(
             down_block_res_samples=down_block_residuals,
@@ -1107,10 +1132,7 @@ class UnifiedPipeline(DiffusionPipeline):
             Model that extracts features from generated images to be used as inputs for the `safety_checker`.
     """
 
-    _meta = {
-        "diffusers_capable": True,
-        "kdiffusion_capable": True
-    }
+    _meta = {"diffusers_capable": True, "kdiffusion_capable": True}
 
     def _check_scheduler_config(self, scheduler):
         if (
@@ -1873,6 +1895,7 @@ class UnifiedPipeline(DiffusionPipeline):
                                 mask=None,
                                 weight=weight,
                                 clip_layer=clip_layer,
+                                batch_total=batch_total,
                             )
                         )
                     else:
@@ -2026,6 +2049,7 @@ class UnifiedPipeline(DiffusionPipeline):
             if unet is self.inpaint_unet and self.inpaint_text_encoder is not None:
                 text_encoder = self.inpaint_text_encoder
 
+            base_unet = unet
             prompt_chunks = []
 
             try:
@@ -2107,7 +2131,7 @@ class UnifiedPipeline(DiffusionPipeline):
 
                 for cls, ghints in grouped.items():
                     if cls.patch_unet:
-                        cls.patch_unet(leaf.opts["unet"])
+                        cls.patch_unet(base_unet)
                     if cls.wrap_unet:
                         unet = cls.wrap_unet(unet, list(ghints))
 

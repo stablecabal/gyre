@@ -341,6 +341,13 @@ def apply_image_adjustment(
 
             tensor = images.palletize(tensor, colours)
 
+        elif which == "quantize":
+            thresholds = list(adjustment.quantize.threshold)
+            tensor = images.quantize(tensor, thresholds)
+
+        elif which == "shuffle":
+            tensor = images.shuffle(tensor)
+
         else:
             raise ValueError(f"Unkown image adjustment {which}")
 

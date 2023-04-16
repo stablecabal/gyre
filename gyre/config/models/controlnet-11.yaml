@@ -1,29 +1,49 @@
 - model_id: "controlnet11-canny"
+  model: "lllyasviel/control_v11p_sd15_canny"
+  type: "controlnet"
+
+- model_id: "controlnet11-depth"
   model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11p_sd15_canny"
+  subfolder: "control_v11f1p_sd15_depth"
+  type: "controlnet"
+
+- model_id: "controlnet11-inpaint"
+  model: "lllyasviel/control_v11p_sd15_inpaint"
+  type: "controlnet"
+
+- model_id: "controlnet11-lineart"
+  model: "lllyasviel/control_v11p_sd15_lineart"
+  type: "controlnet"
+
+- model_id: "controlnet11-lineart-anime"
+  model: "lllyasviel/control_v11p_sd15s2_lineart_anime"
+  type: "controlnet"
+
+- model_id: "controlnet11-mlsd"
+  model: "lllyasviel/control_v11p_sd15_mlsd"
   type: "controlnet"
 
 - model_id: "controlnet11-normalbae"
-  model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11p_sd15_normalbae"
+  model: "lllyasviel/control_v11p_sd15_normalbae"
   type: "controlnet"
 
 - model_id: "controlnet11-openpose"
-  model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11p_sd15_openpose"
+  model: "lllyasviel/control_v11p_sd15_openpose"
   type: "controlnet"
 
 - model_id: "controlnet11-scribble"
-  model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11p_sd15_scribble"
+  model: "lllyasviel/control_v11p_sd15_scribble"
   type: "controlnet"
 
 - model_id: "controlnet11-seg"
+  model: "lllyasviel/control_v11p_sd15_seg"
+  type: "controlnet"
+
+- model_id: "controlnet11-shuffle"
   model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11p_sd15_seg"
+  subfolder: "control_v11e_sd15_shuffle"
   type: "controlnet"
 
 - model_id: "controlnet11-softedge"
-  model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11p_sd15_softedge"
+  model: "lllyasviel/control_v11p_sd15_softedge"
   type: "controlnet"

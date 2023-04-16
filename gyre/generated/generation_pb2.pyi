@@ -778,9 +778,11 @@ class ImageAdjustment_Normal(google.protobuf.message.Message):
     POSTBLUR_FIELD_NUMBER: builtins.int
     SMOOTHING_FIELD_NUMBER: builtins.int
     background_threshold: builtins.float
-    """0 .. 1, the higher the more background is removed"""
+    """0 .. 1, the higher the more background is removed. -1 == automatic"""
     preblur: builtins.int
-    """Must be an odd integer if supplied. How much to blur depth map before calculating normal map: Recommended: 0"""
+    """These next three only have any affect when using a depth engine (and then estimating a normal from that)
+    Must be an odd integer if supplied. How much to blur depth map before calculating normal map: Recommended: 0
+    """
     postblur: builtins.int
     """Must be an odd integer if supplied. How much to blur normal map. Recommended: 5"""
     smoothing: builtins.float
@@ -842,6 +844,37 @@ class ImageAdjustment_Palletize(google.protobuf.message.Message):
 global___ImageAdjustment_Palletize = ImageAdjustment_Palletize
 
 @typing_extensions.final
+class ImageAdjustment_Quantize(google.protobuf.message.Message):
+    """Quantize the image"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    THRESHOLD_FIELD_NUMBER: builtins.int
+    @property
+    def threshold(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.float]:
+        """0..1 linearly divided into len(threshold)+1 points, then numbers rounded to those
+        points based on thresholds
+        """
+    def __init__(
+        self,
+        *,
+        threshold: collections.abc.Iterable[builtins.float] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["threshold", b"threshold"]) -> None: ...
+
+global___ImageAdjustment_Quantize = ImageAdjustment_Quantize
+
+@typing_extensions.final
+class ImageAdjustment_Shuffle(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___ImageAdjustment_Shuffle = ImageAdjustment_Shuffle
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -861,6 +894,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     BACKGROUND_REMOVAL_FIELD_NUMBER: builtins.int
     AUTOSCALE_FIELD_NUMBER: builtins.int
     PALLETIZE_FIELD_NUMBER: builtins.int
+    QUANTIZE_FIELD_NUMBER: builtins.int
+    SHUFFLE_FIELD_NUMBER: builtins.int
     ENGINE_ID_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
@@ -894,6 +929,10 @@ class ImageAdjustment(google.protobuf.message.Message):
     def autoscale(self) -> global___ImageAdjustment_Autoscale: ...
     @property
     def palletize(self) -> global___ImageAdjustment_Palletize: ...
+    @property
+    def quantize(self) -> global___ImageAdjustment_Quantize: ...
+    @property
+    def shuffle(self) -> global___ImageAdjustment_Shuffle: ...
     engine_id: builtins.str
     def __init__(
         self,
@@ -914,14 +953,16 @@ class ImageAdjustment(google.protobuf.message.Message):
         background_removal: global___ImageAdjustment_BackgroundRemoval | None = ...,
         autoscale: global___ImageAdjustment_Autoscale | None = ...,
         palletize: global___ImageAdjustment_Palletize | None = ...,
+        quantize: global___ImageAdjustment_Quantize | None = ...,
+        shuffle: global___ImageAdjustment_Shuffle | None = ...,
         engine_id: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "rescale", b"rescale", "segmentation", b"segmentation"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "rescale", b"rescale", "segmentation", b"segmentation"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_engine_id", b"_engine_id"]) -> typing_extensions.Literal["engine_id"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize", "quantize", "shuffle"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 

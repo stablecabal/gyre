@@ -80,6 +80,23 @@
     aliases: "canny"
     model: "@controlnet11-canny"
     priority: 300
+  controlnet11/depth:
+    aliases: ["depth", "depth/zoe"]
+    model: "@controlnet11-depth"
+    priority: 75
+  controlnet11/inpaint:
+    aliases: "inpaint"
+    model: "@controlnet11-inpaint"
+  controlnet11/lineart:
+    aliases: "lineart"
+    model: "@controlnet11-lineart"
+  controlnet11/lineart-anime:
+    aliases: ["lineart", "lineart/anime"]
+    model: "@controlnet11-lineart-anime"
+  controlnet11/mlsd:
+    aliases: "mlsd"
+    model: "@controlnet11-mlsd"
+    priority: 200
   controlnet11/normalbae:
     aliases: ["normal", "normal/bae"]
     model: "@controlnet11-normalbae"
@@ -95,6 +112,10 @@
   controlnet11/seg:
     aliases: ["segmentation", "segmentation/ade20k"]
     model: "@controlnet11-seg"
+  controlnet11/shuffle:
+    aliases: "style"
+    model: "@controlnet11-shuffle"
+    priority: 50
   controlnet11/softedge:
     aliases: ["hed", "softedge"]
     model: "@controlnet11-softedge"
@@ -108,8 +129,9 @@
   "@hintset-sd15-controlnet11":
     - "controlnet11/canny"
     - "controlnet11/normalbae"
-    - "controlnet11/softedge"
     - "controlnet11/seg"
+    - "controlnet11/shuffle"
+    - "controlnet11/softedge"
 
 - hintset_id: "hintset-sd15-complete"
   "@hintset-sd15-coadapter": "*"

@@ -1764,6 +1764,12 @@
                     "palletize": {
                         "$ref": "#/components/schemas/ImageAdjustment_Palletize"
                     },
+                    "quantize": {
+                        "$ref": "#/components/schemas/ImageAdjustment_Quantize"
+                    },
+                    "shuffle": {
+                        "$ref": "#/components/schemas/ImageAdjustment_Shuffle"
+                    },
                     "engineId": {
                         "type": "string"
                     }
@@ -1905,12 +1911,13 @@
                     "backgroundThreshold": {
                         "type": "number",
                         "format": "float",
-                        "title": "0 .. 1, the higher the more background is removed"
+                        "title": "0 .. 1, the higher the more background is removed. -1 == automatic"
                     },
                     "preblur": {
                         "type": "integer",
                         "format": "int64",
-                        "title": "Must be an odd integer if supplied. How much to blur depth map before calculating normal map: Recommended: 0"
+                        "description": "Must be an odd integer if supplied. How much to blur depth map before calculating normal map: Recommended: 0",
+                        "title": "These next three only have any affect when using a depth engine (and then estimating a normal from that)"
                     },
                     "postblur": {
                         "type": "integer",
@@ -1937,6 +1944,20 @@
                     }
                 }
             },
+            "ImageAdjustment_Quantize": {
+                "type": "object",
+                "properties": {
+                    "threshold": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "title": "0..1 linearly divided into len(threshold)+1 points, then numbers rounded to those\npoints based on thresholds"
+                    }
+                },
+                "title": "Quantize the image"
+            },
             "ImageAdjustment_Rescale": {
                 "type": "object",
                 "properties": {
@@ -1961,6 +1982,9 @@
                 "title": "Resize the image. The mode specifies what will happen if the aspect ratio"
             },
             "ImageAdjustment_Segmentation": {
+                "type": "object"
+            },
+            "ImageAdjustment_Shuffle": {
                 "type": "object"
             },
             "ImageParameters": {

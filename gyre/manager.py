@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import shutil
+import sys
 import tempfile
 import traceback
 from collections import deque
@@ -505,6 +506,80 @@ def all_same(items):
     return all(x == items[0] for x in items)
 
 
+@dataclass
+class RepoFile:
+    full: str
+    name: str
+    dtype: str | None
+    kind: str
+
+    @classmethod
+    def from_str(cls, f, **overrides):
+        *parts, dtype, kind = f.split(".")
+        if not parts:
+            parts, dtype = [dtype], None
+        kwargs = dict(name=".".join(parts), dtype=dtype, kind=kind)
+        kwargs.update(overrides)
+        return RepoFile(full=f, **kwargs)
+
+    model_kinds = {
+        "ckpt",
+        "bin",
+        "pt",
+        "pth",
+        "safetensors",
+        "msgpack",
+        "h5",
+    }
+
+
+_skip = object()
+
+
+class RepoFileSet:
+    def __init__(self, files: list[RepoFile]):
+        self.files = files
+
+    def _parse_args(self, name, dtype, kind):
+        if name is not _skip and not isinstance(name, set):
+            name = {name}
+        if dtype is not _skip and not isinstance(dtype, set):
+            dtype = {dtype}
+        if kind is not _skip and not isinstance(kind, set):
+            kind = {kind}
+
+        return name, dtype, kind
+
+    def _test(self, f, name, dtype, kind):
+        return (
+            (name is _skip or f.name in name)
+            and (dtype is _skip or f.dtype in dtype)
+            and (kind is _skip or f.kind in kind)
+        )
+
+    def _find(self, name, dtype, kind, exclusive=False):
+        return [f for f in self.files if self._test(f, name, dtype, kind) != exclusive]
+
+    def find(self, attr="name", name=_skip, dtype=_skip, kind=_skip):
+        name, dtype, kind = self._parse_args(name, dtype, kind)
+        return {getattr(f, attr) for f in self._find(name, dtype, kind)}
+
+    def remove(self, name=_skip, dtype=_skip, kind=_skip):
+        name, dtype, kind = self._parse_args(name, dtype, kind)
+        self.files = self._find(name, dtype, kind, exclusive=True)
+
+    @staticmethod
+    def safetensor_equivalents(names):
+        res = set()
+        for name in names:
+            head, tail = os.path.split(name)
+            if tail == "pytorch_model":
+                tail = "model"
+
+            res.add(os.path.join(head, tail))
+        return res
+
+
 class EngineManager(object):
     def __init__(
         self,
@@ -607,10 +682,16 @@ class EngineManager(object):
         if revision:
             extra_kwargs["revision"] = revision
 
-        # Handle various fp16 modes
-        require_fp16 = (not revision) and self.mode.fp16 and spec.fp16 == "only"
-        prefer_fp16 = (not revision) and self.mode.fp16 and spec.fp16 == "auto"
+        # Handle various fp16 modes (local, never and prevent are all the same for this method)
+        require_fp16 = self.mode.fp16 and spec.fp16 == "only"
+        prefer_fp16 = self.mode.fp16 and spec.fp16 == "auto"
         has_fp16 = None
+
+        # In local_only mode it's very hard to determine if local weights are fp16 or not
+        # It's not used anyway, so deprecate "only" mode
+        if require_fp16:
+            logger.warn("fp16: only is deprecated. Falling back to fp16: auto")
+            prefer_fp16 = True
 
         subfolder = f"{spec.subfolder}/" if spec.subfolder else ""
 
@@ -645,92 +726,120 @@ class EngineManager(object):
             if not local_only:
                 # Get a list of files, split into path and extension
                 repo_info = None
-                if require_fp16 or prefer_fp16:
+                overrides = {}
+                if (not revision) and prefer_fp16:
                     try:
                         repo_info = huggingface_hub.model_info(
                             model_path, revision="fp16", **extra_kwargs
                         )
-                        has_fp16 = True
+                        overrides["dtype"] = "fp16"
                     except huggingface_hub.utils.RevisionNotFoundError as e:
-                        if require_fp16:
-                            raise huggingface_hub.utils.RevisionNotFoundError(
-                                f"fp16 for {spec.human_id} is set to 'only', but no fp16 available. {e}",
-                                e.response,
-                            )
+                        pass
 
                 if repo_info is None:
                     repo_info = huggingface_hub.model_info(model_path, **extra_kwargs)
-                    has_fp16 = prefer_fp16 = False
 
-                # Read out the list of files
-                repo_files = [f.rfilename for f in repo_info.siblings]
-                # Filter by any ignore / allow
+                # Read out the list of files, filtering by any ignore / allow
                 repo_files = list(
                     huggingface_hub.utils.filter_repo_objects(
-                        repo_files,
+                        [f.rfilename for f in repo_info.siblings],
                         ignore_patterns=ignore_patterns if ignore_patterns else None,
                         allow_patterns=allow_patterns if allow_patterns else None,
                     )
                 )
-                # Split into path and extension tuple
-                split_repo_files = [os.path.splitext(f) for f in repo_files]
-                # Sort by extension (grouping fails if not correctly sorted)
-                split_repo_files.sort(key=lambda x: x[1])
-                # Turn into a dictionary of { extension: set_of_files }
-                grouped = {
-                    k: {f[0] for f in v}
-                    for k, v in itertools.groupby(split_repo_files, lambda x: x[1])
-                }
 
-                has_ckpt = ".ckpt" in grouped
-                has_bin = ".bin" in grouped
-                has_pt = ".pt" in grouped
-                has_pth = ".pth" in grouped
-                has_safe = ".safetensors" in grouped
+                # Convert strings into RepoFile objects
+                repo_file_details = [
+                    RepoFile.from_str(f, **overrides) for f in repo_files if "." in f
+                ]
 
-                # Now decide which we will use
-                use = None
+                # And then collect the ones that look like models in a set
+                model_files = RepoFileSet(
+                    [f for f in repo_file_details if f.kind in RepoFile.model_kinds]
+                )
 
-                extensions = {
-                    "ckpt",
-                    "bin",
-                    "pt",
-                    "pth",
-                    "safetensors",
-                    "msgpack",
-                    "h5",
-                }
+                # We need to figure out what files to download. Make these assumptions:
+                # - Any .safetensors that match some other .model (ignoring dtype) are the same underlying type
+                # - If we don't have a clear type (diffusers or ckpt), we have to include all safetensors
 
-                if spec.safe_only:
-                    use = "safetensors"
-                elif has_bin:
-                    if has_safe and is_safetensors_compatible(repo_files):
-                        use = "safetensors"
-                        if has_ckpt:
-                            # Explictly don't include any safetensors that match ckpt files
-                            ignore_patterns += [
-                                f"{file}.safetensors"
-                                for file in (grouped[".ckpt"] & grouped[".safetensors"])
-                            ]
+                # What kinds of model exist?
+                has = {k: k in model_files.find("kind") for k in RepoFile.model_kinds}
+
+                # If we have bin, pt or pth files, remove any safetensors that match ckpts
+                # to make future logic easier
+                if has["bin"] or has["pt"] or has["pth"]:
+                    model_files.remove(name=model_files.find(kind="ckpt"))
+
+                # Pick the kind and specific (bare) names
+                kind = names = None
+
+                # 1st choice: bin (or even better, safetensors that match bin)
+                if has["bin"]:
+                    names = model_files.find(kind="bin")
+                    equivalents = RepoFileSet.safetensor_equivalents(names)
+                    safetensors = model_files.find(kind="safetensors")
+
+                    if equivalents - safetensors:
+                        logger.debug(
+                            f"Diffusers models were missing some safetensors ({equivalents - safetensors})"
+                        )
+                        kind = "bin"
                     else:
-                        use = "bin"
-                elif has_safe:
-                    use = "safetensors"
-                elif has_pt:
-                    use = "pt"
-                elif has_pth:
-                    use = "pth"
-                elif has_ckpt:
-                    use = "ckpt"
+                        names = equivalents
+                        kind = "safetensors"
+                # 2nd choice: safetensors
+                elif has["safetensors"]:
+                    names = model_files.find(kind="safetensors")
+                    kind = "safetensors"
+                # 3rd choice, ".pt" or ".pth"
+                elif has["pt"]:
+                    names = model_files.find(kind="pt")
+                    kind = "pt"
+                elif has["pth"]:
+                    names = model_files.find(kind="pth")
+                    kind = "pth"
+                # 4th choice: ckpt (or safetensors that match if possible)
+                elif has["ckpt"]:
+                    names = model_files.find(kind="ckpt")
+                    safetensors = model_files.find(kind="safetensors")
+
+                    if names - safetensors:
+                        logger.debug(
+                            f"Checkpoints were some safetensors ({names - safetensors})"
+                        )
+                        kind = "ckpt"
+                    else:
+                        kind = "safetensors"
+
                 else:
                     raise EnvironmentError(
                         "Repo {model_path} doesn't appear to contain any model files."
                     )
 
+                if spec.safe_only and kind != "safetensors":
+                    raise RuntimeError(
+                        "spec.safe_only set, but couldn't find appropriate safetensors files"
+                    )
+
+                if prefer_fp16:
+                    if names - model_files.find(name=names, dtype="fp16", kind=kind):
+                        has_fp16 = prefer_fp16 = False
+                    else:
+                        has_fp16 = True
+
+                logger.debug(
+                    f"Model chosen {kind}{', fp16' if has_fp16 else ''}, names: {names}"
+                )
+
+                chosen = [
+                    model_files.find(
+                        "full", name=name, dtype="fp16" if has_fp16 else None, kind=kind
+                    ).pop()
+                    for name in names
+                ]
+
                 ignore_patterns += [
-                    f"{subfolder}*.{extension}"
-                    for extension in extensions
-                    if extension != use
+                    f for f in model_files.find("full") if f not in chosen
                 ]
 
                 if ignore_patterns:
@@ -738,7 +847,7 @@ class EngineManager(object):
                 if allow_patterns:
                     extra_kwargs["allow_patterns"] = allow_patterns
 
-            if require_fp16 or prefer_fp16:
+            if (not revision) and prefer_fp16:
                 try:
                     base = huggingface_hub.snapshot_download(
                         model_path,
@@ -752,14 +861,7 @@ class EngineManager(object):
                     FileNotFoundError,
                     huggingface_hub.utils.RevisionNotFoundError,
                 ):
-                    if has_fp16 is True:
-                        raise RuntimeError(
-                            "HuggingFace reported FP16 model is available on query, but failed to provide it on download."
-                        )
-                    if require_fp16:
-                        raise RuntimeError(
-                            f"fp16 for {spec.human_id} is set to 'only', but no fp16 available."
-                        )
+                    pass
 
             base = huggingface_hub.snapshot_download(
                 model_path,
@@ -1083,13 +1185,15 @@ class EngineManager(object):
         is_diffusers_model = subclass_check(class_obj, ModelMixin)
         is_transformers_model = subclass_check(class_obj, PreTrainedModel)
 
-        if (
+        accepts_low_cpu_mem_usage = (
             is_diffusers_model
             or is_transformers_model
             or "low_cpu_mem_usage" in init_params
-        ):
-            loading_kwargs["low_cpu_mem_usage"] = True
+        )
+        accepts_variant = is_diffusers_model or "variant" in init_params
 
+        if accepts_low_cpu_mem_usage:
+            loading_kwargs["low_cpu_mem_usage"] = True
         if "ignore_patterns" in init_params:
             loading_kwargs["ignore_patterns"] = ignore_patterns
         if "allow_patterns" in init_params:
@@ -1100,7 +1204,33 @@ class EngineManager(object):
         if os.path.isdir(sub_path):
             weight_path = sub_path
 
-        model = load_method(weight_path, **loading_kwargs)
+        # We can't _know_ if the fp16 variant is loadable without checking the
+        # full model details online. So just _try_ and fall back to trying without variant
+
+        # This is _SO DUMB_ - some models call set_default_dtype, but don't properly
+        # wrap that in a try / finally to restore the original dtype
+        default_dtype = torch.get_default_dtype()
+
+        model = variant_exception = None
+        if accepts_variant and fp16:
+            try:
+                model = load_method(weight_path, variant="fp16", **loading_kwargs)
+            except Exception as e:
+                variant_exception = e
+            finally:
+                torch.set_default_dtype(default_dtype)
+
+        if model is None:
+            try:
+                model = load_method(weight_path, **loading_kwargs)
+            except Exception as e:
+                if variant_exception is not None:
+                    raise e from variant_exception
+                else:
+                    raise e
+            finally:
+                torch.set_default_dtype(default_dtype)
+
         model._source = weight_path
         return model
 

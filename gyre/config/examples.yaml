@@ -62,7 +62,6 @@
   #
   # You can set it to
   # - "auto" (the default behaviour described above)
-  # - "only" (will fail if running fp16 mode and only fp32 weights available)
   # - "local" (will use local fp16 weights, but only fp32 weights from HuggingFace)
   # - "never" (dont try to find fp16 weights)
   # - "prevent" (run this model in fp32 mode even if the server is in fp16 mode)

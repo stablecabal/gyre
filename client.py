@@ -226,10 +226,22 @@ def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
         adjustment = generation.ImageAdjustment(
             canny_edge=generation.ImageAdjustment_CannyEdge(**args)
         )
-    elif "hed" in hint_type or "sketch" in hint_type or "scribble" in hint_type:
+    elif "hed" in hint_type or "softedge" in hint_type:
         adjustment = generation.ImageAdjustment(
             edge_detection=generation.ImageAdjustment_EdgeDetection()
         )
+    elif "sketch" in hint_type or "scribble" in hint_type:
+        adjustment = [
+            generation.ImageAdjustment(
+                edge_detection=generation.ImageAdjustment_EdgeDetection()
+            ),
+            generation.ImageAdjustment(
+                blur=generation.ImageAdjustment_Gaussian(sigma=3)
+            ),
+            generation.ImageAdjustment(
+                quantize=generation.ImageAdjustment_Quantize(threshold=[0.15])
+            ),
+        ]
     elif "segment" in hint_type:
         adjustment = generation.ImageAdjustment(
             segmentation=generation.ImageAdjustment_Segmentation()
@@ -254,13 +266,26 @@ def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
         adjustment = generation.ImageAdjustment(
             palletize=generation.ImageAdjustment_Palletize(**args)
         )
+    elif "shuffle" in hint_type:
+        adjustment = [
+            generation.ImageAdjustment(
+                autoscale=generation.ImageAdjustment_Autoscale(
+                    mode=generation.RESCALE_COVER
+                )
+            ),
+            generation.ImageAdjustment(shuffle=generation.ImageAdjustment_Shuffle()),
+        ]
     else:
         raise ValueError(f"Gyre can't convert image to hint type {hint_type}")
 
-    if isinstance(converter, str):
-        adjustment.engine_id = converter
+    if isinstance(adjustment, list):
+        prompt.artifact.adjustments.extend(adjustment)
 
-    prompt.artifact.adjustments.append(adjustment)
+    else:
+        if isinstance(converter, str):
+            adjustment.engine_id = converter
+
+        prompt.artifact.adjustments.append(adjustment)
 
     return prompt
 

@@ -18,6 +18,8 @@ import torchvision
 from PIL import Image as PILImage
 from tqdm import tqdm, trange
 
+from gyre.images_shuffle import ContentShuffleDetector
+
 from .resize_right import interp_methods
 from .resize_right import resize as resize_right
 
@@ -583,3 +585,32 @@ def palletize(tensor, colours):
     ).clamp(0, 1)
 
     return result
+
+
+def quantize(tensor, thresholds):
+    assert (
+        tensor.min() >= 0 and tensor.max() <= 1
+    ), "Quantize only works on tensors in range 0..1"
+
+    targets = np.linspace(0, 1, len(thresholds) + 1)[:-1]
+
+    prev = 0
+    for threshold, target in zip(thresholds, targets):
+        tensor = torch.where((tensor > prev) & (tensor <= threshold), target, tensor)
+        prev = target
+
+    tensor = torch.where(tensor > prev, 1, tensor)
+
+    return tensor
+
+
+def shuffle(tensor):
+    cv_images = toCV(tensor)
+    results = []
+
+    for image in cv_images:
+        shuffler = ContentShuffleDetector()
+        cv_result = shuffler(image)
+        results.append(fromCV(cv_result))
+
+    return torch.cat(results, dim=0)
