@@ -1,5 +1,4 @@
 import dataclasses
-import functools
 import json
 import logging
 import random
@@ -7,6 +6,7 @@ import threading
 import time
 import traceback
 import uuid
+from functools import cached_property
 from math import sqrt
 from queue import Empty, Queue
 from types import SimpleNamespace as SN
@@ -169,6 +169,9 @@ def apply_image_adjustment(
     log_message = "{}"
     log_args = [tensor]
 
+    # Background Removal mask is stored outside loop, in case we want to reuse it
+    bgmask = None
+
     for adjustment in adjustments:
         which = adjustment.WhichOneof("adjustment")
 
@@ -323,16 +326,38 @@ def apply_image_adjustment(
                 tensor = estimator(tensor, output_format="openpose")
 
         elif which == "background_removal":
-            with manager.with_engine(engine_id, "background-removal") as remover:
-                mode = "alpha"
-                BRM = generation_pb2.BackgroundRemovalMode
-                if adjustment.background_removal.HasField("mode"):
-                    if adjustment.background_removal.mode == BRM.SOLID:
-                        mode = "solid"
-                    elif adjustment.background_removal.mode == BRM.BLUR:
-                        mode = "blur"
+            if adjustment.background_removal.reapply:
+                if bgmask is None:
+                    raise ValueError("No mask memorised to reapply")
 
-                tensor = remover(tensor, mode=mode)
+            else:
+                with manager.with_engine(engine_id, "background-removal") as remover:
+                    # Calculate the mask
+                    bgmask = remover(tensor, mode="mask")
+
+            BRM = generation_pb2.BackgroundRemovalMode
+
+            # First, read mode, setting default if field not provided
+            if adjustment.background_removal.HasField("mode"):
+                mode = adjustment.background_removal.mode
+            else:
+                mode = BRM.ALPHA
+
+            # Then apply mode
+            if mode == BRM.NOTHING:
+                pass
+            else:
+                tensor = images.normalise_tensor(tensor, 3)
+                if mode == BRM.ALPHA:
+                    tensor = torch.cat([tensor, bgmask], dim=1)
+                elif mode == BRM.BLUR:
+                    bg = images.infill(tensor, bgmask, 26)
+                    bg = images.gaussianblur(bg, 13)
+                    tensor = tensor * bgmask + bg * (1 - bgmask)
+                elif mode == BRM.SOLID:
+                    tensor = tensor * bgmask
+                else:
+                    raise ValueError("Unknown background removal mode")
 
         elif which == "palletize":
             colours = 8
@@ -444,7 +469,6 @@ class ParameterExtractor:
         artifact: generation_pb2.Artifact,
         stage=generation_pb2.ARTIFACT_AFTER_ADJUSTMENTS,
         extra=None,
-        no_autoscale=False,
     ):
         if artifact.WhichOneof("data") == "binary":
             image = self._image_from_artifact_binary(artifact)
@@ -457,9 +481,9 @@ class ParameterExtractor:
 
         kwargs = dict(manager=self._manager, tensor=image)
 
-        if not no_autoscale:
-            kwargs["native_width"] = self.width()
-            kwargs["native_height"] = self.height()
+        artifact_is_init_image = artifact.type == generation_pb2.ARTIFACT_IMAGE
+        kwargs["native_width"] = self.width(use_init_image=not artifact_is_init_image)
+        kwargs["native_height"] = self.height(use_init_image=not artifact_is_init_image)
 
         if stage != generation_pb2.ARTIFACT_BEFORE_ADJUSTMENTS:
             image = apply_image_adjustment(**kwargs, adjustments=artifact.adjustments)
@@ -607,12 +631,12 @@ class ParameterExtractor:
     def num_images_per_prompt(self):
         return self._image_parameter("samples")
 
-    def height(self):
+    def height(self, use_init_image=True):
         # Just accept height if passed
         if (height := self._image_parameter("height")) is not None:
             return height
         # If not passed, first try and use the size from init image
-        if (image := self.image(no_autoscale=True)) is not None:
+        if use_init_image and (image := self.image) is not None:
             # If width parameter _was_ passed, calculate height to maintain aspect ratio
             if (width := self._image_parameter("width")) is not None:
                 return round(image.shape[-2] / image.shape[-1] * width)
@@ -621,12 +645,12 @@ class ParameterExtractor:
         # Otherwise default to 512
         return 512
 
-    def width(self):
+    def width(self, use_init_image=True):
         # Just accept width if passed
         if (width := self._image_parameter("width")) is not None:
             return width
         # If not passed, first try and use the size from init image
-        if (image := self.image(no_autoscale=True)) is not None:
+        if use_init_image and (image := self.image) is not None:
             # If height parameter _was_ passed, calculate width to maintain aspect ratio
             if (height := self._image_parameter("height")) is not None:
                 return round(image.shape[-1] / image.shape[-2] * height)
@@ -714,14 +738,13 @@ class ParameterExtractor:
 
         return image
 
-    def image(self, no_autoscale=False):
+    @cached_property
+    def image(self):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_IMAGE:
                 return self._add_to_echo(
                     prompt,
-                    self._image_from_artifact(
-                        prompt.artifact, no_autoscale=no_autoscale
-                    ),
+                    self._image_from_artifact(prompt.artifact),
                 )
 
     def mask_image(self):
@@ -866,7 +889,8 @@ class ParameterExtractor:
             return False
 
     def get(self, field):
-        return getattr(self, field)()
+        val = getattr(self, field)
+        return val() if callable(val) else val
 
     def fields(self):
         return [

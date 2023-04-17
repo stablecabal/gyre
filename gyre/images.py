@@ -412,7 +412,7 @@ def canny_edge(tensor, low_threshold, high_threshold):
         edges = cv.Canny(cvii, low_threshold, high_threshold)
         res.append(fromCV(edges))
 
-    return torch.cat(res, dim=0)
+    return torch.cat(res, dim=0).to(tensor)
 
 
 # define the total variation denoising network
@@ -613,4 +613,47 @@ def shuffle(tensor):
         cv_result = shuffler(image)
         results.append(fromCV(cv_result))
 
-    return torch.cat(results, dim=0)
+    return torch.cat(results, dim=0).to(tensor)
+
+
+def information_in_alpha(tensor):
+    if tensor.shape[1] < 4:
+        return False
+
+    if len(unique := tensor.unique_consecutive()) == 1:
+        return unique == 1.0
+
+    # TODO: Which is faster?
+    # if unique.mean() == 1.0 and unique.std() == 0.0:
+    #     return False
+
+    return True
+
+
+def infill(tensor, mask, size, step=2):
+    """mask should be 0 keep, 1 replace"""
+
+    # Pad tensor and mask, to avoid rotation on shift
+    tensor = torch.nn.functional.pad(tensor, (size, size, size, size), mode="replicate")
+    mask = torch.nn.functional.pad(mask, (size, size, size, size), mode="replicate")
+
+    # Slightly expand, then harden, then invert mask
+    mask = gaussianblur(mask, 1)
+    mask = quantize(mask, [0.01])
+    mask = 1 - mask
+
+    # Result and mask accumulator
+    result = tensor * mask
+    mask_accum = mask
+
+    for s in range(step, size, step):
+        for rx in (-s, 0, s):
+            for ry in (-s, 0, s):
+                shifted = tensor.roll(shifts=(ry, rx), dims=(-2, -1))
+                shifted_mask = mask.roll(shifts=(ry, rx), dims=(-2, -1))
+
+                result = result + shifted * shifted_mask * (1 - mask_accum)
+                mask_accum = (mask_accum + shifted_mask).clamp(0, 1)
+
+    s = result.shape
+    return result[:, :, size : s[-2] - size, size : s[-1] - size]

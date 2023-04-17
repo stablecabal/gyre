@@ -193,7 +193,7 @@ def image_to_prompt(
 
     # bgremove = generation.ImageAdjustment(
     #     background_removal=generation.ImageAdjustment_BackgroundRemoval(
-    #         mode=generation.BackgroundRemovalMode.ALPHA
+    #         mode=generation.BackgroundRemovalMode.BLUR
     #     )
     # )
     # prompt.artifact.adjustments.append(bgremove)
@@ -286,6 +286,14 @@ def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
             adjustment.engine_id = converter
 
         prompt.artifact.adjustments.append(adjustment)
+
+    if remove_bg:
+        bgremove = generation.ImageAdjustment(
+            background_removal=generation.ImageAdjustment_BackgroundRemoval(
+                mode=generation.BackgroundRemovalMode.ALPHA, reapply=True
+            )
+        )
+        prompt.artifact.adjustments.append(bgremove)
 
     return prompt
 

@@ -166,6 +166,8 @@ class _BackgroundRemovalModeEnumTypeWrapper(google.protobuf.internal.enum_type_w
     """Matte over a solid color"""
     BLUR: _BackgroundRemovalMode.ValueType  # 2
     """Matte over a blurred version of the input"""
+    NOTHING: _BackgroundRemovalMode.ValueType  # 3
+    """Don't do anything, just remember it for later"""
 
 class BackgroundRemovalMode(_BackgroundRemovalMode, metaclass=_BackgroundRemovalModeEnumTypeWrapper): ...
 
@@ -175,6 +177,8 @@ SOLID: BackgroundRemovalMode.ValueType  # 1
 """Matte over a solid color"""
 BLUR: BackgroundRemovalMode.ValueType  # 2
 """Matte over a blurred version of the input"""
+NOTHING: BackgroundRemovalMode.ValueType  # 3
+"""Don't do anything, just remember it for later"""
 global___BackgroundRemovalMode = BackgroundRemovalMode
 
 class _ArtifactStage:
@@ -813,14 +817,18 @@ class ImageAdjustment_BackgroundRemoval(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     MODE_FIELD_NUMBER: builtins.int
+    REAPPLY_FIELD_NUMBER: builtins.int
     mode: global___BackgroundRemovalMode.ValueType
+    reapply: builtins.bool
+    """Don't recalculate, reapply the most recently calculated background within this adjustment list"""
     def __init__(
         self,
         *,
         mode: global___BackgroundRemovalMode.ValueType | None = ...,
+        reapply: builtins.bool = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["_mode", b"_mode", "mode", b"mode"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_mode", b"_mode", "mode", b"mode"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_mode", b"_mode", "mode", b"mode", "reapply", b"reapply"]) -> None: ...
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_mode", b"_mode"]) -> typing_extensions.Literal["mode"] | None: ...
 
 global___ImageAdjustment_BackgroundRemoval = ImageAdjustment_BackgroundRemoval

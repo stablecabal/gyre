@@ -1251,10 +1251,11 @@
                 "enum": [
                     "ALPHA",
                     "SOLID",
-                    "BLUR"
+                    "BLUR",
+                    "NOTHING"
                 ],
                 "default": "ALPHA",
-                "title": "- ALPHA: Apply to alpha channel\n - SOLID: Matte over a solid color\n - BLUR: Matte over a blurred version of the input"
+                "title": "- ALPHA: Apply to alpha channel\n - SOLID: Matte over a solid color\n - BLUR: Matte over a blurred version of the input\n - NOTHING: Don't do anything, just remember it for later"
             },
             "CacheControl": {
                 "type": "object",
@@ -1797,6 +1798,10 @@
                 "properties": {
                     "mode": {
                         "$ref": "#/components/schemas/BackgroundRemovalMode"
+                    },
+                    "reapply": {
+                        "type": "boolean",
+                        "title": "Don't recalculate, reapply the most recently calculated background within this adjustment list"
                     }
                 }
             },
