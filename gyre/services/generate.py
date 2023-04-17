@@ -479,21 +479,23 @@ class ParameterExtractor:
                 f"Can't convert Artifact of type {artifact.WhichOneof('data')} to an image"
             )
 
-        kwargs = dict(manager=self._manager, tensor=image)
+        kwargs = dict(manager=self._manager)
 
         artifact_is_init_image = artifact.type == generation_pb2.ARTIFACT_IMAGE
         kwargs["native_width"] = self.width(use_init_image=not artifact_is_init_image)
         kwargs["native_height"] = self.height(use_init_image=not artifact_is_init_image)
 
         if stage != generation_pb2.ARTIFACT_BEFORE_ADJUSTMENTS:
-            image = apply_image_adjustment(**kwargs, adjustments=artifact.adjustments)
+            image = apply_image_adjustment(
+                tensor=image, adjustments=artifact.adjustments, **kwargs
+            )
         if stage == generation_pb2.ARTIFACT_AFTER_POSTADJUSTMENTS:
             image = apply_image_adjustment(
-                **kwargs, adjustments=artifact.postAdjustments
+                tensor=image, adjustments=artifact.postAdjustments, **kwargs
             )
         if extra is not None:
             extra = extra if isinstance(extra, list) else [extra]
-            image = apply_image_adjustment(**kwargs, adjustments=extra)
+            image = apply_image_adjustment(tensor=image, adjustments=extra, **kwargs)
 
         return image
 
