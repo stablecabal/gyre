@@ -308,7 +308,7 @@ def hint_image_to_prompt(
     artifact_uuid = str(uuid.uuid4())
 
     prompt = generation.Prompt(
-        echo_back=converter is not None,
+        # echo_back=converter is not None,
         artifact=generation.Artifact(
             type=generation.ARTIFACT_HINT_IMAGE,
             uuid=artifact_uuid,
