@@ -1,4 +1,8 @@
+import logging
+
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
+
+logger = logging.getLogger(__name__)
 
 NO_DEFAULT_SUPPLIED = object()
 
@@ -9,8 +13,10 @@ class HintsetManager:
         self.device = device
         self.aligner = aligner
 
-    def add_hint_handler(self, models, types, priority=100):
-        self.hints.append({"models": models, "types": types, "priority": priority})
+    def add_hint_handler(self, name, models, types, priority=100):
+        self.hints.append(
+            {"name": name, "models": models, "types": types, "priority": priority}
+        )
 
     def with_device(self, device):
         return HintsetManager(self.hints, device=device)
@@ -28,6 +34,7 @@ class HintsetManager:
     def for_type(self, type, default=NO_DEFAULT_SUPPLIED):
         for hint in sorted(self.hints, key=lambda hint: hint["priority"], reverse=True):
             if type in hint["types"]:
+                logger.debug(f"Selected {hint['name']} for {type}")
                 return self.__align(hint["models"])
 
         if default is NO_DEFAULT_SUPPLIED:

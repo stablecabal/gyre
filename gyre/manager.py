@@ -1793,6 +1793,7 @@ class EngineManager(object):
                     aliases = [aliases]
 
                 result[name] = dict(
+                    name=name,
                     models=self._load_model(spec).as_dict(),
                     types=[name] + aliases,
                     priority=handler.get("priority", 100),

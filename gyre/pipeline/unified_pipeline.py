@@ -43,6 +43,7 @@ from transformers.models.clip import (
 
 from gyre import images, resize_right
 from gyre.hints import HintsetManager
+from gyre.logging import VisualRecord as vr
 from gyre.patching import patch_module_references
 from gyre.pipeline import controlnet, diffusers_types, t2i_adapter
 from gyre.pipeline.common_scheduler import (
@@ -101,6 +102,7 @@ from gyre.pipeline.unet.types import (
     PX0Tensor,
     XtTensor,
 )
+from gyre.pipeline.vae_approximator import VaeApproximator
 from gyre.pipeline.xformers_utils import (
     xformers_mea_available,
     xformers_mea_reversible_for_module,
@@ -731,16 +733,25 @@ class UnifiedPipelineHint:
                 "Don't construct UnifiedPipelineHint directly, use for_model"
             )
 
+        if isinstance(image, PILImage):
+            image = images.fromPIL(image)
+        if isinstance(mask, PILImage):
+            mask = images.fromPIL(mask)
+
         if mask is None and image.shape[1] == 4:
             mask = image[:, [3]]
 
-        self.model = model
-        self.image = images.fromPIL(image) if isinstance(image, PILImage) else image
-        self.mask = images.fromPIL(mask) if isinstance(mask, PILImage) else mask
+        if image is not None:
+            image = images.normalise_tensor(image, 3)
+        if mask is not None:
+            mask = images.normalise_tensor(mask, 1)
+            # If the mask is pure 1s, just discard it
+            if mask.mean() == 1.0 and mask.std() == 0.0:
+                mask = None
 
-        # If the mask is pure 1s, just discard it
-        if self.mask is not None and self.mask.mean() == 1.0 and self.mask.std() == 0.0:
-            self.mask = None
+        self.model = model
+        self.image = image
+        self.mask = mask
 
         self.weight = weight
         self.channels = channels
@@ -769,20 +780,25 @@ class UnifiedPipelineHint:
 
         return self.__class__(**cargs)
 
-    def resized_mask(self, state):
-        if self.mask is None:  # or state.shape[-1] <= 16:
+    def resized_mask(self, state, mask=None):
+        if mask is None:
+            mask = self.mask
+
+        if mask is None:  # or state.shape[-1] <= 16:
             return torch.ones_like(state)
 
         # Mask size should be a strict integer multiple of state size
-        assert self.mask.shape[-2] % state.shape[-2] == 0
-        assert self.mask.shape[-1] % state.shape[-1] == 0
+        hdims = (mask.shape[-2], state.shape[-2])
+        wdims = (mask.shape[-1], state.shape[-1])
+        assert max(hdims) % min(hdims) == 0
+        assert max(wdims) % min(wdims) == 0
 
         scale = (
-            state.shape[-2] / self.mask.shape[-2],
-            state.shape[-1] / self.mask.shape[-1],
+            state.shape[-2] / mask.shape[-2],
+            state.shape[-1] / mask.shape[-1],
         )
 
-        return images.resize(self.mask, scale).to(state.device, state.dtype)
+        return images.resize(mask, scale).to(state.device, state.dtype)
 
     def __call__(self):
         raise NotImplementedError("Sub-class needs to implement")
@@ -888,27 +904,47 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
 
     def __init__(self, model, image, mask, weight, batch_total):
         self.batch_total = batch_total
+        self.mask_warning_given = False
         super().__init__(model, image, mask, weight)
 
-    def _basic_process(self, r):
-        return r * self.weight * self.resized_mask(r)
+    def _basic_process(self, r, mask):
+        return r * self.weight * self.resized_mask(r, mask)
 
-    def _pooled_process(self, r):
+    def _pooled_process(self, r, mask):
+        if mask is not None and not self.mask_warning_given:
+            logger.warn("Shuffle controlnets don't make sense with masks - ignoring")
+            self.mask_warning_given = True
+
         if self.batch_total == r.shape[0]:
             # TODO: This needs fixing. We need to pass this down from the CFG wrappers.
             logger.warn(
                 "Can't tell if this is the unconditional or guided side. Probably result will be wrong."
             )
-            return torch.mean(self._basic_process(r), dim=(2, 3), keepdim=True)
+            return torch.mean(self._basic_process(r, None), dim=(2, 3), keepdim=True)
 
         else:
             u, g = r.chunk(2)
-            res_g = torch.mean(self._basic_process(g), dim=(2, 3), keepdim=True)
+            res_g = torch.mean(self._basic_process(g, None), dim=(2, 3), keepdim=True)
             res_u = torch.zeros_like(res_g)
             return torch.cat([res_u, res_g], dim=0)
 
-    def __call__(self, *args, **kwargs):
-        res = self.model(*args, **kwargs, controlnet_cond=self.image)
+    def __call__(self, latents, *args, **kwargs):
+
+        condition = self.image
+        cnlatents = latents[:, 0:4]
+        mask = self.mask
+
+        if latents.shape[1] == 9:
+            mask = latents[:, [4]]
+            cnlatents = cnlatents * mask
+
+            mask = self.resized_mask(condition, mask)
+            if self.mask is not None:
+                mask = mask * self.mask
+
+            condition = condition * mask
+
+        res = self.model(cnlatents, *args, **kwargs, controlnet_cond=condition)
 
         process_residual = (
             self._pooled_process
@@ -917,10 +953,10 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
         )
 
         down_block_residuals = [
-            process_residual(residual) for residual in res.down_block_res_samples
+            process_residual(residual, mask) for residual in res.down_block_res_samples
         ]
 
-        mid_block_residual = process_residual(res.mid_block_res_sample)
+        mid_block_residual = process_residual(res.mid_block_res_sample, mask)
 
         return SN(
             down_block_res_samples=down_block_residuals,
@@ -1928,8 +1964,10 @@ class UnifiedPipeline(DiffusionPipeline):
                 leaf_args["unet"] = self.inpaint_unet
             else:
                 mode_class = EnhancedInpaintMode
+            logger.debug(vr("Inpaint mode, image {}, mask {}", image, mask_image))
         elif image is not None:
             mode_class = Img2imgMode
+            logger.debug(vr("Img2img mode, image {}", image))
         else:
             mode_class = Txt2imgMode
 

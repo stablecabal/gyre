@@ -45,82 +45,90 @@
     aliases: "style"
     model: "@coadapter-style"
 
-- hintset_id: "hintset-sd15-controlnet"
-  controlnet/canny:
-    aliases: "canny"
+- hintset_id: "hintset-sd15-controlnet10"
+  controlnet10/canny:
+    aliases: ["controlnet/canny", "canny"]
     priority: 200
     model: "@controlnet-canny"
-  controlnet/depth:
-    aliases: "depth"
+  controlnet10/depth:
+    aliases: ["controlnet/depth", "depth"]
     priority: 50
     model: "@controlnet-depth"
-  controlnet/hed:
-    aliases: ["hed", "softedge"]
+  controlnet10/hed:
+    aliases: ["controlnet/hed", "hed"]
     model: "@controlnet-hed"
-  controlnet/mlsd:
-    aliases: "mlsd"
+  controlnet10/mlsd:
+    aliases: ["controlnet/mlsd", "mlsd"]
     model: "@controlnet-mlsd"
-  controlnet/normal:
-    aliases: "normal"
+  controlnet10/normal:
+    aliases: ["controlnet/normal", "normal"]
     model: "@controlnet-normal"
-  controlnet/openpose:
-    aliases: ["pose", "openpose", "pose/openpose"]
+  controlnet10/openpose:
+    aliases: ["controlnet/openpose", "pose", "openpose", "pose/openpose"]
     model: "@controlnet-openpose"
     priority: 200
-  controlnet/scribble:
-    aliases: ["sketch", "scribble"]
+  controlnet10/scribble:
+    aliases: ["controlnet/scribble", "sketch", "scribble"]
     priority: 50
     model: "@controlnet-scribble"
-  controlnet/seg:
-    aliases: ["segmentation", "segmentation/ade20k"]
+  controlnet10/seg:
+    aliases: ["controlnet/seg", "segmentation", "segmentation/ade20k"]
     model: "@controlnet-seg"
 
 - hintset_id: "hintset-sd15-controlnet11"
   controlnet11/canny:
-    aliases: "canny"
+    aliases: ["controlnet/canny", "canny"]
     model: "@controlnet11-canny"
     priority: 300
   controlnet11/depth:
-    aliases: ["depth", "depth/zoe"]
+    aliases: ["controlnet/depth", "depth", "depth/zoe"]
     model: "@controlnet11-depth"
     priority: 75
   controlnet11/inpaint:
-    aliases: "inpaint"
+    aliases: ["controlnet/inpaint", "inpaint"]
     model: "@controlnet11-inpaint"
   controlnet11/pix2pix:
-    aliases: "pix2pix"
+    aliases: ["controlnet/pix2pix", "pix2pix"]
     model: "@controlnet11-pix2pix"
   controlnet11/lineart:
-    aliases: "lineart"
+    aliases: ["controlnet/lineart", "lineart"]
     model: "@controlnet11-lineart"
   controlnet11/lineart-anime:
-    aliases: ["lineart", "lineart/anime"]
+    aliases: ["controlnet/lineart-anime", "lineart/anime"]
     model: "@controlnet11-lineart-anime"
   controlnet11/mlsd:
-    aliases: "mlsd"
+    aliases: ["controlnet/mlsd", "mlsd"]
     model: "@controlnet11-mlsd"
     priority: 200
   controlnet11/normalbae:
-    aliases: ["normal", "normal/bae"]
+    aliases:
+      - "controlnet/normal"
+      - "normal"
+      - "controlnet/normalbae"
+      - "normal/bae"
     model: "@controlnet11-normalbae"
     priority: 200
   controlnet11/openpose:
-    aliases: ["pose", "openpose", "pose/openpose"]
+    aliases: ["controlnet/openpose", "pose", "openpose", "pose/openpose"]
     model: "@controlnet11-openpose"
     priority: 200
   controlnet11/scribble:
-    aliases: ["sketch", "scribble"]
+    aliases: ["controlnet/scribble", "sketch", "scribble"]
     model: "@controlnet11-scribble"
     priority: 75
   controlnet11/seg:
-    aliases: ["segmentation", "segmentation/ade20k"]
+    aliases:
+      - "controlnet/seg"
+      - "segmentation"
+      - "segmentation/ade20k"
+      - "segmentation/coco"
     model: "@controlnet11-seg"
   controlnet11/shuffle:
-    aliases: "style"
+    aliases: ["controlnet/shuffle", "shuffle"]
     model: "@controlnet11-shuffle"
     priority: 50
   controlnet11/softedge:
-    aliases: ["hed", "softedge"]
+    aliases: ["controlnet/softedge", "softedge", "controlnet/hed", "hed"]
     model: "@controlnet11-softedge"
     priority: 200
 
@@ -139,4 +147,4 @@
 - hintset_id: "hintset-sd15-complete"
   "@hintset-sd15-coadapter": "*"
   "@hintset-sd15-t2i": "*"
-  "@hintset-sd15-controlnet": "*"
+  "@hintset-sd15-controlnet11": "*"

@@ -48,17 +48,10 @@ class UNetWithControlnet:
     ) -> DiffusersUNetOutput:
         cnargs: dict[str, Any] = {}
 
-        # If we're using an inpaint unet, mask the ControlNet input
-        if latents.shape[1] == 9:
-            cnlatents = latents[:, 0:4] * latents[:, [4]]
-        # Otherwise we might still have too many channels (depth unet for instance)
-        else:
-            cnlatents = latents[:, 0:4]
-
         hidden_states = kwargs["encoder_hidden_states"]
 
         residuals = [
-            controlnet(cnlatents, t, encoder_hidden_states=hidden_states)
+            controlnet(latents, t, encoder_hidden_states=hidden_states)
             for controlnet in self.controlnets
         ]
 
