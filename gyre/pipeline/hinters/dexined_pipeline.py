@@ -4,6 +4,8 @@ import kornia
 import torch
 from diffusers.models import modeling_utils
 
+from gyre import images
+
 
 class DexinedPipeline:
     module: torch.nn.Module
@@ -18,7 +20,7 @@ class DexinedPipeline:
         return [("module", self.module)]
 
     def _preprocess(self, tensor):
-        tensor = tensor[:, [0, 1, 2]]
+        tensor = images.normalise_tensor(tensor, 3)
         return tensor * 255.0
 
     def _execute(self, tensor):
@@ -26,15 +28,7 @@ class DexinedPipeline:
 
     def _postprocess(self, tensor):
         # Normalise
-        r_min = torch.amin(tensor, dim=[1, 2, 3], keepdim=True)
-        r_max = torch.amax(tensor, dim=[1, 2, 3], keepdim=True)
-
-        # tensor = (tensor - r_min) / (r_max - r_min)
-        tensor = tensor.clamp(0, 1)
-        # tensor = kornia.enhance.adjust_gamma(tensor, 5.0)
-        # tensor = torch.nn.functional.threshold(tensor, 0.2, 0)
-
-        return tensor
+        return images.normalise_range(tensor)
 
     @torch.no_grad()
     def __call__(self, tensor):
