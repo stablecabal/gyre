@@ -19,6 +19,8 @@ from gyre.protobuf_safetensors import UserSafetensors
 
 logger = logging.getLogger(__name__)
 
+# The debugging info is a bit to detailed for normal use.
+logger.setLevel(logging.INFO)
 
 NOT_PASSED_MARKER = object()
 
@@ -190,7 +192,7 @@ class TensorLRUCache_Disk(TensorLRUCache_LockBase):
         self.basepath: Path = Path(basepath)
         self.basepath.mkdir(parents=True, exist_ok=True)
 
-        logger.debug(f"Cache disk folder: {self.basepath}")
+        logger.info(f"Cache disk folder: {self.basepath}")
 
     def _path(self, key):
         hashedkey = hashlib.sha256(key.encode("utf-8")).hexdigest().lower()
