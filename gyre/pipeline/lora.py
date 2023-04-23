@@ -244,12 +244,19 @@ def apply_diffusers_to_pipe(lora, id, unet=None, text_encoder=None):
 def apply_kohya_to_pipe(lora, id, unet=None, text_encoder=None):
     wrapped = _Wrapper(lora)
 
-    has_unet = any((x.startswith("lora_unet_") for x in wrapped.keys()))
-    has_te = any((x.startswith("lora_te_") for x in wrapped.keys()))
+    def has_keys_like(prep):
+        return any((x.startswith(prep) for x in wrapped.keys()))
 
-    logger.debug(
-        f"Loading kohya-ss Lora ({'unet' if has_unet else ''} {'text_encoder' if has_te else ''})"
-    )
+    applying = []
+
+    if has_keys_like("lora_unet_") and unet is not None:
+        applying.append("unet")
+
+    if has_keys_like("lora_te_") and text_encoder is not None:
+        applying.append("text_encoder")
+
+    if applying:
+        logger.debug(f"Loading kohya-ss Lora ({', '.join(applying)})")
 
     for key in wrapped.keys():
         if not key.endswith(".lora_down.weight"):
