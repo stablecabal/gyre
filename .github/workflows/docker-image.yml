@@ -74,6 +74,6 @@ jobs:
             CUDA_FULLVER=${{ matrix.cuda }}
             MAX_JOBS=1
             XFORMERS_REPO=https://github.com/facebookresearch/xformers.git
-            XFORMERS_REF=57edbb7
+            XFORMERS_REF=v0.0.18
             TRITON_REF=8650b4d
             DEEPSPEED_REF=tags/v0.7.6
