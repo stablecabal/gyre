@@ -19,6 +19,7 @@ from PIL import Image as PILImage
 from tqdm import tqdm, trange
 
 from gyre.images_shuffle import ContentShuffleDetector
+from gyre.match_histograms import match_histograms as np_match_histograms
 
 from .resize_right import interp_methods
 from .resize_right import resize as resize_right
@@ -46,18 +47,22 @@ def toPIL(tensor):
 
 
 def fromCV(bgrHWC):
-    # Handle mono (either no channels at all, or exactly one channel)
-    if bgrHWC.ndim == 2 or bgrHWC.shape[-1] == 1:
-        tensor = torch.from_numpy(bgrHWC).to(torch.float32) / 255.0
-        while tensor.ndim < 4:
-            tensor = tensor.unsqueeze(dim=0)
-        return tensor
+    tensor = torch.from_numpy(bgrHWC).to(torch.float32) / 255.0
 
-    # Handle color
-    else:
-        bgrBCHW = bgrHWC[None].transpose(0, 3, 1, 2)
+    # Handle mono (no channels at all) - add one channel to the right
+    if tensor.ndim == 2:
+        tensor = tensor.unsqueeze(dim=-1)
+    # Expand to BHWC
+    while tensor.ndim < 4:
+        tensor = tensor.unsqueeze(dim=0)
+    # Convert to BCHW
+    bgrBCHW = tensor.permute(0, 3, 1, 2)
+    # Convert from BGR to RGB (if there are enough channels)
+    if bgrBCHW.shape[1] >= 3:
         channels = [2, 1, 0, 3][: bgrBCHW.shape[1]]
-        return torch.from_numpy(bgrBCHW)[:, channels].to(torch.float32) / 255.0
+        bgrBCHW = bgrBCHW[:, channels]
+    # Done
+    return bgrBCHW
 
 
 def toCV(tensor):
@@ -657,3 +662,11 @@ def infill(tensor, mask, size, step=2):
 
     s = result.shape
     return result[:, :, size : s[-2] - size, size : s[-1] - size]
+
+
+def match_histograms(image, reference):
+    image_cv = toCV(image)
+    reference_cv = toCV(reference)
+
+    result = np_match_histograms(image_cv, reference_cv, channel_axis=3)
+    return fromCV(result).to(image)

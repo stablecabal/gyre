@@ -1,23 +1,10 @@
 import contextlib
 import inspect
-import itertools
 import logging
 import math
 from copy import copy, deepcopy
 from types import SimpleNamespace as SN
-from typing import (
-    Any,
-    Callable,
-    Iterable,
-    List,
-    Literal,
-    Optional,
-    Protocol,
-    Tuple,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Any, Callable, List, Literal, Optional, Protocol, cast
 
 import numpy as np
 import torch
@@ -41,7 +28,7 @@ from transformers.models.clip import (
     CLIPTokenizer,
 )
 
-from gyre import images, resize_right
+from gyre import images
 from gyre.hints import HintsetManager
 from gyre.logging import VisualRecord as vr
 from gyre.patching import patch_module_references
@@ -2385,12 +2372,20 @@ class UnifiedPipeline(DiffusionPipeline):
         if image is not None and outmask_image is not None:
             outmask = torch.cat([outmask_image] * batch_total)
             outmask = outmask[:, [0, 1, 2]]
-            outmask = outmask.to(result_image.device)
+            outmask = outmask.to(result_image)
 
             source = torch.cat([image] * batch_total)
             source = source[:, [0, 1, 2]]
-            source = source.to(result_image.device)
+            source = source.to(result_image)
 
+            # We copy the result over the replacement are of the source to build a histogram reference
+            reference = source * (1 - outmask) + result_image * outmask
+
+            # Then we make the result histogram match the reference
+            result_image = images.match_histograms(result_image, reference)
+
+            # And finally we mix the source over top again, so the image is
+            # source + histogram-matched-result
             result_image = source * (1 - outmask) + result_image * outmask
 
         result_numpy = result_image.cpu().permute(0, 2, 3, 1).numpy()
