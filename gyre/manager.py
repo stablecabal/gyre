@@ -59,6 +59,8 @@ DEFAULT_LIBRARIES = {
     "ZoeDepthPipeline": "gyre.pipeline.depth.zoe_depth_pipeline",
     "T2iAdapter": "gyre.pipeline.t2i_adapter",
     "ControlNetModel": "gyre.pipeline.controlnet",
+    "HED": "gyre.pipeline.hinters.models.hed",
+    "HedPipeline": "gyre.pipeline.hinters.hed_pipeline",
     "DexiNed": "kornia.filters",
     "DexinedPipeline": "gyre.pipeline.hinters.dexined_pipeline",
     "MmLoader": "gyre.pipeline.hinters.mm_loader",
