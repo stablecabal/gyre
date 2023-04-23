@@ -249,7 +249,7 @@ class LogImagesController(resource.Resource):
 
     @classmethod
     def get_url(cls, key):
-        if cls.host_and_path:
+        if hasattr(cls, "host_and_path") and cls.host_and_path:
             return cls.host_and_path + "/" + key
 
 
