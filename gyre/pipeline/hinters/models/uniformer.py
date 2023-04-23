@@ -2,6 +2,9 @@
 # Modified only to adjust import paths
 # Used under Apache-2.0 license
 
+# Changes:
+# - None
+
 # --------------------------------------------------------
 # UniFormer
 # Copyright (c) 2022 SenseTime X-Lab

@@ -1,5 +1,9 @@
 
 # From https://github.com/perrying/guided-filter-pytorch
+# Distributed under MIT license
+
+# Changes:
+# - None
 
 import torch
 
