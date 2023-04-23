@@ -151,10 +151,8 @@ def remove_lora_from_module(module):
     remove_hook(module, LoraHook)
 
 
-def remove_lora_from_pipe(pipe):
-    for module in pipe.text_encoder.modules():
-        remove_lora_from_module(module)
-    for module in pipe.unet.modules():
+def remove_lora_from_model(model):
+    for module in model.modules():
         remove_lora_from_module(module)
 
 
@@ -165,29 +163,33 @@ def set_lora_scale(module, id, scale=1.0):
                 lora_hook.scale = scale
 
 
-def apply_lora_to_pipe(pipe, lora, id):
+def apply_lora(lora, id, unet=None, text_encoder=None):
     # remove_lora_from_pipe(pipe)
 
     lora_type = detect_lora_type(lora)
 
     if lora_type == "cloneofsimo":
-        apply_cloneofsimo_to_pipe(pipe, lora, id)
+        apply_cloneofsimo_to_pipe(lora, id, unet=unet, text_encoder=text_encoder)
     elif lora_type == "diffusers":
-        apply_diffusers_to_pipe(pipe, lora, id)
+        apply_diffusers_to_pipe(lora, id, unet=unet, text_encoder=text_encoder)
     elif lora_type == "kohya-ss":
-        apply_kohya_to_pipe(pipe, lora, id)
+        apply_kohya_to_pipe(lora, id, unet=unet, text_encoder=text_encoder)
 
 
-def apply_cloneofsimo_to_pipe(pipe, lora, id):
+def apply_cloneofsimo_to_pipe(lora, id, unet=None, text_encoder=None):
     loras = parse_safeloras(lora)
 
     logger.debug(f"Loading cloneofsimo Lora with {loras.keys()} models")
 
     for name, (lora, ranks, target) in loras.items():
-        model = getattr(pipe, name, None)
+        if name == "unet":
+            model = unet
+        elif name == "text_encoder":
+            model = text_encoder
+        else:
+            raise ValueError(f"Unknown model in CloneOfSimo LoRA - {name}")
 
-        if not model:
-            print(f"No model provided for {name}, contained in Lora")
+        if model is None:
             continue
 
         for _module, name, _child_module in _find_modules(
@@ -204,16 +206,20 @@ def apply_cloneofsimo_to_pipe(pipe, lora, id):
             )
 
 
-def apply_diffusers_to_pipe(pipe, lora, id):
+def apply_diffusers_to_pipe(lora, id, unet=None, text_encoder=None):
     wrapped = _Wrapper(lora)
 
+    # TODO: Find an example of a diffusers lora with text encoder LoRA
     logger.debug(f"Loading diffusers Lora (unet only)")
+
+    if unet is None:
+        return
 
     for key in wrapped.keys():
         if not key.endswith(".down.weight"):
             continue
 
-        module = pipe.unet
+        module = unet
 
         # Adjust the key to reference the Linear, rather than the Processor
         fixed_key = re.sub(
@@ -235,7 +241,7 @@ def apply_diffusers_to_pipe(pipe, lora, id):
         )
 
 
-def apply_kohya_to_pipe(pipe, lora, id):
+def apply_kohya_to_pipe(lora, id, unet=None, text_encoder=None):
     wrapped = _Wrapper(lora)
 
     has_unet = any((x.startswith("lora_unet_") for x in wrapped.keys()))
@@ -251,14 +257,19 @@ def apply_kohya_to_pipe(pipe, lora, id):
 
         if key.startswith("lora_te_"):
             module_key = key[len("lora_te_") :]
-            module = pipe.text_encoder
+            module = text_encoder
 
         elif key.startswith("lora_unet_"):
             module_key = key[len("lora_unet_") :]
-            module = pipe.unet
+            module = unet
 
         else:
-            raise RuntimeError(f"Don't know pipe model to apply {key} to")
+            raise ValueError(
+                f"Unknown key in Kohya LoRA, don't know how to apply - {key}"
+            )
+
+        if module is None:
+            continue
 
         # Greedily try and use up key
         parts = module_key.split(".")[0].split("_")

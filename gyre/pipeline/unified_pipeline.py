@@ -60,9 +60,9 @@ from gyre.pipeline.common_scheduler import (
 from gyre.pipeline.kschedulers.scheduling_utils import KSchedulerMixin
 from gyre.pipeline.latent_debugger import LatentDebugger
 from gyre.pipeline.lora import (
-    apply_lora_to_pipe,
+    apply_lora,
     parse_safeloras_embeds,
-    remove_lora_from_pipe,
+    remove_lora_from_model,
     set_lora_scale,
 )
 from gyre.pipeline.prompt_types import (
@@ -78,7 +78,11 @@ from gyre.pipeline.randtools import TorchRandOverride, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
 from gyre.pipeline.text_embedding.text_encoder_alt_layer import TextEncoderAltLayer
-from gyre.pipeline.textual_inversion import apply_ti_tokens, match_encoder_to_tokenizer
+from gyre.pipeline.textual_inversion import (
+    apply_ti_to_encoder,
+    apply_ti_to_tokenizer,
+    match_encoder_to_tokenizer,
+)
 from gyre.pipeline.unet.cfg import CFGChildUnets, CFGUnet
 from gyre.pipeline.unet.clipguided import (
     CLIP_GUIDANCE_BASE,
@@ -1617,6 +1621,14 @@ class UnifiedPipeline(DiffusionPipeline):
                     else:
                         self.set_module_tiling(submodule, tiling)
 
+    def text_encoder_for_unet(self, unet):
+        if unet is self.depth_unet and self.depth_text_encoder is not None:
+            return self.depth_text_encoder
+        elif unet is self.inpaint_unet and self.inpaint_text_encoder is not None:
+            return self.inpaint_text_encoder
+        else:
+            return self.text_encoder
+
     @torch.no_grad()
     def __call__(
         self,
@@ -1741,33 +1753,24 @@ class UnifiedPipeline(DiffusionPipeline):
 
         self.set_tiling_mode(tiling)
 
-        # Reset any hooks that were left over from previous call (we don't try
-        # and clean up after generation ends, just on next generation start)
-        remove_lora_from_pipe(self)
-        match_encoder_to_tokenizer(self.tokenizer, self.text_encoder)
-
-        if not token_embeddings:
-            token_embeddings = {}
-
+        # Collect any token embeddings from inside passed LoRA
         if lora:
-            for _id, (safeloras, weights) in enumerate(lora):
-                apply_lora_to_pipe(self, safeloras, _id)
-                token_embeddings.update(parse_safeloras_embeds(safeloras))
+            if not token_embeddings:
+                token_embeddings = {}
 
-                for key, weight in weights.items():
-                    if key == "*":
-                        set_lora_scale(self.unet, _id, weight)
-                        set_lora_scale(self.text_encoder, _id, weight)
-                    else:
-                        set_lora_scale(getattr(self, key), _id, weight)
+            for _id, (safeloras, weights) in enumerate(lora):
+                token_embeddings.update(parse_safeloras_embeds(safeloras))
 
         tokenizer = self.tokenizer
         clip_tokenizer = self.clip_tokenizer
+        flattened_embeddings = None
 
         if token_embeddings:
             # Deepcopying so tokens we add will only affect this call
             tokenizer = deepcopy(tokenizer)
-            apply_ti_tokens(tokenizer, self.text_encoder, token_embeddings)
+            # WARNING: All text_encoders that use this tokenizer will throw size errors if
+            # they aren't updated to match the new length
+            flattened_embeddings = apply_ti_to_tokenizer(tokenizer, token_embeddings)
 
             logger.info(
                 f"Available token embeddings: {', '.join(token_embeddings.keys())}"
@@ -2078,14 +2081,53 @@ class UnifiedPipeline(DiffusionPipeline):
 
         latents_dtype = None
 
+        # Collect all involved text encoders and unets
+
+        all_unets = {leaf.opts["unet"] for leaf in mode_tree.leaves}
+        all_text_encoders = {self.text_encoder_for_unet(unet) for unet in all_unets}
+
+        # Now reset any LoRA and embeddings that were left over from previous call
+        # (we don't try and clean up after generation ends, just on next generation start)
+
+        for text_encoder in all_text_encoders:
+            remove_lora_from_model(text_encoder)
+            match_encoder_to_tokenizer(self.tokenizer, text_encoder)
+
+        for unet in all_unets:
+            remove_lora_from_model(unet)
+
+        # And apply the new embeddings
+
+        if flattened_embeddings:
+            for text_encoder in all_text_encoders:
+                apply_ti_to_encoder(tokenizer, text_encoder, flattened_embeddings)
+
+        # And and new lora
+
+        if lora:
+            for _id, (safeloras, weights) in enumerate(lora):
+                for unet in all_unets:
+                    apply_lora(safeloras, _id, unet=unet)
+                for text_encoder in all_text_encoders:
+                    apply_lora(safeloras, _id, text_encoder=text_encoder)
+
+                for key, weight in weights.items():
+                    try:
+                        targets = {
+                            "*": all_unets | all_text_encoders,
+                            "text_encoder": all_text_encoders,
+                            "unet": all_unets,
+                        }[key]
+                    except KeyError:
+                        logger.warn(f"Ignoring LoRA weight for unknown model {key}")
+                        continue
+
+                    for target in targets:
+                        set_lora_scale(target, _id, weight)
+
         for leaf in mode_tree.leaves:
             unet = leaf.opts["unet"]
-
-            text_encoder = self.text_encoder
-            if unet is self.depth_unet and self.depth_text_encoder is not None:
-                text_encoder = self.depth_text_encoder
-            if unet is self.inpaint_unet and self.inpaint_text_encoder is not None:
-                text_encoder = self.inpaint_text_encoder
+            text_encoder = self.text_encoder_for_unet(unet)
 
             base_unet = unet
             prompt_chunks = []

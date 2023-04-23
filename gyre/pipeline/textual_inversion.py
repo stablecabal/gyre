@@ -85,7 +85,7 @@ def remove_multidim_handler(tokenizer):
             pass
 
 
-def apply_ti_tokens(tokenizer, text_encoder, tensors: dict[str, torch.Tensor]):
+def apply_ti_to_tokenizer(tokenizer, tensors: dict[str, torch.Tensor]):
 
     # Pre-process any multidim tokens
 
@@ -112,6 +112,11 @@ def apply_ti_tokens(tokenizer, text_encoder, tensors: dict[str, torch.Tensor]):
     # Note - must be a converted to a list or add_tokens will treat it like a single token
     if tokenizer.add_tokens(list(flattened.keys())) != len(flattened.keys()):
         logger.debug(f"Tokenizer token overlap when loading textual inversion")
+
+    return flattened
+
+
+def apply_ti_to_encoder(tokenizer, text_encoder, flattened: dict[str, torch.Tensor]):
 
     # Set up the text_encoder to accept the new embeddings
 
