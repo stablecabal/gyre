@@ -1,7 +1,31 @@
 ---
 # -------------------
-# Dexined (edge detector)
+# Edge detectors - HED and Dexinet
 # -------------------
+
+- model_id: "hinters-hed"
+  model: "halffried/gyre_hinters"
+  subfolder: "hed"
+  type: "module"
+  class: "HED"
+
+- id: "hinters-hed"
+  default: True
+  task: "edge_detection"
+  class: "HedPipeline"
+  model: "@hinters-hed"
+
+- model_id: "hinters-hed-alt"
+  model: "halffried/gyre_hinters"
+  subfolder: "hed_alt"
+  type: "module"
+  class: "HED"
+
+- id: "hinters-hed-alt"
+  enabled: False
+  task: "edge_detection"
+  class: "HedPipeline"
+  model: "@hinters-hed-alt"
 
 - model_id: "hinters-dexined"
   model: "halffried/gyre_hinters"
@@ -10,12 +34,10 @@
   class: "DexiNed(pretrained=False)"
 
 - id: "hinters-dexined"
+  enabled: False
   task: "edge_detection"
-  default: True
   class: "DexinedPipeline"
-  model: "@empty"
-  overrides:
-    module: "@hinters-dexined"
+  model: "@hinters-dexined"
 
 # -------------------
 # Linedrawing - these are all "edge detection" as far as Gyre is concerned, although
