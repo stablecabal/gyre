@@ -66,6 +66,7 @@ from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
 from gyre.logging import LOG_LEVELS, LogImagesController, configure_logging
 from gyre.manager import BatchMode, EngineManager, EngineMode
+from gyre.pipeline.randtools import warn_on_nondeterministic_rand
 from gyre.resources import ResourceProvider
 from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
@@ -730,6 +731,14 @@ def main():
         default=environ_bool("SD_MONITOR_RAM", True if IS_DEV else False),
         help="Enable or disable monitoring of RAM and VRAM usage",
     )
+    debug_opts.add_argument(
+        "--warn_on_nondeterministic_rand",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool(
+            "SD_WARN_ON_NONDETERMINISTIC_RAND", True if IS_DEV else False
+        ),
+        help="Enable or disable tracking & warning when torch.rand* is used nondeterministically",
+    )
 
     args = parser.parse_args()
 
@@ -974,6 +983,9 @@ def main():
     if save_safetensor_patterns:
         manager.save_engine_as_safetensor(save_safetensor_patterns)
         shutdown_reactor_handler()
+
+    if args.warn_on_nondeterministic_rand:
+        warn_on_nondeterministic_rand()
 
     if ram_monitor:
         ram_monitor.print()

@@ -1,6 +1,11 @@
+import functools
+import inspect
+import logging
 from typing import List, Optional, Sequence
 
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 def batched_rand(
@@ -134,3 +139,33 @@ class TorchRandOverride:
 
     def __getattr__(self, item):
         return getattr(torch, item)
+
+
+warned = set()
+
+
+def tracker(wrapped):
+    def wrapper(*args, **kwargs):
+        if "generator" not in kwargs:
+            current_frame = inspect.currentframe()
+            caller_frame = current_frame.f_back
+            filename, lineno, function, _, _ = inspect.getframeinfo(caller_frame)
+
+            fullstr = f"{filename}:{lineno}:{function}"
+            if fullstr not in warned:
+                logger.warn(f"Non-deterministic rand called at {fullstr}")
+                warned.add(fullstr)
+
+        return wrapped(*args, **kwargs)
+
+    functools.update_wrapper(wrapper, wrapped)
+    return wrapper
+
+
+def warn_on_nondeterministic_rand():
+    torch.rand = tracker(torch.rand)
+    torch.rand_like = tracker(torch.rand_like)
+    torch.randn = tracker(torch.randn)
+    torch.randn_like = tracker(torch.randn_like)
+    torch.randint = tracker(torch.randint)
+    torch.randint_like = tracker(torch.randint_like)
