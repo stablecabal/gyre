@@ -1035,26 +1035,37 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 }
 
                 logargs = {**batchargs}
-                for field in [
-                    "image",
-                    "mask_image",
-                    "outmask_image",
-                    "depth_map",
-                    "hint_images",
-                    "lora",
-                ]:
-                    if field in logargs:
-                        value = logargs[field]
-                        logargs[field] = (
-                            f"[{len(value)}]" if isinstance(value, list) else "yes"
-                        )
+                if "lora" in logargs:
+                    value = logargs["lora"]
+                    logargs["lora"] = (
+                        f"[{len(value)}]" if isinstance(value, list) else "yes"
+                    )
 
                 if "token_embeddings" in logargs:
                     logargs["token_embeddings"] = list(
                         logargs["token_embeddings"].keys()
                     )
 
-                print(f"Generating {repr(logargs)}")
+                logstr = []
+                loglate = []
+                for k, v in logargs.items():
+                    if k == "hint_images" and v:
+                        for i, hint_image in enumerate(v):
+                            loglate.append(
+                                f"hint_image: {{hint_images[{i}].image}} ("
+                                f"hint_type: {{hint_images[{i}].hint_type}} "
+                                f"weight: {{hint_images[{i}].weight:.2f}} "
+                                f"clip_layer: {{hint_images[{i}].clip_layer}}"
+                                f")"
+                            )
+                    elif k in {"image", "mask_image", "outmask_image"}:
+                        loglate.append(f"{k}: {{{k}}}")
+                    else:
+                        logstr.append(f"{k}: {{{k}}}")
+
+                logger.info("Generating:")
+                for line in logstr + loglate:
+                    logger.info(vr("  " + line, **logargs))
 
                 recorder.store("pipe.generate calls", kwargs)
 

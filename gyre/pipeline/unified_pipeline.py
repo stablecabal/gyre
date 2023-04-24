@@ -1954,10 +1954,8 @@ class UnifiedPipeline(DiffusionPipeline):
                 leaf_args["unet"] = self.inpaint_unet
             else:
                 mode_class = EnhancedInpaintMode
-            logger.debug(vr("Inpaint mode, image {}, mask {}", image, mask_image))
         elif image is not None:
             mode_class = Img2imgMode
-            logger.debug(vr("Img2img mode, image {}", image))
         else:
             mode_class = Txt2imgMode
 

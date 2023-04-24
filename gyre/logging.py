@@ -9,7 +9,7 @@ import sys
 import traceback
 import uuid
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import torch
 import tqdm
@@ -130,7 +130,10 @@ class CachedImage:
             return "[Image]"
 
 
-class SplitFormatter(string.Formatter):
+class VisualRecordFormatter(string.Formatter):
+    def __init__(self, visual_record, mode: Literal["string", "fragments"] = "string"):
+        self._visual_record = visual_record
+        self._mode = mode
 
     # Taken from https://github.com/python/cpython/blob/main/Lib/string.py
     # Changes to return a list[string | CachedImage], rather than a single string
@@ -160,6 +163,7 @@ class SplitFormatter(string.Formatter):
                     auto_arg_index = False
 
                 obj, _ = self.get_field(field_name, args, kwargs)
+                obj = self._visual_record._translate_image(obj)
 
                 if isinstance(obj, CachedImage):
                     result.append(obj)
@@ -172,14 +176,17 @@ class SplitFormatter(string.Formatter):
 
                     result.append(self.format_field(obj, format_spec))
 
-        return result
+        if self._mode == "fragments":
+            return result
+        else:
+            return "".join((str(x) for x in result))
 
 
 class VisualRecord:
     def __init__(self, message, *args, **kwargs):
         self.message = self._translate_image(message)
-        self.args = [self._translate_image(arg) for arg in args]
-        self.kwargs = {k: self._translate_image(v) for k, v in kwargs.items()}
+        self.args = args
+        self.kwargs = kwargs
 
     def _translate_image(self, arg):
         try:
@@ -202,13 +209,17 @@ class VisualRecord:
             return str(self.message)
 
         else:
-            return self.message.format(*self.args, **self.kwargs)
+            return VisualRecordFormatter(self, "string").format(
+                self.message, *self.args, **self.kwargs
+            )
 
     def as_fragments(self):
         if isinstance(self.message, CachedImage):
             return [{"thumbnail": self.message.thumbnail, "url": self.message.url}]
 
-        formatted = SplitFormatter().format(self.message, *self.args, **self.kwargs)
+        formatted = VisualRecordFormatter(self, "fragments").format(
+            self.message, *self.args, **self.kwargs
+        )
 
         return [
             {"thumbnail": part.thumbnail, "url": part.url}

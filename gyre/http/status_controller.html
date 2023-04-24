@@ -34,7 +34,7 @@
         const dataContext = createContext(JSON.parse(document.getElementById("data-island").innerText));
 
         function Thumbnail(props) {
-            return html`<a href="${props.url}" onclick=${(e) => { e.preventDefault(); props.setImagePopupUrl(props.url) }}>
+            return html`<a className="thumbnail" href="${props.url}" onclick=${(e) => { e.preventDefault(); props.setImagePopupUrl(props.url) }}>
                 <img src="data:image/png;base64,${props.thumbnail}" />
             </a>`;
         }
@@ -44,11 +44,13 @@
                 return html`<div>${props.message}</div>`;
             }
             else {
-                return props.fragments.map(frag =>
+                const fragEls = props.fragments.map(frag =>
                     typeof (frag) == "string" ?
                         html`<span>${frag}</span>` :
                         html`<${Thumbnail} setImagePopupUrl=${props.setImagePopupUrl} ...${frag} />`
                 );
+
+                return html`<div>${fragEls}</div>`;
             }
         }
 
@@ -336,7 +338,11 @@
         }
 
         .log-group .log-lines img {
-            vertical-align: bottom;
+            vertical-align: middle;
+        }
+
+        .thumbnail>img {
+            margin: 6px 0;
         }
 
         h3.status-error {
