@@ -11,6 +11,8 @@ def convert_model(path: Path, outdir: Path):
         t = t["params_ema"]
     elif "params" in t:
         t = t["params"]
+    elif "state_dict" in t:
+        t = t["state_dict"]
 
     safetensors.torch.save_file(t, str(outdir / (path.stem + ".safetensors")))
 
