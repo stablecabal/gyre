@@ -29,6 +29,16 @@
     "505815d4f2b0233892dcc2b5a760fb7a09d936cd",
     "03151dc340c76bf76f3b4d13b8d5570af3c86013"
   ],
+  "extras/fish.yaml": [
+    "ea721cb683d0e4863e77f446126538023494432b",
+    "67a1fb79cdb1e9acbaefeac2b15378d38314179e",
+    "ebff6fc2ffcc390b1ef9e6c32b3a0f70ac808465"
+  ],
+  "templates/stable-diffusion-v1.yaml": [
+    "07107df75e285613dc9cbef842f4bf230bd53066",
+    "754494361c136bfa5c10fe652c54c70f92fef76c",
+    "94e520e835d8cdb9ac4877dad44d4903a584e5ec"
+  ],
   "models/hinters.yaml": [
     "8cf437d6aca5c9e3260c2f17c329312e4b04fbbf",
     "f174ffe9928bf5ba87a65563a43c60ab526554de",
@@ -76,10 +86,6 @@
   "extras/mistoon.yaml": [
     "af8c2aba54c3bc58e68da1537dbe173d79b2cd06"
   ],
-  "templates/stable-diffusion-v1.yaml": [
-    "754494361c136bfa5c10fe652c54c70f92fef76c",
-    "94e520e835d8cdb9ac4877dad44d4903a584e5ec"
-  ],
   "engines/depth.yaml": [
     "ca3a5b6aa29e554258b1132334d38d855ed85fd9",
     "22dd6796b50848c92a01ec203f14556d07dc8e25",
@@ -123,10 +129,6 @@
   ],
   "extras/chillout.yaml": [
     "016de2fb3b0348db2d5a8aa410f80b049f39c5fb"
-  ],
-  "extras/fish.yaml": [
-    "67a1fb79cdb1e9acbaefeac2b15378d38314179e",
-    "ebff6fc2ffcc390b1ef9e6c32b3a0f70ac808465"
   ],
   "extras/liberty.yaml": [
     "19a6386e4e05f5fdcb5cafb602feee97ea61cbff"
