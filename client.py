@@ -575,6 +575,7 @@ class StabilityInference:
         self,
         prompt: Union[str, List[str], generation.Prompt, List[generation.Prompt]],
         negative_prompt: str = None,
+        clip_layer: Optional[int] = None,
         init_image: Optional[Image.Image] = None,
         mask_image: Optional[Image.Image] = None,
         mask_from_image_alpha: bool = False,
@@ -657,7 +658,8 @@ class StabilityInference:
         for p in prompt:
             if isinstance(p, str):
                 p = generation.Prompt(text=p)
-                # , parameters=generation.PromptParameters(clip_layer=1)
+                if clip_layer:
+                    p.parameters.clip_layer = clip_layer
             elif not isinstance(p, generation.Prompt):
                 raise TypeError("prompt must be a string or generation.Prompt object")
             prompts.append(p)
@@ -733,6 +735,13 @@ class StabilityInference:
                 mask_prompt.artifact.adjustments.append(
                     generation.ImageAdjustment(
                         invert=generation.ImageAdjustment_Invert()
+                    )
+                )
+                mask_prompt.artifact.adjustments.append(
+                    generation.ImageAdjustment(
+                        blur=generation.ImageAdjustment_Gaussian(
+                            sigma=32, direction=generation.DIRECTION_UP
+                        )
                     )
                 )
 
@@ -1130,6 +1139,11 @@ if __name__ == "__main__":
         help="Negative Prompt",
     )
     parser.add_argument(
+        "--clip_layer",
+        type=int,
+        help="Set the clip layer skip (1 is no skip, 2 is skip the first layer, and so on)",
+    )
+    parser.add_argument(
         "--hires_fix",
         action=BooleanOptionalAction,
         help="Enable or disable the hires fix for images above the 'natural' size of the model",
@@ -1309,6 +1323,7 @@ if __name__ == "__main__":
 
     request = {
         "negative_prompt": args.negative_prompt,
+        "clip_layer": args.clip_layer,
         "height": args.height,
         "width": args.width,
         "start_schedule": args.start_schedule,
