@@ -11,6 +11,7 @@
 - model_id: "{{id}}"
   model: "@{{id}}-base"
   overrides:
+    vae: "{{vae:'@stability-vae-mse'}}"
     "{{#inpaint_source}}":
       inpaint_unet: "@{{id}}-inpaint/unet"
       inpaint_text_encoder: "@{{id}}-inpaint/text_encoder"
@@ -23,7 +24,6 @@
   hintset: "hintset-sd15-common"
   overrides:
     clip: "@clip-common"
-    vae: "{{vae:'@stability-vae-ema'}}"
 
 ---
 !@stable-diffusion-v1/stable-diffusion-v1-5-finetune

@@ -3,6 +3,7 @@
 name: "Fish Mix"
 description: "An anime-style finetune of Stable Diffusion v1.5"
 has_text_encoder: False
+vae: "@orange-vae"
 source:
   model: "https://civitai.com/api/download/models/27424"
 
@@ -11,14 +12,6 @@ source:
 name: "Old Fish"
 description: "An anime-style finetune of Stable Diffusion v1.5"
 has_text_encoder: False
+vae: "@orange-vae"
 source:
   model: "https://civitai.com/api/download/models/22052"
-
----
-- id: "fish-mix"
-  overrides:
-    vae: "@orange-vae/vae"
-
-- id: "old-fish"
-  overrides:
-    vae: "@orange-vae/vae"
