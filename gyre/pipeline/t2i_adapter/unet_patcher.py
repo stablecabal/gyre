@@ -1,9 +1,9 @@
 import torch.nn as nn
-from accelerate.hooks import ModelHook, add_hook_to_module
+from accelerate.hooks import ModelHook
 from diffusers.models.unet_2d_blocks import CrossAttnDownBlock2D
 from diffusers.models.unet_2d_condition import UNet2DConditionModel
 
-from gyre.pipeline.model_utils import has_hook, remove_hook
+from gyre.pipeline.model_utils import add_hook, has_hook, remove_hook
 
 """
 Includes patchers to adjust a unet to support applying a T2I-adapter adapter_states
@@ -132,12 +132,12 @@ def unpatch_unet(unet):
 
 def patch_cross_attn_down_block_2D(module: CrossAttnDownBlock2D):
     if not has_hook(module, CrossAttnDownBlock2DHook):
-        add_hook_to_module(module, CrossAttnDownBlock2DHook(), append=True)
+        add_hook(module, CrossAttnDownBlock2DHook())
 
 
 def patch_unet_2D_condition_model(module: UNet2DConditionModel):
     if not has_hook(module, UNet2DConditionModelHook):
-        add_hook_to_module(module, UNet2DConditionModelHook(), append=True)
+        add_hook(module, UNet2DConditionModelHook())
 
 
 def patch_unet(unet):

@@ -61,20 +61,39 @@ def detect_lora_type(lora) -> lora_type:
     What format is this LoRA?
     """
 
-    # Note: we assume a unet will always be included in the LORA
+    # First check - find any key to indicate a basic type
 
     detect_keys: dict[str, lora_type] = {
-        "unet:0:up": "cloneofsimo",
-        "lora_unet_down_blocks_0_attentions_0_proj_in.lora_up.weight": "kohya-ss",
-        "down_blocks.0.attentions.0.transformer_blocks.0.attn1.processor.to_k_lora.up.weight": "diffusers",
+        ":0:up": "cloneofsimo",
+        ".lora_up.weight": "kohya-ss",
+        ".to_k_lora.up.weight": "diffusers",
     }
 
-    for k, t in detect_keys.items():
-        # Needs to be .keys(), since lora might be a Safetensor not a Dict
-        if k in lora.keys():
-            return t
+    def basic_type():
+        for key in lora.keys():
+            for pattern, type in detect_keys.items():
+                if key.endswith(pattern):
+                    return type
 
-    raise ValueError("Unknown LoRA format (or not a LoRA)")
+        raise ValueError("Unknown LoRA format (or not a LoRA)")
+
+    type = basic_type()
+
+    # Second check - for kohya-ss make sure there are only Lora (and not Lycoris) fields
+
+    kohya_keys = (".lora_up.weight", ".lora_down.weight", ".alpha")
+
+    if type == "kohya-ss":
+        for key in lora.keys():
+            for pattern in kohya_keys:
+                if key.endswith(pattern):
+                    break
+            else:
+                raise ValueError("LoRA contains unknown fields, probably a Lycoris")
+
+    # OK, if we didn't throw an error, we're done
+
+    return type
 
 
 class LoraHook(ModelHook):
@@ -95,10 +114,15 @@ class LoraHook(ModelHook):
         if isinstance(module, nn.Conv2d):
             assert len(self._up_weight.shape) == len(self._down_weight.shape) == 4
 
+            r = self._r
             in_dim = module.in_channels
             out_dim = module.out_channels
-            self._lora_down = nn.Conv2d(in_dim, self._r, (1, 1), bias=False)
-            self._lora_up = nn.Conv2d(self._r, out_dim, (1, 1), bias=False)
+            kernel = module.kernel_size
+            stride = module.stride
+            padding = module.padding
+
+            self._lora_down = nn.Conv2d(in_dim, r, kernel, stride, padding, bias=False)
+            self._lora_up = nn.Conv2d(r, out_dim, (1, 1), (1, 1), bias=False)
 
         elif isinstance(module, nn.Linear):
             assert len(self._up_weight.shape) == len(self._down_weight.shape) == 2
@@ -126,10 +150,11 @@ class LoraHook(ModelHook):
         self._lora_down.to(self._input.device, self._input.dtype)
         self._lora_up.to(self._input.device, self._input.dtype)
 
-        return (
-            output
-            + self._lora_up(self._lora_down(self._input)) * self._iscale * self._scale
+        result = (
+            self._lora_up(self._lora_down(self._input)) * self._iscale * self._scale
         )
+
+        return output + result
 
     @property
     def scale(self):

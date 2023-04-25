@@ -232,7 +232,7 @@ def clone_model(
                 for name in model_buffers.keys():
                     set_module_tensor_to_device(dest, name, "meta")
 
-                add_hook_to_module(
+                add_hook(
                     dest,
                     CloneToGPUHook(
                         clone_tensors,
@@ -240,6 +240,7 @@ def clone_model(
                         model_params,
                         model_buffers,
                     ),
+                    replace=True,
                 )
             else:
                 for name, param in model_params.items():
@@ -253,6 +254,19 @@ def clone_model(
             exclusion_set.add(clone)
 
     return clone
+
+
+class FILOSequentialHook(SequentialHook):
+    """
+    SequentialHook executes pre_forward and post_forward in the same order.
+    Bu usually we want post_forward hooks to be called backwards (so the last
+    hook to have pre_forward called is the first to have post_forward called)
+    """
+
+    def post_forward(self, module, output):
+        for hook in reversed(self.hooks):
+            output = hook.post_forward(module, output)
+        return output
 
 
 def is_hooked(module):
@@ -289,20 +303,33 @@ def has_hook(module, hook_class):
 def add_hook(module, hook, replace=False):
     append = not replace
 
-    if (
-        append
-        and hasattr(module, "_hf_hook")
-        and isinstance(module._hf_hook, SequentialHook)
-    ):
-        module = hook.init_hook(module)
-        module._hf_hook.hooks = (*module._hf_hook.hooks, hook)
-    else:
-        add_hook_to_module(module, hook, append=append)
+    if append and (getattr(module, "_hf_hook", None) is not None):
+        if isinstance(module._hf_hook, SequentialHook):
+            if not isinstance(module._hf_hook, FILOSequentialHook):
+                logger.warn("Non-FILO Sequential Hook found")
+
+            module = hook.init_hook(module)
+            module._hf_hook.hooks = (*module._hf_hook.hooks, hook)
+            return
+
+        else:
+            old_hook = module._hf_hook
+            remove_hook_from_module(module)
+            hook = FILOSequentialHook(old_hook, hook)
+
+    add_hook_to_module(module, hook, append=False)
 
 
 def remove_hook(module, hook_class):
     if hasattr(module, "_hf_hook"):
         if isinstance(module._hf_hook, SequentialHook):
+            for removed in [
+                hook
+                for hook in module._hf_hook.hooks
+                if not isinstance(hook, hook_class)
+            ]:
+                removed.detach_hook(module)
+
             module._hf_hook.hooks = [
                 hook
                 for hook in module._hf_hook.hooks

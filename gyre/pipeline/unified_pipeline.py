@@ -3,6 +3,7 @@ import inspect
 import logging
 import math
 from copy import copy, deepcopy
+from itertools import zip_longest
 from types import SimpleNamespace as SN
 from typing import Any, Callable, List, Literal, Optional, Protocol, cast
 
@@ -48,9 +49,15 @@ from gyre.pipeline.kschedulers.scheduling_utils import KSchedulerMixin
 from gyre.pipeline.latent_debugger import LatentDebugger
 from gyre.pipeline.lora import (
     apply_lora,
+    detect_lora_type,
     parse_safeloras_embeds,
     remove_lora_from_model,
     set_lora_scale,
+)
+from gyre.pipeline.lycoris import (
+    apply_lycoris,
+    remove_lycoris_from_model,
+    set_lycoris_scale,
 )
 from gyre.pipeline.prompt_types import (
     ClipLayer,
@@ -896,6 +903,7 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
     def __init__(self, model, image, mask, weight, batch_total):
         self.batch_total = batch_total
         self.mask_warning_given = False
+        self.uncond_warning_given = False
         super().__init__(model, image, mask, weight)
 
     def _basic_process(self, r, mask):
@@ -908,9 +916,13 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
 
         if self.batch_total == r.shape[0]:
             # TODO: This needs fixing. We need to pass this down from the CFG wrappers.
-            logger.warn(
-                "Can't tell if this is the unconditional or guided side. Probably result will be wrong."
-            )
+            if not self.uncond_warning_given:
+                logger.warn(
+                    "Can't tell if this is the unconditional or guided side. "
+                    "Probably result will be wrong."
+                )
+                self.uncond_warning_given = True
+
             return torch.mean(self._basic_process(r, None), dim=(2, 3), keepdim=True)
 
         else:
@@ -2076,10 +2088,12 @@ class UnifiedPipeline(DiffusionPipeline):
 
         for text_encoder in all_text_encoders:
             remove_lora_from_model(text_encoder)
+            remove_lycoris_from_model(text_encoder)
             match_encoder_to_tokenizer(self.tokenizer, text_encoder)
 
         for unet in all_unets:
             remove_lora_from_model(unet)
+            remove_lycoris_from_model(unet)
 
         # And apply the new embeddings
 
@@ -2091,10 +2105,14 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if lora:
             for _id, (safeloras, weights) in enumerate(lora):
-                for unet in all_unets:
-                    apply_lora(safeloras, _id, unet=unet)
-                for text_encoder in all_text_encoders:
-                    apply_lora(safeloras, _id, text_encoder=text_encoder)
+                try:
+                    detect_lora_type(safeloras)
+                    apply_model, set_scale = apply_lora, set_lora_scale
+                except ValueError:
+                    apply_model, set_scale = apply_lycoris, set_lycoris_scale
+
+                for unet, text_encoder in zip_longest(all_unets, all_text_encoders):
+                    apply_model(safeloras, _id, unet=unet, text_encoder=text_encoder)
 
                 for key, weight in weights.items():
                     try:
@@ -2108,7 +2126,7 @@ class UnifiedPipeline(DiffusionPipeline):
                         continue
 
                     for target in targets:
-                        set_lora_scale(target, _id, weight)
+                        set_scale(target, _id, weight)
 
         for leaf in mode_tree.leaves:
             unet = leaf.opts["unet"]

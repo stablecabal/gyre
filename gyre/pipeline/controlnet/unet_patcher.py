@@ -2,10 +2,10 @@ import inspect
 import logging
 
 import torch.nn as nn
-from accelerate.hooks import ModelHook, add_hook_to_module
+from accelerate.hooks import ModelHook
 from diffusers.models.unet_2d_condition import UNet2DConditionModel
 
-from gyre.pipeline.model_utils import has_hook, remove_hook
+from gyre.pipeline.model_utils import add_hook, has_hook, remove_hook
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ def unpatch_unet(unet):
 
 def patch_unet_2D_condition_model(module: UNet2DConditionModel):
     if not has_hook(module, UNet2DConditionModelHook):
-        add_hook_to_module(module, UNet2DConditionModelHook(), append=True)
+        add_hook(module, UNet2DConditionModelHook())
 
 
 def patch_unet(unet):

@@ -21,9 +21,9 @@ TYPES = {"lora", "embedding", "image"}
 
 DEFAULT_WHITELIST = [
     dict(source="local", type="*", format="*"),
-    dict(source="civitai", type="lora", format="safetensors", max_size=256 * MB),
+    dict(source="civitai", type="lora", format="safetensors", max_size=384 * MB),
     dict(source="civitai", type="embedding", format="safetensors", max_size=8 * MB),
-    dict(source="huggingface", type="lora", format="safetensors", max_size=256 * MB),
+    dict(source="huggingface", type="lora", format="safetensors", max_size=384 * MB),
     dict(source="huggingface", type="embedding", format="safetensors", max_size=8 * MB),
 ]
 
