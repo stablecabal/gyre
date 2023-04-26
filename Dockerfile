@@ -144,6 +144,20 @@ RUN TORCH_CUDA_ARCH_LIST="`/cuda_archs.sh`" /bin/micromamba -r /env -n gyre run 
 RUN tar cvjf /deepspeed.tbz /env/envs/gyre/lib/python3.*/site-packages/deepspeed*
 
 
+# ----- Build (i.e. checkout) the flyingdog interface
+
+
+FROM ghcr.io/stablecabal/gyre-devbase:pytorch112-cuda${CUDA_VER}-latest AS flyingdogbase
+ARG FLYINGDOG_REPO=https://github.com/flyingdogsoftware/aistudio.git
+ARG FLYINGDOG_REF=main
+
+WORKDIR /
+RUN git clone $FLYINGDOG_REPO
+
+WORKDIR /aistudio
+RUN git checkout $FLYINGDOG_REF
+
+
 # ----- Build the basic inference server image -----
 
 
@@ -237,16 +251,9 @@ CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.p
 
 
 FROM xformers as bundle
-ARG FLYINGDOG_REPO=https://github.com/flyingdogsoftware/aistudio.git
-ARG FLYINGDOG_REF=main
 
-WORKDIR /
-RUN git clone $FLYINGDOG_REPO
-
-WORKDIR /aistudio
-RUN git checkout $FLYINGDOG_REF
-
-WORKDIR /
+RUN mkdir -p /aistudio
+COPY --from=flyingdogbase /aistudio /aistudio/
 ENV SD_HTTP_FILE_ROOT=/aistudio/dist
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
