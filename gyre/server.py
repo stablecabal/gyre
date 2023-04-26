@@ -38,6 +38,7 @@ from twisted.web.util import Redirect, redirectTo
 from twisted.web.wsgi import WSGIResource
 from wsgicors import CORS
 
+from gyre.http.reverse_proxy import HTTPSReverseProxyResource
 from gyre.sonora.wsgi import grpcWSGI
 
 # Google protoc compiler is dumb about imports (https://github.com/protocolbuffers/protobuf/issues/1491)
@@ -183,7 +184,10 @@ class HttpServer(object):
 
         # Build the web handler
         self.controller = RoutingController(
-            args.http_file_root, wsgi_resource, access_token=args.access_token
+            fileroot=args.http_file_root,
+            proxies=[x.split(":") for x in args.http_proxy],
+            wsgiapp=wsgi_resource,
+            access_token=args.access_token,
         )
 
         # Connect to an endpoint
@@ -305,11 +309,15 @@ class NeedBasicAuthResource(resource.Resource):
 
 
 class RoutingController(resource.Resource, CheckAuthHeaderMixin):
-    def __init__(self, fileroot, wsgiapp, access_token=None):
+    def __init__(self, fileroot, proxies, wsgiapp, access_token=None):
         super().__init__()
 
         self.details = ServerDetails()
         self.fileroot = fileroot
+        self.proxies = {
+            proxy[0].encode("utf-8"): HTTPSReverseProxyResource(proxy[1], 443, b"")
+            for proxy in proxies
+        }
         self.files = static.File(fileroot) if fileroot else None
         self.stability_rest_api = StabilityRESTAPIRouter()
         self.grpc_gateway = GrpcGatewayRouter()
@@ -351,6 +359,9 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
 
         if child == b"log":
             return self.log_controller, 1
+
+        if child in self.proxies:
+            return self.proxies[child], 0
 
         # -- These handler are all overlapped on root
 
@@ -707,6 +718,13 @@ def main():
         default=os.environ.get("SD_HTTP_FILE_ROOT", ""),
         help="Set this to the root of a filestructure to serve that via the HTTP server (in addition to the GRPC-WEB handler)",
     )
+    util_opts.add_argument(
+        "--http_proxy",
+        action="append",
+        default=environ_list("SD_HTTP_PROXY"),
+        help="Add a reverse proxy, with the format path:domain. Can be used to work around cross-origin issues with localhost for bundled clients.",
+    )
+
     util_opts.add_argument(
         "--enable_debug_recording",
         action="store_true",
