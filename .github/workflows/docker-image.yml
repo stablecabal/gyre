@@ -10,7 +10,7 @@ jobs:
   build-cuda118:
     strategy:
       matrix:
-        target: ["basic", "xformers"]
+        target: ["basic", "xformers", "bundle"]
         cuda: ["11.6.2", "11.7.1", "11.8.0"]
 
     #runs-on: self-hosted

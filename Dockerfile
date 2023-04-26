@@ -233,6 +233,25 @@ RUN rm /*.whl
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
 
+# ----- Build the bundled xformers + flyingdog image -----
+
+
+FROM xformers as bundle
+ARG FLYINGDOG_REPO=https://github.com/flyingdogsoftware/aistudio.git
+ARG FLYINGDOG_REF=main
+
+WORKDIR /
+RUN git clone $FLYINGDOG_REPO
+
+WORKDIR /aistudio
+RUN git checkout $FLYINGDOG_REF
+
+WORKDIR /
+ENV SD_HTTP_FILE_ROOT=/aistudio/dist
+
+CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
+
+
 # ----- Build the inference server image with training support -----
 # (based on a -devel image instead of -runtime, but otherwise identical to basic)
 
