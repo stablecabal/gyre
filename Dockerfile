@@ -255,6 +255,7 @@ FROM xformers as bundle
 RUN mkdir -p /aistudio
 COPY --from=flyingdogbase /aistudio /aistudio/
 ENV SD_HTTP_FILE_ROOT=/aistudio/dist
+ENV SD_HTTP_PROXY_1=flyingdog:www.flyingdog.de
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
 
