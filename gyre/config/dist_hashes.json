@@ -29,6 +29,12 @@
     "505815d4f2b0233892dcc2b5a760fb7a09d936cd",
     "03151dc340c76bf76f3b4d13b8d5570af3c86013"
   ],
+  "models/controlnet-11.yaml": [
+    "faef1febf033908abb4bc0f6026a549d8666ef1a",
+    "87f83e8ff726d6fd6a8e4b9048b3065ec9541f93",
+    "d491538a30d9941583e836d0d5e47ab96f4b19bd",
+    "d7edd6d9a491b556be3d0e1b1c27c4e909efe9bd"
+  ],
   "extras/fish.yaml": [
     "ea721cb683d0e4863e77f446126538023494432b",
     "67a1fb79cdb1e9acbaefeac2b15378d38314179e",
@@ -59,11 +65,6 @@
     "4dc743ba18b3b02661c50e39bfa4ac991ab8df83",
     "68e67679a4eeb2d041051dd5839cd549f85aa128",
     "a8189807724ab53c6abacb7d9fa391a6e3a9ba83"
-  ],
-  "models/controlnet-11.yaml": [
-    "87f83e8ff726d6fd6a8e4b9048b3065ec9541f93",
-    "d491538a30d9941583e836d0d5e47ab96f4b19bd",
-    "d7edd6d9a491b556be3d0e1b1c27c4e909efe9bd"
   ],
   "examples.yaml": [
     "23d07eefb56a8f386a09c6ea126141df70bda9bf",
