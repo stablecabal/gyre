@@ -49,12 +49,18 @@ def stub_basicsr_version():
 
 
 def kdiffusion_direct_import(name):
+    base_path = os.path.join(src_dir, "k-diffusion/k_diffusion")
+
     if "k_diffusion" not in sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            "k_diffusion", os.path.join(base_path, "__init__.py")
+        )
         m = types.ModuleType("k_diffusion")
+        m.__spec__ = spec
         sys.modules["k_diffusion"] = m
 
     module_name = f"k_diffusion.{name}"
-    file_path = os.path.join(src_dir, "k-diffusion/k_diffusion", f"{name}.py")
+    file_path = os.path.join(base_path, f"{name}.py")
 
     # From https://docs.python.org/3/library/importlib.html#importing-a-source-file-directly
     spec = importlib.util.spec_from_file_location(module_name, file_path)

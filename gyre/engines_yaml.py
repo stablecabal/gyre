@@ -123,10 +123,10 @@ def load_raw_yaml(paths, context):
 
     while sources:
         # Get the next source
-        source = sources.pop(0)
+        source, needs_closing = sources.pop(0), False
 
         if source.endswith(".yaml") or source.endswith(".yml"):
-            source = open(source, "rb")
+            source, needs_closing = open(source, "rb"), True
 
         includes = []
 
@@ -136,6 +136,9 @@ def load_raw_yaml(paths, context):
                 source, Loader=LoaderFactory(includes, context=context, cache=cache)
             )
         )
+
+        if needs_closing:
+            source.close()
 
         # Check for recursion
         if repeated := all_sources & set(includes):

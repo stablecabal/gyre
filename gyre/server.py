@@ -38,16 +38,11 @@ from twisted.web.util import Redirect, redirectTo
 from twisted.web.wsgi import WSGIResource
 from wsgicors import CORS
 
-from gyre.http.reverse_proxy import HTTPSReverseProxyResource
-from gyre.sonora.wsgi import grpcWSGI
-
 # Google protoc compiler is dumb about imports (https://github.com/protocolbuffers/protobuf/issues/1491)
-# TODO: Move to https://github.com/danielgtaylor/python-betterproto
-generatedPath = os.path.join(os.path.dirname(__file__), "generated")
-sys.path.append(generatedPath)
-
+from gyre.generated import inject_generated_path
 from gyre.src import inject_src_paths
 
+inject_generated_path()
 inject_src_paths()
 
 # Inject the nonfree projects if they exist
@@ -63,6 +58,7 @@ from gyre import cache, engines_yaml
 from gyre.constants import GB, IS_DEV, KB, MB, sd_cache_home
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.http.grpc_gateway import GrpcGatewayRouter
+from gyre.http.reverse_proxy import HTTPSReverseProxyResource
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
 from gyre.logging import LOG_LEVELS, LogImagesController, configure_logging
@@ -72,6 +68,7 @@ from gyre.resources import ResourceProvider
 from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
 from gyre.services.generate import GenerationServiceServicer
+from gyre.sonora.wsgi import grpcWSGI
 
 
 class DartGRPCCompatibility(object):

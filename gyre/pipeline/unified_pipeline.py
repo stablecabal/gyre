@@ -12,7 +12,7 @@ import torch
 import torchvision.transforms as T
 from diffusers.configuration_utils import FrozenDict
 from diffusers.models import AutoencoderKL, UNet2DConditionModel, modeling_utils
-from diffusers.models.cross_attention import CrossAttnProcessor, SlicedAttnProcessor
+from diffusers.models.attention_processor import AttnProcessor, SlicedAttnProcessor
 from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import (
@@ -175,7 +175,7 @@ class Txt2imgMode(UnifiedMode):
         self.latents_dtype = latents_dtype
         self.latents_shape = (
             batch_total,
-            cast(int, pipeline.unet.in_channels),
+            cast(int, pipeline.unet.config.in_channels),
             height // pipeline.vae_scale_factor,
             width // pipeline.vae_scale_factor,
         )
@@ -1411,7 +1411,7 @@ class UnifiedPipeline(DiffusionPipeline):
             elif self._sliced_attention:
                 revs_processors.append(SlicedAttnProcessor(self._sliced_attention))
             else:
-                revs_processors.append(CrossAttnProcessor())
+                revs_processors.append(AttnProcessor())
 
         @contextlib.contextmanager
         def reversiblectx():
@@ -1816,7 +1816,7 @@ class UnifiedPipeline(DiffusionPipeline):
             clip_config.no_cutouts = no_cutouts
 
         if isinstance(scheduler, SchedulerMixin | KSchedulerMixin):
-            prediction_type = getattr(scheduler, "prediction_type", "epsilon")
+            prediction_type = scheduler.config.get("prediction_type", "epsilon")
             if prediction_type == "v_prediction" and clip_guidance_scale:
                 raise ValueError(
                     "Can't use Diffusers scheduler with a v-prediction unet and CLIP guidance. "

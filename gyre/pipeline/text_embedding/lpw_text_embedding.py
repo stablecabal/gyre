@@ -1,13 +1,16 @@
 # Copied mostly completely from https://github.com/huggingface/diffusers/blob/main/examples/community/lpw_stable_diffusion.py
 # Minimal modifications to allow copy/pasting in the case of updates
 
+import logging
 import re
 from typing import List, Optional, Union
 
 import torch
 from transformers.models.clip import CLIPTextModel, CLIPTokenizer
 
-from .text_embedding import TextEmbedding
+from gyre.pipeline.text_embedding.text_embedding import TextEmbedding
+
+logger = logging.getLogger(__name__)
 
 re_attention = re.compile(
     r"""
