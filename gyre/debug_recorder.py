@@ -21,7 +21,6 @@ record_modules = [
   "torch",
   "torchvision",
   "numpy",
-  "opencv-python-headless",
   "scipy",
   "transformers",
   "diffusers",

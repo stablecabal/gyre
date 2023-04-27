@@ -18,11 +18,27 @@ RUN /bin/micromamba -r /env -n gyre run pip install "flit~=3.8.0"
 
 # We copy only the minimum for flit to run so avoid cache invalidation on code changes
 COPY pyproject.toml /pyproject.toml.in
-RUN cat /pyproject.toml.in | sed -e /mmcv/d > /pyproject.toml
+# Don't install mmcv (we build from source), and use opencv-python-headless
+RUN cat /pyproject.toml.in | sed -e /mmcv/d | sed -e s/opencv-python/opencv-python-headless/ > /pyproject.toml
 COPY gyre/__init__.py gyre/
 RUN touch README.md
 RUN /bin/micromamba -r /env -n gyre run flit install --only-deps
 RUN /bin/micromamba -r /env -n gyre run pip cache purge
+
+# HACK make it look like opencv-python is installed, to prevent it being pulled in by child dependancies
+
+COPY --chmod=755 <<"EOT" /hack_opencv.sh
+#!/bin/bash
+for x in /env/envs/gyre/lib/python*/site-packages/opencv_python_headless*.dist-info
+do
+  y=`echo $x | sed -e s/_headless//`
+  cp -r $x $y
+  cat $y/METADATA | sed -e s/-headless//g > $y/METADATA.new
+  mv $y/METADATA.new $y/METADATA
+done
+EOT
+
+RUN /hack_opencv.sh
 
 WORKDIR /
 RUN git clone $MMCV_REPO
