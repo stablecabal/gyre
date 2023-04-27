@@ -3,8 +3,7 @@
   type: "controlnet"
 
 - model_id: "controlnet11-depth"
-  model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11f1p_sd15_depth"
+  model: "lllyasviel/control_v11f1p_sd15_depth"
   type: "controlnet"
 
 - model_id: "controlnet11-inpaint"
@@ -44,8 +43,7 @@
   type: "controlnet"
 
 - model_id: "controlnet11-shuffle"
-  model: "halffried/gyre_controlnet_11"
-  subfolder: "control_v11e_sd15_shuffle"
+  model: "lllyasviel/control_v11e_sd15_shuffle"
   type: "controlnet"
 
 - model_id: "controlnet11-softedge"

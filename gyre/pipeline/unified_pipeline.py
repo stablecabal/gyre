@@ -923,11 +923,18 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
                 )
                 self.uncond_warning_given = True
 
-            return torch.mean(self._basic_process(r, None), dim=(2, 3), keepdim=True)
+            res = self._basic_process(r, None)
+            # TODO: This shouldn't be needed after Diffusers 0.16.0. Can remove?
+            if res.shape[2] > 1:
+                res = torch.mean(res, dim=(2, 3), keepdim=True)
+            return res
 
         else:
             u, g = r.chunk(2)
-            res_g = torch.mean(self._basic_process(g, None), dim=(2, 3), keepdim=True)
+            res_g = self._basic_process(g, None)
+            # TODO: This shouldn't be needed after Diffusers 0.16.0. Can remove?
+            if res_g.shape[2] > 1:
+                res_g = torch.mean(res_g, dim=(2, 3), keepdim=True)
             res_u = torch.zeros_like(res_g)
             return torch.cat([res_u, res_g], dim=0)
 
@@ -951,7 +958,7 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
 
         process_residual = (
             self._pooled_process
-            if self.model.config.get("global_average_pooling", False)
+            if self.model.config.get("global_pool_conditions", False)
             else self._basic_process
         )
 

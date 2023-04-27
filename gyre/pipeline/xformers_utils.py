@@ -2,7 +2,7 @@ import functools
 import logging
 
 import torch
-from diffusers.models.attention import CrossAttention
+from diffusers.models.attention_processor import Attention
 from diffusers.utils.import_utils import is_xformers_available
 
 if is_xformers_available():
@@ -62,7 +62,7 @@ def xformers_mea_reversible(size: int):
 
 def xformers_mea_reversible_for_module(module: torch.nn.Module):
 
-    if isinstance(module, CrossAttention):
+    if isinstance(module, Attention):
         size = int(module.scale**-2)
         return xformers_mea_reversible(size)
 
