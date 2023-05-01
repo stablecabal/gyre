@@ -309,6 +309,13 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
     def __init__(self, fileroot, proxies, wsgiapp, access_token=None):
         super().__init__()
 
+        try:
+            fileroot = os.path.realpath(fileroot, strict=True)
+        except Exception:
+            raise FileNotFoundError(
+                f"Web files not found at {fileroot} - check installation"
+            )
+
         self.details = ServerDetails()
         self.fileroot = fileroot
         self.proxies = {
@@ -807,6 +814,33 @@ def main():
         torch.cuda.set_per_process_memory_fraction(args.vram_fraction)
 
     ram_monitor = None
+    grpc = None
+    http = None
+    localtunnel = None
+
+    def shutdown_reactor_handler(*args):
+        print("Waiting for server to shutdown...")
+        if ram_monitor:
+            ram_monitor.stop()
+        if localtunnel:
+            localtunnel.stop()
+        if http is not None:
+            http.stop()
+        if grpc is not None:
+            grpc.stop()
+        print("All done. Goodbye.")
+        sys.exit(0)
+
+    prev_handler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
+
+    prev_excepthook = sys.excepthook
+
+    def excepthook(*args, **kwargs):
+        prev_excepthook(*args, **kwargs)
+        shutdown_reactor_handler()
+
+    sys.excepthook = excepthook
+
     if args.monitor_ram:
         ram_monitor = RamMonitor()
         ram_monitor.start()
@@ -817,25 +851,9 @@ def main():
     http = HttpServer(args)
     http.start()
 
-    localtunnel = None
     if args.localtunnel:
         localtunnel = LocaltunnelServer(args)
         localtunnel.start()
-
-    prevHandler = None
-
-    def shutdown_reactor_handler(*args):
-        print("Waiting for server to shutdown...")
-        if ram_monitor:
-            ram_monitor.stop()
-        if localtunnel:
-            localtunnel.stop()
-        http.stop()
-        grpc.stop()
-        print("All done. Goodbye.")
-        sys.exit(0)
-
-    prevHandler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
 
     # Handle enginecfg arg being passed as a URL
     unprocessed_cfg = args.enginecfg
@@ -1060,6 +1078,11 @@ def main():
     print(
         f"All engines ready, loading took {time.time()-loads_time:.1f}s, total startup {time.time()-start_time:.1f}s"
     )
+
+    if args.http_file_root:
+        print(
+            f"Visit http://localhost:{args.http_port}/ (or the web-accessible URL if you're running on a remote server) to access the Web UI"
+        )
 
     if ram_monitor:
         ram_monitor.print()
