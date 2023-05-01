@@ -818,7 +818,9 @@ def main():
     http = None
     localtunnel = None
 
-    def shutdown_reactor_handler(*args):
+    # Cleanly shutdown on SIGINT
+    
+    def shutdown_reactor_handler(*args, exit=True, exit_code=0):
         print("Waiting for server to shutdown...")
         if ram_monitor:
             ram_monitor.stop()
@@ -829,17 +831,44 @@ def main():
         if grpc is not None:
             grpc.stop()
         print("All done. Goodbye.")
-        sys.exit(0)
+        if exit:
+            sys.exit(exit_code)
 
     prev_handler = signal.signal(signal.SIGINT, shutdown_reactor_handler)
+
+    # Cleanly shutdown with an error code if there's an exception in the main thread
 
     prev_excepthook = sys.excepthook
 
     def excepthook(*args, **kwargs):
         prev_excepthook(*args, **kwargs)
-        shutdown_reactor_handler()
+        shutdown_reactor_handler(exit_code=1)
 
     sys.excepthook = excepthook
+
+    # Make ctrl-c work on windows
+
+    if sys.platform == 'win32':
+        import ctypes
+        from ctypes import WINFUNCTYPE, wintypes
+
+        HandlerRoutine = WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+        SetConsoleCtrlHandler = ctypes.windll.kernel32.SetConsoleCtrlHandler
+        SetConsoleCtrlHandler.argtypes = (HandlerRoutine, wintypes.BOOL)
+        SetConsoleCtrlHandler.restype = wintypes.BOOL
+
+        ExitProcess = ctypes.windll.kernel32.ExitProcess
+        ExitProcess.argtypes = (wintypes.UINT, )
+
+        def _handle_windows_ctrlc(type):
+            shutdown_reactor_handler(exit=False)
+            ExitProcess(0)
+
+        null_handler = HandlerRoutine(0)
+        SetConsoleCtrlHandler(null_handler, False)
+
+        handle_windows_ctrlc = HandlerRoutine(_handle_windows_ctrlc)
+        SetConsoleCtrlHandler(handle_windows_ctrlc, True)
 
     if args.monitor_ram:
         ram_monitor = RamMonitor()
