@@ -195,7 +195,6 @@ ENV PATH      $NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
 RUN npm install -g localtunnel
 
 # Now we can copy everything we need
-COPY nonfree /nonfree/
 COPY gyre /gyre/
 COPY server.py .
 
@@ -298,7 +297,6 @@ ENV PATH      $NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
 RUN npm install -g localtunnel
 
 # Now we can copy everything we need
-COPY nonfree /nonfree/
 COPY gyre /gyre/
 COPY server.py .
 
@@ -370,3 +368,22 @@ RUN /bin/micromamba -r /env -n gyre run pip install /*.whl
 RUN rm /*.whl
 
 CMD [ "/bin/micromamba", "-r", "env", "-n", "gyre", "run", "python", "./server.py" ]
+
+
+# ----- Non-free targets -----
+
+
+FROM basic as basic-nonfree
+COPY nonfree /nonfree/
+
+FROM xformers as xformers-nonfree
+COPY nonfree /nonfree/
+
+FROM bundle as bundle-nonfree
+COPY nonfree /nonfree/
+
+FROM training as basic-training-nonfree
+COPY nonfree /nonfree/
+
+FROM xformers-training as xformers-training-nonfree
+COPY nonfree /nonfree/
