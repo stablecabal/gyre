@@ -309,20 +309,21 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
     def __init__(self, fileroot, proxies, wsgiapp, access_token=None):
         super().__init__()
 
-        try:
-            fileroot = os.path.realpath(fileroot, strict=True)
-        except Exception:
-            raise FileNotFoundError(
-                f"Web files not found at {fileroot} - check installation"
-            )
+        if not fileroot:
+            self.files = None
+        else:
+            try:
+                self.files = static.File(os.path.realpath(fileroot, strict=True))
+            except Exception:
+                raise FileNotFoundError(
+                    f"Web files not found at {fileroot} - check installation"
+                )
 
         self.details = ServerDetails()
-        self.fileroot = fileroot
         self.proxies = {
             proxy[0].encode("utf-8"): HTTPSReverseProxyResource(proxy[1], 443, b"")
             for proxy in proxies
         }
-        self.files = static.File(fileroot) if fileroot else None
         self.stability_rest_api = StabilityRESTAPIRouter()
         self.grpc_gateway = GrpcGatewayRouter()
         self.status_controller = StatusController()
@@ -345,6 +346,13 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         return False
 
     def _getChildAndLevel(self, child, request):
+
+        # -- Handle a "double-initial-slash" (like http://localhost:5000//status)
+
+        if child == b"" and request.postpath:
+            request.prepath.append(child)
+            child = request.postpath.pop(0)
+
         # -- These handlers are all nested
 
         # Hardcoded handler for service discovery
@@ -379,7 +387,7 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
             return self.wsgi, 2
 
         # If we're serving files, check to see if the request is for a served file
-        if self.fileroot:
+        if self.files is not None:
             return self.files, 0
 
         # If we're at the root, redirect to status
