@@ -354,6 +354,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
             width=width,
             height=height,
             guidance_scale=guidance_scale,
+            cfg_execution=self.mode.cfg_execution,
             clip_guidance_scale=clip_guidance_scale,
             clip_guidance_base=clip_guidance_base,
             prediction_type=self._prediction_type,

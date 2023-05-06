@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import NewType, Protocol, overload
+from typing import Literal, NewType, Protocol, overload
 
 from torch import Tensor
 
@@ -19,6 +19,8 @@ ScheduleTimestep = int | Tensor
 # Progress float, range [0..1)
 ScheduleProgress = NewType("Progress", float)
 
+# Metda
+CFGMeta = Literal["g", "u", "f"] | None
 
 # The Core Diffusers UNet
 class DiffusersUNetOutput(Protocol):
@@ -28,8 +30,25 @@ class DiffusersUNetOutput(Protocol):
 class DiffusersUNet(Protocol):
     @abstractmethod
     def __call__(
-        self, latents: XtTensor, t: ScheduleTimestep, encoder_hidden_states: Tensor
+        self,
+        latents: XtTensor,
+        t: ScheduleTimestep,
+        *,
+        encoder_hidden_states: Tensor,
     ) -> DiffusersUNetOutput:
+        raise NotImplementedError
+
+
+class CFGUNet(Protocol):
+    @abstractmethod
+    def __call__(
+        self,
+        latents: XtTensor,
+        t: ScheduleTimestep,
+        *,
+        encoder_hidden_states: Tensor,
+        cfg_meta: CFGMeta = None,
+    ) -> EpsTensor:
         raise NotImplementedError
 
 

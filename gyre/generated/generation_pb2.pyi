@@ -230,6 +230,23 @@ TEXT_ENCODER: WeightMethod.ValueType  # 0
 CROSS_ATTENTION: WeightMethod.ValueType  # 1
 global___WeightMethod = WeightMethod
 
+class _HintPriority:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _HintPriorityEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_HintPriority.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    HINT_BALANCED: _HintPriority.ValueType  # 0
+    HINT_PRIORITISE_PROMPT: _HintPriority.ValueType  # 1
+    HINT_PRIORITISE_HINT: _HintPriority.ValueType  # 2
+
+class HintPriority(_HintPriority, metaclass=_HintPriorityEnumTypeWrapper): ...
+
+HINT_BALANCED: HintPriority.ValueType  # 0
+HINT_PRIORITISE_PROMPT: HintPriority.ValueType  # 1
+HINT_PRIORITISE_HINT: HintPriority.ValueType  # 2
+global___HintPriority = HintPriority
+
 class _DiffusionSampler:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -1320,14 +1337,21 @@ class PromptParameters(google.protobuf.message.Message):
     NAMED_WEIGHTS_FIELD_NUMBER: builtins.int
     TOKEN_OVERRIDES_FIELD_NUMBER: builtins.int
     CLIP_LAYER_FIELD_NUMBER: builtins.int
+    HINT_PRIORITY_FIELD_NUMBER: builtins.int
     init: builtins.bool
     weight: builtins.float
     @property
-    def named_weights(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___NamedWeight]: ...
+    def named_weights(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___NamedWeight]:
+        """For Lora / Lycoris, apply weights to different parts of the pipeline. Supported named: unet, text_encoder"""
     @property
-    def token_overrides(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___TokenOverride]: ...
+    def token_overrides(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___TokenOverride]:
+        """Override the token string inside a token_embedding"""
     clip_layer: builtins.int
-    """0 _or_ 1 == final, 2 = penultimate, 3 = next"""
+    """Specify the clip layer to use for text prompts and t2i/style hints
+    0 _or_ 1 == final, 2 = penultimate, 3 = next
+    """
+    hint_priority: global___HintPriority.ValueType
+    """Soecify the application mode for hints"""
     def __init__(
         self,
         *,
@@ -1336,11 +1360,14 @@ class PromptParameters(google.protobuf.message.Message):
         named_weights: collections.abc.Iterable[global___NamedWeight] | None = ...,
         token_overrides: collections.abc.Iterable[global___TokenOverride] | None = ...,
         clip_layer: builtins.int | None = ...,
+        hint_priority: global___HintPriority.ValueType | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "init", b"init", "weight", b"weight"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "init", b"init", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_hint_priority", b"_hint_priority", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "hint_priority", b"hint_priority", "init", b"init", "weight", b"weight"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_hint_priority", b"_hint_priority", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "hint_priority", b"hint_priority", "init", b"init", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_clip_layer", b"_clip_layer"]) -> typing_extensions.Literal["clip_layer"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_hint_priority", b"_hint_priority"]) -> typing_extensions.Literal["hint_priority"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_init", b"_init"]) -> typing_extensions.Literal["init"] | None: ...
     @typing.overload

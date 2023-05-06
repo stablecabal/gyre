@@ -11,6 +11,7 @@ SRC_MODULES = [
     "mmsegmentation",
     "mmdetection",
     "mmpose",
+    "picklemagic",
     "BasicSR",
     "ZoeDepth",
 ]

@@ -125,7 +125,7 @@ class ResourceProvider:
             metadata, tensors = self._get_web(restype, parts)
 
         else:
-            raise ResourcePermissionError(f"Unhandled resource URL {url}")
+            raise ResourcePermissionError(f"Unhandled resource URL '{url}'")
 
         self.cache.set(key, metadata=metadata, tensors=tensors)
         return UserSafetensors(metadata=metadata, tensors=tensors)

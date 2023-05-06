@@ -150,6 +150,12 @@ class EngineMode(object):
         )
 
     @property
+    def cfg_execution(self) -> Literal["parallel", "sequential"]:
+        return self._overrides.get(
+            "cfg_execution", "sequential" if self._vramO > 4 else "parallel"
+        )
+
+    @property
     def gpu_offload(self):
         return self._overrides.get(
             "gpu_offload",

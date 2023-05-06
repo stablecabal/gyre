@@ -24,7 +24,7 @@ class CFGChildUnets:
         )
 
 
-class CFGUnet_Seperated:
+class CFGUNet_Sequential:
     def __init__(self, cfg_unets: CFGChildUnets, guidance_scale, batch_total):
         self.cfg_unets = cfg_unets
         self.guidance_scale = guidance_scale
@@ -38,7 +38,7 @@ class CFGUnet_Seperated:
         return noise_pred
 
 
-class CFGUnet:
+class CFGUNet_Parallel:
     def __init__(self, cfg_unets: CFGChildUnets, guidance_scale, batch_total):
         self.cfg_unets = cfg_unets
         self.guidance_scale = guidance_scale

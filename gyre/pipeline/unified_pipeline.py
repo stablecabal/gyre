@@ -62,6 +62,7 @@ from gyre.pipeline.lycoris import (
 from gyre.pipeline.prompt_types import (
     ClipLayer,
     HintImage,
+    HintPriority,
     ImageLike,
     MismatchedClipLayer,
     PromptBatch,
@@ -77,7 +78,7 @@ from gyre.pipeline.textual_inversion import (
     apply_ti_to_tokenizer,
     match_encoder_to_tokenizer,
 )
-from gyre.pipeline.unet.cfg import CFGChildUnets, CFGUnet
+from gyre.pipeline.unet.cfg import CFGChildUnets, CFGUNet_Parallel, CFGUNet_Sequential
 from gyre.pipeline.unet.clipguided import (
     CLIP_GUIDANCE_BASE,
     CLIP_NO_CUTOUTS_TYPE,
@@ -85,6 +86,7 @@ from gyre.pipeline.unet.clipguided import (
     ClipGuidedMode,
 )
 from gyre.pipeline.unet.core import (
+    CFGUNetFromDiffusersUNet,
     UNetWithControlnet,
     UNetWithEmbeddings,
     UnetWithExtraChannels,
@@ -93,7 +95,10 @@ from gyre.pipeline.unet.core import (
 from gyre.pipeline.unet.graft import GraftUnets
 from gyre.pipeline.unet.hires_fix import HiresUnetWrapper
 from gyre.pipeline.unet.types import (
+    CFGMeta,
+    CFGUNet,
     DiffusersSchedulerUNet,
+    DiffusersUNet,
     EpsTensor,
     KDiffusionSchedulerUNet,
     NoisePredictionUNet,
@@ -119,9 +124,9 @@ def set_requires_grad(model, value):
         param.requires_grad = value
 
 
-class UnifiedMode(Protocol):
-    def __init__(self, **kwargs):
-        pass
+class UnifiedMode:
+    def __init__(self, cfg_execution="parallel", **kwargs):
+        self.cfg_execution = cfg_execution
 
     def generateLatents(self) -> XtTensor:
         raise NotImplementedError("Subclasses must implement")
@@ -135,7 +140,10 @@ class UnifiedMode(Protocol):
         guidance_scale: float,
         batch_total: int,
     ) -> NoisePredictionUNet:
-        return CFGUnet(cfg_unets, guidance_scale, batch_total)
+        if self.cfg_execution == "sequential":
+            return CFGUNet_Sequential(cfg_unets, guidance_scale, batch_total)
+        else:
+            return CFGUNet_Parallel(cfg_unets, guidance_scale, batch_total)
 
     def wrap_k_unet(self, unet: KDiffusionSchedulerUNet) -> KDiffusionSchedulerUNet:
         return unet
@@ -695,7 +703,15 @@ class UnifiedPipelineHint:
 
     @classmethod
     def for_model(
-        cls, models, image, mask=None, weight=1.0, clip_layer=None, batch_total=None
+        cls,
+        models,
+        image,
+        mask=None,
+        weight=1.0,
+        soft_injection=False,
+        cfg_only=False,
+        clip_layer=None,
+        batch_total=None,
     ):
 
         clip_model = models.pop("clip_model", None)
@@ -717,15 +733,26 @@ class UnifiedPipelineHint:
                 fuser,
                 mask,
                 weight,
+                soft_injection,
+                cfg_only,
                 clip_layer,
             )
         # Handle Controlnets
         elif isinstance(model, controlnet.ControlNetModel):
             return UnifiedPipelineHint_Controlnet(
-                model, image, mask, weight, batch_total
+                model, image, mask, weight, soft_injection, cfg_only, batch_total
             )
 
-    def __init__(self, model, image, mask=None, weight=1.0, channels=3):
+    def __init__(
+        self,
+        model,
+        image,
+        mask=None,
+        weight=1.0,
+        soft_injection=False,
+        cfg_only=False,
+        channels=3,
+    ):
         if type(self) is UnifiedPipelineHint:
             raise RuntimeError(
                 "Don't construct UnifiedPipelineHint directly, use for_model"
@@ -753,6 +780,8 @@ class UnifiedPipelineHint:
 
         self.weight = weight
         self.channels = channels
+        self.soft_injection = soft_injection
+        self.cfg_only = cfg_only
 
         self.normalise(channels)
 
@@ -806,6 +835,8 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
     patch_unet = t2i_adapter.patch_unet
     wrap_unet = UNetWithT2I
 
+    model: t2i_adapter.T2iAdapter_main | t2i_adapter.T2iAdapter_light | t2i_adapter.T2iAdapter_style
+
     def standard_setup(self):
         pass
 
@@ -831,10 +862,26 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
         fuser,
         mask,
         weight,
+        soft_injection,
+        cfg_only,
         clip_layer,
     ):
         channels = model.config.cin // 64 if "cin" in model.config else 3
-        super().__init__(model, image, mask, weight, channels=channels)
+
+        if isinstance(model, t2i_adapter.T2iAdapter_style):
+            if mask is not None:
+                logger.warn("Style T2iAdapters don't make sense with masks - ignoring")
+                mask = None
+
+            if soft_injection:
+                logger.warn(
+                    "Style T2iAdapters don't make sense with soft_injection - ignoring"
+                )
+                soft_injection = False
+
+        super().__init__(
+            model, image, mask, weight, soft_injection, cfg_only, channels=channels
+        )
 
         self.clip_model: CLIPModel = clip_model
         self.feature_extractor = feature_extractor
@@ -857,14 +904,25 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
         return image
 
     def standard_call(self):
+        # We don't strictly follow https://github.com/Mikubill/sd-webui-controlnet/blob/main/scripts/hook.py#L219
+        # These numbers were experimentally determined for guess_mode, and haven't been updated since then
+
+        layer_weights = (1.0, 1.0, 1.0, 1.0)
+        if self.soft_injection:
+            layer_weights = torch.logspace(-0.25, 0, 4)
+            if self.cfg_only:
+                layer_weights[0] = 0.25
+
         return [
-            state * self.weight * self.resized_mask(state)
-            for state in self.model(self.image)
+            state * self.weight * layer_weight * self.resized_mask(state)
+            for state, layer_weight in zip(self.model(self.image), layer_weights)
         ]
 
     def style_call(self):
         normalize = False
+
         layer = normalise_clip_layer(self.clip_layer, "final")
+        assert layer is not None
 
         image = self.__preprocess_image(self.image)
         image_embeds = self.clip_model.vision_model(
@@ -900,49 +958,60 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
     patch_unet = controlnet.patch_unet
     wrap_unet = UNetWithControlnet
 
-    def __init__(self, model, image, mask, weight, batch_total):
+    model: controlnet.ControlNetModel
+
+    def __init__(
+        self, model, image, mask, weight, soft_injection, cfg_only, batch_total
+    ):
         self.batch_total = batch_total
-        self.mask_warning_given = False
         self.uncond_warning_given = False
-        super().__init__(model, image, mask, weight)
 
-    def _basic_process(self, r, mask):
-        return r * self.weight * self.resized_mask(r, mask)
-
-    def _pooled_process(self, r, mask):
-        if mask is not None and not self.mask_warning_given:
-            logger.warn("Shuffle controlnets don't make sense with masks - ignoring")
-            self.mask_warning_given = True
-
-        if self.batch_total == r.shape[0]:
-            # TODO: This needs fixing. We need to pass this down from the CFG wrappers.
-            if not self.uncond_warning_given:
+        if model.config.get("global_pool_conditions", False):
+            # Always cfg_only if global_pool_conditions
+            cfg_only = True
+            # Ignore mask if global_pool_conditions
+            if mask is not None:
                 logger.warn(
-                    "Can't tell if this is the unconditional or guided side. "
-                    "Probably result will be wrong."
+                    "Shuffle controlnets don't make sense with masks - ignoring"
                 )
-                self.uncond_warning_given = True
+                mask = None
 
-            res = self._basic_process(r, None)
-            # TODO: This shouldn't be needed after Diffusers 0.16.0. Can remove?
-            if res.shape[2] > 1:
-                res = torch.mean(res, dim=(2, 3), keepdim=True)
-            return res
+        super().__init__(model, image, mask, weight, soft_injection, cfg_only)
 
-        else:
-            u, g = r.chunk(2)
-            res_g = self._basic_process(g, None)
-            # TODO: This shouldn't be needed after Diffusers 0.16.0. Can remove?
-            if res_g.shape[2] > 1:
-                res_g = torch.mean(res_g, dim=(2, 3), keepdim=True)
-            res_u = torch.zeros_like(res_g)
-            return torch.cat([res_u, res_g], dim=0)
+    def _basic_process(self, r, mask, layer_weight):
+        return r * self.weight * layer_weight * self.resized_mask(r, mask)
 
-    def __call__(self, latents, *args, **kwargs):
+    def _zeros_process(self, r, mask, layer_weight):
+        return torch.zeros_like(r)
+
+    def _cfgonly_process(self, r, mask, layer_weight):
+        res_u = self._zeros_process(r, mask, layer_weight)
+        res_g = self._basic_process(r, mask, layer_weight)
+        return torch.cat([res_u, res_g], dim=0)
+
+    def __call__(
+        self, latents, t, encoder_hidden_states: torch.Tensor, cfg_meta: CFGMeta = None
+    ):
 
         condition = self.image
         cnlatents = latents[:, 0:4]
         mask = self.mask
+
+        if self.cfg_only:
+            if cfg_meta == "f":
+                # Take only the guided side
+                cnlatents = cnlatents.chunk(2)[-1]
+                t = t.chunk(2)[-1] if isinstance(t, torch.Tensor) else t
+                encoder_hidden_states = encoder_hidden_states.chunk(2)[-1]
+            elif cfg_meta == "u":
+                # Just return zeros
+                return SN(
+                    down_block_res_samples=[torch.tensor(0)] * 13,
+                    mid_block_res_sample=torch.tensor(0),
+                )
+            else:
+                # No action for now
+                pass
 
         if latents.shape[1] == 9:
             mask = latents[:, [4]]
@@ -954,19 +1023,34 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
 
             condition = condition * mask
 
-        res = self.model(cnlatents, *args, **kwargs, controlnet_cond=condition)
-
-        process_residual = (
-            self._pooled_process
-            if self.model.config.get("global_pool_conditions", False)
-            else self._basic_process
+        res = self.model(
+            cnlatents,
+            t,
+            encoder_hidden_states=encoder_hidden_states,
+            controlnet_cond=condition,
         )
 
+        process_residual = self._basic_process
+        if self.cfg_only:
+            if cfg_meta == "f":
+                process_residual = self._cfgonly_process
+            elif cfg_meta == "u":
+                # Will only happpen if above block is commented out
+                process_residual = self._zeros_process
+            else:
+                # _basic_process is right
+                pass
+
+        layer_weights = torch.logspace(-1, 0, 13) if self.soft_injection else [1] * 13
+
         down_block_residuals = [
-            process_residual(residual, mask) for residual in res.down_block_res_samples
+            process_residual(residual, mask, layer_weight)
+            for residual, layer_weight in zip(res.down_block_res_samples, layer_weights)
         ]
 
-        mid_block_residual = process_residual(res.mid_block_res_sample, mask)
+        mid_block_residual = process_residual(
+            res.mid_block_res_sample, mask, layer_weights[-1]
+        )
 
         return SN(
             down_block_res_samples=down_block_residuals,
@@ -1649,6 +1733,7 @@ class UnifiedPipeline(DiffusionPipeline):
         strength: float | None = None,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
+        cfg_execution: Literal["parallel", "sequential"] = "parallel",
         negative_prompt: PromptBatchLike | None = None,
         num_images_per_prompt: int = 1,
         prediction_type: SCHEDULER_PREDICTION_TYPE = "epsilon",
@@ -1911,6 +1996,7 @@ class UnifiedPipeline(DiffusionPipeline):
                 hint_tensor = hint_image.image
                 hint_type = hint_image.hint_type
                 weight = 1.0 if hint_image.weight is None else hint_image.weight
+                priority = hint_image.priority
                 clip_layer = hint_image.clip_layer
 
                 if isinstance(hint_tensor, PILImage):
@@ -1939,6 +2025,8 @@ class UnifiedPipeline(DiffusionPipeline):
                                 hint_tensor,
                                 mask=None,
                                 weight=weight,
+                                soft_injection=priority != "balanced",
+                                cfg_only=priority == "hint",
                                 clip_layer=clip_layer,
                                 batch_total=batch_total,
                             )
@@ -2070,12 +2158,21 @@ class UnifiedPipeline(DiffusionPipeline):
                     ],
                 }
 
+            def set_soft_injection(child_opts):
+                return {
+                    **child_opts,
+                    "hints": [
+                        hint.extend(lambda image, mask, **_: {"soft_injection": True})
+                        for hint in child_opts["hints"]
+                    ],
+                }
+
             # TODO: This only works as long as all unets have same natural size
             unet_sample_size = self.get_unet_sample_size(self.unet)
 
             mode_tree.wrap(
                 get_natural_opts,
-                None,
+                set_soft_injection,
                 HiresUnetWrapper,
                 generators=generators,
                 natural_size=[unet_sample_size, unet_sample_size],
@@ -2136,10 +2233,10 @@ class UnifiedPipeline(DiffusionPipeline):
                         set_scale(target, _id, weight)
 
         for leaf in mode_tree.leaves:
-            unet = leaf.opts["unet"]
-            text_encoder = self.text_encoder_for_unet(unet)
+            base_unet = leaf.opts["unet"]
+            text_encoder = self.text_encoder_for_unet(base_unet)
+            unet: CFGUNet = CFGUNetFromDiffusersUNet(base_unet)
 
-            base_unet = unet
             prompt_chunks = []
 
             try:
@@ -2226,16 +2323,16 @@ class UnifiedPipeline(DiffusionPipeline):
                         unet = cls.wrap_unet(unet, list(ghints))
 
             # unet_g is the guided unet, for when we aren't doing CFG, or we want to run seperately to unet_u
-            leaf.unet_g = UNetWithEmbeddings(unet, text_embeddings)
+            leaf.unet_g = UNetWithEmbeddings(unet, text_embeddings, "g")
 
             if uncond_embeddings is not None:
                 leaf.unet_cfg = CFGChildUnets(
                     g=leaf.unet_g,
                     # unet_u is the unguided unet, for when we want to run seperately to unet_g
-                    u=UNetWithEmbeddings(unet, uncond_embeddings),
+                    u=UNetWithEmbeddings(unet, uncond_embeddings, "u"),
                     # unet_f is the fused unet, for running CFG in a single execution
                     f=UNetWithEmbeddings(
-                        unet, torch.cat([uncond_embeddings, text_embeddings])
+                        unet, torch.cat([uncond_embeddings, text_embeddings]), "f"
                     ),
                 )
 
@@ -2269,6 +2366,7 @@ class UnifiedPipeline(DiffusionPipeline):
             num_inference_steps=num_inference_steps,
             strength=strength,
             do_classifier_free_guidance=do_classifier_free_guidance,
+            cfg_execution=cfg_execution,
             latent_debugger=latent_debugger,
         )
 

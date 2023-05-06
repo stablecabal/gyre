@@ -116,9 +116,13 @@ class PromptBatch:
 PromptBatchLike = Prompt | str | list[Prompt] | list[str] | PromptBatch
 
 
+HintPriority = Literal["balanced", "prompt", "hint"]
+
+
 @dataclass
 class HintImage:
     image: ImageLike
     hint_type: str
     weight: float = 1.0
+    priority: HintPriority = "balanced"
     clip_layer: ClipLayer = None

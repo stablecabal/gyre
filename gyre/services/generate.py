@@ -24,7 +24,7 @@ from gyre.cache import CacheLookupError
 from gyre.debug_recorder import DebugNullRecorder
 from gyre.logging import VisualRecord as vr
 from gyre.manager import EngineNotFoundError
-from gyre.pipeline.prompt_types import HintImage, Prompt, PromptFragment
+from gyre.pipeline.prompt_types import HintImage, HintPriority, Prompt, PromptFragment
 from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
 from gyre.protobuf_tensors import deserialize_tensor
 from gyre.services.exception_to_grpc import exception_to_grpc
@@ -789,12 +789,23 @@ class ParameterExtractor:
                 else:
                     hint_type = prompt.artifact.hint_image_type
 
+                priority = "balanced"
+                if prompt.parameters.HasField("hint_priority"):
+                    priority_table: dict[Any, HintPriority] = {
+                        generation_pb2.HINT_BALANCED: "balanced",
+                        generation_pb2.HINT_PRIORITISE_HINT: "hint",
+                        generation_pb2.HINT_PRIORITISE_PROMPT: "prompt",
+                    }
+
+                    priority = priority_table[prompt.parameters.hint_priority]
+
                 # And append the details
                 hint_images.append(
                     HintImage(
                         image=hint_image,
                         hint_type=hint_type,
                         weight=weight,
+                        priority=priority,
                         clip_layer=self._clip_layer_from_prompt(prompt),
                     )
                 )
@@ -1055,6 +1066,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                                 f"hint_image: {{hint_images[{i}].image}} ("
                                 f"hint_type: {{hint_images[{i}].hint_type}} "
                                 f"weight: {{hint_images[{i}].weight:.2f}} "
+                                f"priority: {{hint_images[{i}].priority}} "
                                 f"clip_layer: {{hint_images[{i}].clip_layer}}"
                                 f")"
                             )

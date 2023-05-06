@@ -299,7 +299,13 @@ def add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args):
 
 
 def hint_image_to_prompt(
-    image, hint_type, weight=1.0, remove_bg=False, converter=None, args={}
+    image,
+    hint_type,
+    weight=1.0,
+    priority=generation.HINT_BALANCED,
+    remove_bg=False,
+    converter=None,
+    args={},
 ) -> generation.Prompt:
     buf = io.BytesIO()
     image.save(buf, format="PNG")
@@ -315,7 +321,7 @@ def hint_image_to_prompt(
             binary=buf.getvalue(),
             hint_image_type=hint_type,
         ),
-        parameters=generation.PromptParameters(weight=weight),
+        parameters=generation.PromptParameters(weight=weight, hint_priority=priority),
     )
 
     add_converter_to_hint_image_prompt(prompt, remove_bg, converter, args)
@@ -763,6 +769,7 @@ class StabilityInference:
                     hint_prompt.echo_back = True
                     hint_prompt.artifact.hint_image_type = hint["hint_type"]
                     hint_prompt.parameters.weight = hint["weight"]
+                    hint_prompt.parameters.priority = hint["prioriy"]
 
                     add_converter_to_hint_image_prompt(
                         hint_prompt, hint["remove_bg"], hint["converter"], hint["args"]
@@ -1162,17 +1169,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hint_image",
         action="append",
-        help="Provide a hint image, in type:path or type:path:weight format",
+        help="Provide a hint image, in type:path[:weight][:priority] format (priority is balanced, hint or prompt)",
     )
     parser.add_argument(
         "--hint_from_image",
         action="append",
-        help="Provide a image to be converted to a hint image, in type:path, type:path:weight, type:converter_id:path or type:converter_id:path:weight format. Prepend with 'nobg:' to remove background.",
+        help="Provide a image to be converted to a hint image, in [nobg:]type[:converter_id]:path[:weight][:priority] format",
     )
     parser.add_argument(
         "--hint_from_init",
         action="append",
-        help="Provide a hint image by converting the init_image, in type, type:weight, type:converter_id or type:converter_id:weight format. Prepend with 'nobg:' to remove background.",
+        help="Provide a hint image by converting the init_image, in [nobg:]type[:converter_id][:weight][:priority] format",
     )
     parser.add_argument(
         "--lora",
@@ -1283,6 +1290,16 @@ if __name__ == "__main__":
             parts.pop(0)
             remove_bg = True
 
+        priority = generation.HINT_BALANCED
+        if parts[-1] in {"balanced", "prompt", "hint"}:
+            if parts[-1] == "balanced":
+                priority = generation.HINT_BALANCED
+            elif parts[-1] == "prompt":
+                priority = generation.HINT_PRIORITISE_PROMPT
+            elif parts[-1] == "hint":
+                priority = generation.HINT_PRIORITISE_HINT
+            parts = parts[:-1]
+
         try:
             weight = float(parts[-1])
             parts = parts[:-1]
@@ -1293,6 +1310,7 @@ if __name__ == "__main__":
             "hint_type": parts.pop(0),
             "remove_bg": remove_bg,
             "weight": weight,
+            "priority": priority,
             "args": args,
         }
 

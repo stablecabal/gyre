@@ -1547,6 +1547,15 @@
       },
       "description": "GuidanceScheduleParameters are used to define a schedule for CLIP guidance, and\nare used to define the behavior of the guidance over time. They are relative\nto the total number of steps, and are scaled to the number of steps in the\ncurrent run."
     },
+    "HintPriority": {
+      "type": "string",
+      "enum": [
+        "HINT_BALANCED",
+        "HINT_PRIORITISE_PROMPT",
+        "HINT_PRIORITISE_HINT"
+      ],
+      "default": "HINT_BALANCED"
+    },
     "HiresFixParameters": {
       "type": "object",
       "properties": {
@@ -2041,18 +2050,25 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/NamedWeight"
-          }
+          },
+          "title": "For Lora / Lycoris, apply weights to different parts of the pipeline. Supported named: unet, text_encoder"
         },
         "tokenOverrides": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/TokenOverride"
-          }
+          },
+          "title": "Override the token string inside a token_embedding"
         },
         "clipLayer": {
           "type": "integer",
           "format": "int64",
-          "title": "0 _or_ 1 == final, 2 = penultimate, 3 = next"
+          "description": "0 _or_ 1 == final, 2 = penultimate, 3 = next",
+          "title": "Specify the clip layer to use for text prompts and t2i/style hints"
+        },
+        "hintPriority": {
+          "$ref": "#/definitions/HintPriority",
+          "title": "Soecify the application mode for hints"
         }
       },
       "description": "A set of parameters for each individual Prompt."

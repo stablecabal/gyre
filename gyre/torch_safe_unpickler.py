@@ -8,8 +8,7 @@ from collections import OrderedDict
 from typing import Any, Dict, List
 
 import torch
-
-from gyre.src.picklemagic.picklemagic import FakeUnpickler
+from picklemagic import FakeUnpickler
 
 logger = logging.getLogger(__name__)
 

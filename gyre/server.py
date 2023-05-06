@@ -607,7 +607,7 @@ def main():
         "--vram_optimisation_level",
         "-V",
         type=int,
-        default=os.environ.get("SD_VRAM_OPTIMISATION_LEVEL", 2),
+        default=os.environ.get("SD_VRAM_OPTIMISATION_LEVEL", 3),
         help=(
             "How much to trade off performance to reduce VRAM usage (0 = none, 5 = max). "
             "Sets the defaults for the other arguments below - normally you'd only override for a specific purpose."
@@ -630,6 +630,13 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=environ_bool("SD_FP16", None),
         help="Override whether to use fp16",
+    )
+    vram_opts.add_argument(
+        "--cfg_execution",
+        type=str,
+        default=os.environ.get("SD_CFG_EXECUTION", "parallel"),
+        choices=["parallel", "sequential"],
+        help="Override whether to run CFG in parallel (fast) or sequential (lower VRAM)",
     )
     vram_opts.add_argument(
         "--gpu_offload",
@@ -827,7 +834,7 @@ def main():
     localtunnel = None
 
     # Cleanly shutdown on SIGINT
-    
+
     def shutdown_reactor_handler(*args, exit=True, exit_code=0):
         print("Waiting for server to shutdown...")
         if ram_monitor:
@@ -856,7 +863,7 @@ def main():
 
     # Make ctrl-c work on windows
 
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         import ctypes
         from ctypes import WINFUNCTYPE, wintypes
 
@@ -866,7 +873,7 @@ def main():
         SetConsoleCtrlHandler.restype = wintypes.BOOL
 
         ExitProcess = ctypes.windll.kernel32.ExitProcess
-        ExitProcess.argtypes = (wintypes.UINT, )
+        ExitProcess.argtypes = (wintypes.UINT,)
 
         def _handle_windows_ctrlc(type):
             shutdown_reactor_handler(exit=False)
@@ -1016,6 +1023,7 @@ def main():
             "attention_slice",
             "tile_vae",
             "fp16",
+            "cfg_execution",
             "gpu_offload",
             "model_vram_limit",
             "model_max_limit",
