@@ -98,6 +98,22 @@ class EnginesServiceServicer(engines_pb2_grpc.EnginesServiceServicer):
         if "hint_images" in call_args:
             info.accepted_prompt_artifacts.append(generation_pb2.ARTIFACT_HINT_IMAGE)
 
+        # Calculate hints
+
+        if engine.hintset:
+            supported_hint_types = {}
+
+            for name, hintset in self._manager._build_hintset(
+                engine.hintset, with_models=False
+            ).items():
+                for type in hintset["types"]:
+                    supported_hint_types.setdefault(type, set()).add(name)
+
+            for type, providers in supported_hint_types.items():
+                info.accepted_hint_types.append(
+                    engines_pb2.EngineHintImageType(type=type, provider=list(providers))
+                )
+
         return info
 
     @exception_to_grpc

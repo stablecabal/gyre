@@ -109,6 +109,25 @@ class EngineSampler(google.protobuf.message.Message):
 global___EngineSampler = EngineSampler
 
 @typing_extensions.final
+class EngineHintImageType(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TYPE_FIELD_NUMBER: builtins.int
+    PROVIDER_FIELD_NUMBER: builtins.int
+    type: builtins.str
+    @property
+    def provider(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        type: builtins.str = ...,
+        provider: collections.abc.Iterable[builtins.str] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["provider", b"provider", "type", b"type"]) -> None: ...
+
+global___EngineHintImageType = EngineHintImageType
+
+@typing_extensions.final
 class EngineInfo(google.protobuf.message.Message):
     """Engine info struct"""
 
@@ -123,6 +142,7 @@ class EngineInfo(google.protobuf.message.Message):
     DESCRIPTION_FIELD_NUMBER: builtins.int
     SUPPORTED_SAMPLERS_FIELD_NUMBER: builtins.int
     ACCEPTED_PROMPT_ARTIFACTS_FIELD_NUMBER: builtins.int
+    ACCEPTED_HINT_TYPES_FIELD_NUMBER: builtins.int
     TASK_FIELD_NUMBER: builtins.int
     id: builtins.str
     owner: builtins.str
@@ -135,6 +155,8 @@ class EngineInfo(google.protobuf.message.Message):
     def supported_samplers(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___EngineSampler]: ...
     @property
     def accepted_prompt_artifacts(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[generation_pb2.ArtifactType.ValueType]: ...
+    @property
+    def accepted_hint_types(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___EngineHintImageType]: ...
     task: builtins.str
     def __init__(
         self,
@@ -148,9 +170,10 @@ class EngineInfo(google.protobuf.message.Message):
         description: builtins.str = ...,
         supported_samplers: collections.abc.Iterable[global___EngineSampler] | None = ...,
         accepted_prompt_artifacts: collections.abc.Iterable[generation_pb2.ArtifactType.ValueType] | None = ...,
+        accepted_hint_types: collections.abc.Iterable[global___EngineHintImageType] | None = ...,
         task: builtins.str = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing_extensions.Literal["accepted_prompt_artifacts", b"accepted_prompt_artifacts", "description", b"description", "id", b"id", "name", b"name", "owner", b"owner", "ready", b"ready", "supported_samplers", b"supported_samplers", "task", b"task", "tokenizer", b"tokenizer", "type", b"type"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["accepted_hint_types", b"accepted_hint_types", "accepted_prompt_artifacts", b"accepted_prompt_artifacts", "description", b"description", "id", b"id", "name", b"name", "owner", b"owner", "ready", b"ready", "supported_samplers", b"supported_samplers", "task", b"task", "tokenizer", b"tokenizer", "type", b"type"]) -> None: ...
 
 global___EngineInfo = EngineInfo
 

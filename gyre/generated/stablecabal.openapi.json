@@ -1463,6 +1463,20 @@
                 ],
                 "default": "DT_INVALID"
             },
+            "EngineHintImageType": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
             "EngineInfo": {
                 "type": "object",
                 "properties": {
@@ -1497,6 +1511,12 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ArtifactType"
+                        }
+                    },
+                    "acceptedHintTypes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/EngineHintImageType"
                         }
                     },
                     "task": {

@@ -1775,7 +1775,7 @@ class EngineManager(object):
 
         return self._instantiate_wrapper(spec, pipeline, model)
 
-    def _build_hintset(self, hintset_id, whitelist="*"):
+    def _build_hintset(self, hintset_id, whitelist="*", with_models=True):
         if isinstance(whitelist, str):
             whitelist = [whitelist]
 
@@ -1786,7 +1786,9 @@ class EngineManager(object):
         result = {}
         for name, handler in hintset_spec.items():
             if name.startswith("@"):
-                subhintset = self._build_hintset(name[1:], whitelist=handler)
+                subhintset = self._build_hintset(
+                    name[1:], whitelist=handler, with_models=with_models
+                )
                 result.update(subhintset)
 
             else:
@@ -1802,7 +1804,7 @@ class EngineManager(object):
 
                 result[name] = dict(
                     name=name,
-                    models=self._load_model(spec).as_dict(),
+                    models=self._load_model(spec).as_dict() if with_models else None,
                     types=[name] + aliases,
                     priority=handler.get("priority", 100),
                 )

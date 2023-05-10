@@ -967,8 +967,8 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
         self.uncond_warning_given = False
 
         if model.config.get("global_pool_conditions", False):
-            # Always cfg_only if global_pool_conditions
-            cfg_only = True
+            # Always cfg_only and never soft_injection if global_pool_conditions
+            cfg_only, soft_injection = True, False
             # Ignore mask if global_pool_conditions
             if mask is not None:
                 logger.warn(
