@@ -10,7 +10,7 @@ from functools import cached_property
 from math import sqrt
 from queue import Empty, Queue
 from types import SimpleNamespace as SN
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Literal
 
 import generation_pb2
 import generation_pb2_grpc
@@ -139,6 +139,9 @@ class AsyncContext:
         self.set_details(details)
 
         raise grpc.RpcError()
+
+    def invocation_metadata(self):
+        return []
 
 
 def rescale_mode_to_fit_and_pad(mode):
@@ -394,14 +397,34 @@ class ParameterExtractor:
     memo-ise the result.
     """
 
-    def __init__(self, manager, context, request, tensor_cache, resource_provider):
+    def __init__(
+        self,
+        manager,
+        context,
+        request,
+        tensor_cache,
+        resource_provider,
+        api_variant: Literal["standard", "stable_studio"] = "standard",
+    ):
         self._manager = manager
         self._context = context
         self._request = request
         self._tensor_cache = tensor_cache
         self._resource_provider = resource_provider
+        self._api_variant = api_variant
 
         self._echo = None
+
+        # Handle variations
+        if self._api_variant == "stable_studio":
+            for prompt in self._prompt_of_type("artifact"):
+                if prompt.artifact.type == generation_pb2.ARTIFACT_MASK:
+                    prompt.artifact.adjustments.insert(
+                        0,
+                        generation_pb2.ImageAdjustment(
+                            invert=generation_pb2.ImageAdjustment_Invert()
+                        ),
+                    )
 
         # Add a cache to self.get to prevent multiple requests from recalculating
         # self.get = functools.cache(self.get)
@@ -944,7 +967,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
 
         # Replace any negative seeds with a randomly selected one
         seeds = [
-            seed if seed >= 0 else random.randrange(0, 2**32 - 1) for seed in seeds
+            seed if seed > 0 else random.randrange(0, 2**32 - 1) for seed in seeds
         ]
 
         # Fill seeds up to params.samples if we didn't get passed enough
@@ -982,6 +1005,13 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
         }
     )
     def Generate(self, request, context):
+        api_variant = "standard"
+
+        # Detect stable studio, which sends mask inverted compared to previous standard
+        for key, value in context.invocation_metadata():
+            if key == "stability-client-id" and value == "StableStudio":
+                api_variant = "stable_studio"
+
         with self._debug_recorder.record(request.request_id) as recorder:
             recorder.store("generate request", request)
 
@@ -998,6 +1028,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 manager=self._manager,
                 tensor_cache=self._tensor_cache,
                 resource_provider=self._resource_provider,
+                api_variant=api_variant,
             )
             kwargs = {}
 
@@ -1135,6 +1166,7 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                     )
                     artifact.index = ctr
                     artifact.seed = img_seed
+                    artifact.uuid = str(uuid.uuid4())
                     answer.artifacts.append(artifact)
 
                     logger.debug(vr("Result {image}", image=result_image))
@@ -1148,6 +1180,53 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
 
             if self._ram_monitor:
                 self._ram_monitor.print()
+
+    @exception_to_grpc
+    def ChainGenerate(self, request: generation_pb2.ChainRequest, context):
+        input_artifacts = {}
+
+        for stage in request.stage:
+            if stage.request.engine_id == "asset-service":
+                logger.warn("assert-service not currently implemented. Skipping.")
+                continue
+
+            # Pull out the on_status list to be matchable more easily
+            on_status = [
+                {
+                    "reason": {r for r in item.reason} if item.reason else {0},
+                    "target": item.target if item.HasField("target") else None,
+                    "action": {a for a in item.action} if item.action else {0},
+                }
+                for item in stage.on_status
+            ]
+
+            modifiers = [lambda x: None]
+
+            # TODO: It's not clear what should be done for subsequent targets in the
+            # chain when there are multiple input images. For now, we split it into
+            # multiple generations on the target.
+            if stage.id in input_artifacts:
+                modifiers = [
+                    lambda stage_request: stage_request.prompt.append(image_artifact)
+                    for image_artifact in input_artifacts[stage.id]
+                ]
+
+            for modifier in modifiers:
+                stage_request = generation_pb2.Request()
+                stage_request.CopyFrom(stage.request)
+                stage_request.request_id = stage.id
+                modifier(stage_request)
+
+                for result in self.Generate(stage_request, context):
+                    for artifact in result.artifacts:
+                        for item in on_status:
+                            if artifact.finish_reason in item["reason"]:
+                                if generation_pb2.STAGE_ACTION_RETURN in item["action"]:
+                                    yield result
+                                if generation_pb2.STAGE_ACTION_PASS in item["action"]:
+                                    input_artifacts.setdefault(
+                                        item["target"], []
+                                    ).append(artifact)
 
     def _try_deleting_context(self, key):
         """

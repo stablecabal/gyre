@@ -386,6 +386,12 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
         if content_type and content_type.startswith("application/grpc-web"):
             return self.wsgi, 2
 
+        # For OPTIONS requests, content-type probably not set, so look for x-grpc-web
+        if request.method == b"OPTIONS":
+            acr_headers = request.getHeader("access-control-request-headers")
+            if acr_headers and "x-grpc-web" in acr_headers:
+                return self.wsgi, 2
+
         # If we're serving files, check to see if the request is for a served file
         if self.files is not None:
             return self.files, 0

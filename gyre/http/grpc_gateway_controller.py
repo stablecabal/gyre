@@ -67,6 +67,9 @@ class GRPCContext:
         self.set_details(message)
         raise grpc.RpcError()
 
+    def invocation_metadata(self):
+        return []
+
 
 class RequestWithContext(Request):
     grpc_context: GRPCContext
