@@ -386,6 +386,10 @@ def apply_image_adjustment(
     return tensor
 
 
+class InvalidArgumentError(Exception):
+    pass
+
+
 class ParameterExtractor:
     """
     ParameterExtractor pulls fields out of a deeply nested GRPC structure.
@@ -400,14 +404,12 @@ class ParameterExtractor:
     def __init__(
         self,
         manager,
-        context,
         request,
         tensor_cache,
         resource_provider,
         api_variant: Literal["standard", "stable_studio"] = "standard",
     ):
         self._manager = manager
-        self._context = context
         self._request = request
         self._tensor_cache = tensor_cache
         self._resource_provider = resource_provider
@@ -457,22 +459,16 @@ class ParameterExtractor:
         # Handle webp artifacts
         if artifact.mime == "image/webp" or artifact.magic == "WEBP":
             if not images.SUPPORTS_WEBP:
-                self._context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT, "Server does not support webp"
-                )
+                raise InvalidArgumentError("Server does not support webp")
 
             return images.fromWebpBytes(artifact.binary).to(self._manager.mode.device)
 
         # Check mime and magic to make sure it's not some unknown type
         elif artifact.mime and artifact.mime != "image/png":
-            self._context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"Unknown mime type {artifact.mime}"
-            )
+            raise InvalidArgumentError(f"Unknown mime type {artifact.mime}")
 
         elif artifact.magic and artifact.magic != "PNG":
-            self._context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"Unknown magic code {artifact.magic}"
-            )
+            raise InvalidArgumentError(f"Unknown magic code {artifact.magic}")
 
         # So assume it's a PNG (either no mime / magic, or they are for PNG)
         return images.fromPngBytes(artifact.binary).to(self._manager.mode.device)
@@ -993,10 +989,181 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
             batchseeds, seeds = seeds[:batch], seeds[batch:]
             yield batchseeds
 
+    def generate_request(
+        self,
+        request,
+        api_variant: Literal["standard", "stable_studio"],
+        stop_event,
+        recorder,
+    ):
+
+        # Assume that "None" actually means "Image" (stability-sdk/client.py doesn't set it)
+        if (
+            request.requested_type != generation_pb2.ARTIFACT_NONE
+            and request.requested_type != generation_pb2.ARTIFACT_IMAGE
+        ):
+            self.unimp("Generation of anything except images")
+
+        extractor = ParameterExtractor(
+            request=request,
+            manager=self._manager,
+            tensor_cache=self._tensor_cache,
+            resource_provider=self._resource_provider,
+            api_variant=api_variant,
+        )
+        kwargs = {}
+
+        for field in extractor.fields():
+            val = extractor.get(field)
+            if val is not None:
+                kwargs[field] = val
+
+        if extractor._echo is not None:
+            yield extractor._echo
+
+        if self._ram_monitor:
+            print("Arguments processed")
+            self._ram_monitor.print()
+
+        if request.engine_id == "noop":
+            image = kwargs.get("image", None)
+
+            # If there was an init image passed, return the result
+            if image is not None:
+                answer = generation_pb2.Answer()
+                answer.request_id = request.request_id
+                answer.answer_id = "noop"
+                artifact = image_to_artifact(image, accept=request.accept)
+                artifact.index = 1
+                artifact.uuid = str(uuid.uuid4())
+                answer.artifacts.append(artifact)
+                yield answer
+
+            return
+
+        ctr = 0
+        samples = kwargs.get("num_images_per_prompt", 1)
+        seeds = kwargs.get("seed", None)
+        batchmax = self._manager.batchMode.batchmax(kwargs["width"] * kwargs["height"])
+
+        for seeds in self.batched_seeds(samples, seeds, batchmax):
+            batchargs = {
+                **kwargs,
+                "seed": seeds,
+                "num_images_per_prompt": len(seeds),
+            }
+
+            logargs = {**batchargs}
+            if "lora" in logargs:
+                value = logargs["lora"]
+                logargs["lora"] = (
+                    f"[{len(value)}]" if isinstance(value, list) else "yes"
+                )
+
+            if "token_embeddings" in logargs:
+                logargs["token_embeddings"] = list(logargs["token_embeddings"].keys())
+
+            logstr = []
+            loglate = []
+            for k, v in logargs.items():
+                if k == "hint_images" and v:
+                    for i, hint_image in enumerate(v):
+                        loglate.append(
+                            f"hint_image: {{hint_images[{i}].image}} ("
+                            f"hint_type: {{hint_images[{i}].hint_type}} "
+                            f"weight: {{hint_images[{i}].weight:.2f}} "
+                            f"priority: {{hint_images[{i}].priority}} "
+                            f"clip_layer: {{hint_images[{i}].clip_layer}}"
+                            f")"
+                        )
+                elif k in {"image", "mask_image", "outmask_image"}:
+                    loglate.append(f"{k}: {{{k}}}")
+                else:
+                    logstr.append(f"{k}: {{{k}}}")
+
+            logger.info("Generating:")
+            for line in logstr + loglate:
+                logger.info(vr("  " + line, **logargs))
+
+            recorder.store("pipe.generate calls", kwargs)
+
+            with self._manager.with_engine(request.engine_id) as engine:
+                results = engine(**batchargs, stop_event=stop_event)
+
+            meta = pb_json_format.MessageToDict(request)
+            binary_fields = [
+                "binary",
+                "tokens",
+                "tensor",
+                "safetensors",
+                "lora",
+                "token_embedding",
+            ]
+            for prompt in meta["prompt"]:
+                if "artifact" in prompt:
+                    for field in binary_fields:
+                        if field in prompt["artifact"]:
+                            prompt["artifact"][field] = "-binary-"
+
+            if results is None:
+                result_images, nsfws = [], []
+            elif isinstance(results, torch.Tensor):
+                result_images = results
+                nsfws = [False] * len(result_images)
+            elif len(results) == 1:
+                result_images = results[0]
+                nsfws = [False] * len(result_images)
+            else:
+                result_images, nsfws = results[0], results[1]
+
+            for i, (result_image, nsfw) in enumerate(zip(result_images, nsfws)):
+                answer = generation_pb2.Answer()
+                answer.request_id = request.request_id
+                answer.answer_id = f"{request.request_id}-{ctr}"
+
+                img_seed = seeds[i] if i < len(seeds) else 0
+
+                if self._supress_metadata:
+                    artifact = image_to_artifact(result_image, accept=request.accept)
+                else:
+                    meta.setdefault("image", {})["samples"] = 1
+                    meta.setdefault("image", {})["seed"] = [img_seed]
+                    artifact = image_to_artifact(
+                        result_image,
+                        accept=request.accept,
+                        encoded_parameters=json.dumps(meta),
+                    )
+
+                artifact.finish_reason = (
+                    generation_pb2.FILTER if nsfw else generation_pb2.NULL
+                )
+                artifact.index = ctr
+                artifact.seed = img_seed
+                artifact.uuid = str(uuid.uuid4())
+                answer.artifacts.append(artifact)
+
+                logger.debug(vr("Result {image}", image=result_image))
+                recorder.store("pipe.generate result", artifact)
+
+                yield answer
+                ctr += 1
+
+        if self._ram_monitor:
+            self._ram_monitor.print()
+
+    def api_variant_from_context(self, context):
+        # Detect stable studio, which sends mask inverted compared to previous standard
+        for key, value in context.invocation_metadata():
+            if key == "stability-client-id" and value == "StableStudio":
+                return "stable_studio"
+
+        return "standard"
+
     @exception_to_grpc(
         {
             EngineNotFoundError: grpc.StatusCode.NOT_FOUND,
             NotImplementedError: grpc.StatusCode.UNIMPLEMENTED,
+            InvalidArgumentError: grpc.StatusCode.INVALID_ARGUMENT,
             CacheLookupError: lambda e, d: (
                 grpc.StatusCode.FAILED_PRECONDITION,
                 e.args[0],
@@ -1005,228 +1172,99 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
         }
     )
     def Generate(self, request, context):
-        api_variant = "standard"
-
-        # Detect stable studio, which sends mask inverted compared to previous standard
-        for key, value in context.invocation_metadata():
-            if key == "stability-client-id" and value == "StableStudio":
-                api_variant = "stable_studio"
-
         with self._debug_recorder.record(request.request_id) as recorder:
             recorder.store("generate request", request)
 
-            # Assume that "None" actually means "Image" (stability-sdk/client.py doesn't set it)
-            if (
-                request.requested_type != generation_pb2.ARTIFACT_NONE
-                and request.requested_type != generation_pb2.ARTIFACT_IMAGE
-            ):
-                self.unimp("Generation of anything except images")
-
-            extractor = ParameterExtractor(
-                request=request,
-                context=context,
-                manager=self._manager,
-                tensor_cache=self._tensor_cache,
-                resource_provider=self._resource_provider,
-                api_variant=api_variant,
-            )
-            kwargs = {}
-
-            for field in extractor.fields():
-                val = extractor.get(field)
-                if val is not None:
-                    kwargs[field] = val
-
-            if extractor._echo is not None:
-                yield extractor._echo
-
-            if self._ram_monitor:
-                print("Arguments processed")
-                self._ram_monitor.print()
-
-            if request.engine_id == "noop":
-                image = kwargs.get("image", None)
-
-                # If there was an init image passed, return the result
-                if image is not None:
-                    answer = generation_pb2.Answer()
-                    answer.request_id = request.request_id
-                    answer.answer_id = "noop"
-                    artifact = image_to_artifact(image, accept=request.accept)
-                    artifact.index = 1
-                    answer.artifacts.append(artifact)
-                    yield answer
-
-                return
-
+            api_variant = self.api_variant_from_context(context)
             stop_event = threading.Event()
             context.add_callback(lambda: stop_event.set())
 
-            ctr = 0
-            samples = kwargs.get("num_images_per_prompt", 1)
-            seeds = kwargs.get("seed", None)
-            batchmax = self._manager.batchMode.batchmax(
-                kwargs["width"] * kwargs["height"]
-            )
-
-            for seeds in self.batched_seeds(samples, seeds, batchmax):
-                batchargs = {
-                    **kwargs,
-                    "seed": seeds,
-                    "num_images_per_prompt": len(seeds),
-                }
-
-                logargs = {**batchargs}
-                if "lora" in logargs:
-                    value = logargs["lora"]
-                    logargs["lora"] = (
-                        f"[{len(value)}]" if isinstance(value, list) else "yes"
-                    )
-
-                if "token_embeddings" in logargs:
-                    logargs["token_embeddings"] = list(
-                        logargs["token_embeddings"].keys()
-                    )
-
-                logstr = []
-                loglate = []
-                for k, v in logargs.items():
-                    if k == "hint_images" and v:
-                        for i, hint_image in enumerate(v):
-                            loglate.append(
-                                f"hint_image: {{hint_images[{i}].image}} ("
-                                f"hint_type: {{hint_images[{i}].hint_type}} "
-                                f"weight: {{hint_images[{i}].weight:.2f}} "
-                                f"priority: {{hint_images[{i}].priority}} "
-                                f"clip_layer: {{hint_images[{i}].clip_layer}}"
-                                f")"
-                            )
-                    elif k in {"image", "mask_image", "outmask_image"}:
-                        loglate.append(f"{k}: {{{k}}}")
-                    else:
-                        logstr.append(f"{k}: {{{k}}}")
-
-                logger.info("Generating:")
-                for line in logstr + loglate:
-                    logger.info(vr("  " + line, **logargs))
-
-                recorder.store("pipe.generate calls", kwargs)
-
-                with self._manager.with_engine(request.engine_id) as engine:
-                    results = engine(**batchargs, stop_event=stop_event)
-
-                meta = pb_json_format.MessageToDict(request)
-                binary_fields = [
-                    "binary",
-                    "tokens",
-                    "tensor",
-                    "safetensors",
-                    "lora",
-                    "token_embedding",
-                ]
-                for prompt in meta["prompt"]:
-                    if "artifact" in prompt:
-                        for field in binary_fields:
-                            if field in prompt["artifact"]:
-                                prompt["artifact"][field] = "-binary-"
-
-                if results is None:
-                    result_images, nsfws = [], []
-                elif isinstance(results, torch.Tensor):
-                    result_images = results
-                    nsfws = [False] * len(result_images)
-                elif len(results) == 1:
-                    result_images = results[0]
-                    nsfws = [False] * len(result_images)
-                else:
-                    result_images, nsfws = results[0], results[1]
-
-                for i, (result_image, nsfw) in enumerate(zip(result_images, nsfws)):
-                    answer = generation_pb2.Answer()
-                    answer.request_id = request.request_id
-                    answer.answer_id = f"{request.request_id}-{ctr}"
-
-                    img_seed = seeds[i] if i < len(seeds) else 0
-
-                    if self._supress_metadata:
-                        artifact = image_to_artifact(
-                            result_image, accept=request.accept
-                        )
-                    else:
-                        meta.setdefault("image", {})["samples"] = 1
-                        meta.setdefault("image", {})["seed"] = [img_seed]
-                        artifact = image_to_artifact(
-                            result_image,
-                            accept=request.accept,
-                            encoded_parameters=json.dumps(meta),
-                        )
-
-                    artifact.finish_reason = (
-                        generation_pb2.FILTER if nsfw else generation_pb2.NULL
-                    )
-                    artifact.index = ctr
-                    artifact.seed = img_seed
-                    artifact.uuid = str(uuid.uuid4())
-                    answer.artifacts.append(artifact)
-
-                    logger.debug(vr("Result {image}", image=result_image))
-                    recorder.store("pipe.generate result", artifact)
-
-                    yield answer
-                    ctr += 1
+            for answer in self.generate_request(
+                request, api_variant, stop_event, recorder
+            ):
+                yield answer
 
                 if stop_event.is_set():
                     break
 
-            if self._ram_monitor:
-                self._ram_monitor.print()
-
-    @exception_to_grpc
+    @exception_to_grpc(
+        {
+            EngineNotFoundError: grpc.StatusCode.NOT_FOUND,
+            NotImplementedError: grpc.StatusCode.UNIMPLEMENTED,
+            InvalidArgumentError: grpc.StatusCode.INVALID_ARGUMENT,
+            CacheLookupError: lambda e, d: (
+                grpc.StatusCode.FAILED_PRECONDITION,
+                e.args[0],
+                f"Cache miss, key {e.args[0]}",
+            ),
+        }
+    )
     def ChainGenerate(self, request: generation_pb2.ChainRequest, context):
-        input_artifacts = {}
+        class StatusHandler:
+            def __init__(self, handler):
+                self.reason = {r for r in handler.reason} if handler.reason else {0}
+                self.action = {a for a in handler.action} if handler.action else {0}
+                self.target = handler.target if handler.HasField("target") else None
 
-        for stage in request.stage:
-            if stage.request.engine_id == "asset-service":
-                logger.warn("assert-service not currently implemented. Skipping.")
-                continue
+        with self._debug_recorder.record(request.request_id) as recorder:
+            recorder.store("generate chain request", request)
 
-            # Pull out the on_status list to be matchable more easily
-            on_status = [
-                {
-                    "reason": {r for r in item.reason} if item.reason else {0},
-                    "target": item.target if item.HasField("target") else None,
-                    "action": {a for a in item.action} if item.action else {0},
-                }
-                for item in stage.on_status
-            ]
+            api_variant = self.api_variant_from_context(context)
+            stop_event = threading.Event()
+            context.add_callback(lambda: stop_event.set())
 
-            modifiers = [lambda x: None]
+            input_artifacts = {}
 
-            # TODO: It's not clear what should be done for subsequent targets in the
-            # chain when there are multiple input images. For now, we split it into
-            # multiple generations on the target.
-            if stage.id in input_artifacts:
-                modifiers = [
-                    lambda stage_request: stage_request.prompt.append(image_artifact)
-                    for image_artifact in input_artifacts[stage.id]
+            for stage in request.stage:
+                if stage.request.engine_id == "asset-service":
+                    logger.warn("assert-service not currently implemented. Skipping.")
+                    continue
+
+                # Pull out the on_status list to be matchable more easily
+                status_handlers = [
+                    StatusHandler(handler) for handler in stage.on_status
                 ]
 
-            for modifier in modifiers:
-                stage_request = generation_pb2.Request()
-                stage_request.CopyFrom(stage.request)
-                stage_request.request_id = stage.id
-                modifier(stage_request)
+                builders = [lambda x: None]
 
-                for result in self.Generate(stage_request, context):
-                    for artifact in result.artifacts:
-                        for item in on_status:
-                            if artifact.finish_reason in item["reason"]:
-                                if generation_pb2.STAGE_ACTION_RETURN in item["action"]:
-                                    yield result
-                                if generation_pb2.STAGE_ACTION_PASS in item["action"]:
-                                    input_artifacts.setdefault(
-                                        item["target"], []
-                                    ).append(artifact)
+                # TODO: It's not clear what should be done for subsequent targets in the
+                # chain when there are multiple input images. For now, we split it into
+                # multiple generations on the target.
+                if stage.id in input_artifacts:
+                    builders = [
+                        lambda stage_request: stage_request.prompt.append(artifact)
+                        for artifact in input_artifacts[stage.id]
+                    ]
+
+                for builder in builders:
+                    stage_request = generation_pb2.Request()
+                    stage_request.CopyFrom(stage.request)
+                    stage_request.request_id = stage.id
+                    builder(stage_request)
+
+                    recorder.store("generate chain stage request", stage_request)
+
+                    for answer in self.generate_request(
+                        stage_request, api_variant, stop_event, recorder
+                    ):
+                        assert len(answer.artifacts) == 1
+
+                        artifact = answer.artifacts[0]
+                        for handler in status_handlers:
+                            if artifact.finish_reason not in handler.reason:
+                                continue
+
+                            # Handle RETURN action
+                            if generation_pb2.STAGE_ACTION_RETURN in handler.action:
+                                yield answer
+
+                            # Handle PASS action
+                            if generation_pb2.STAGE_ACTION_PASS in handler.action:
+                                store = input_artifacts.setdefault(handler.target, [])
+                                store.append(artifact)
+
+                        if stop_event.is_set():
+                            break
 
     def _try_deleting_context(self, key):
         """
