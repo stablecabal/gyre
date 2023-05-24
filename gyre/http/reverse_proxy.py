@@ -1,6 +1,7 @@
 from twisted.internet import ssl
 from twisted.protocols.tls import TLSMemoryBIOFactory
 from twisted.web.proxy import ProxyClient, ReverseProxyResource
+from urllib.parse import quote as urlquote
 
 
 class StripHeadersProxyClient(ProxyClient):
@@ -16,6 +17,20 @@ class StripHeadersProxyClient(ProxyClient):
     def handleHeader(self, key, value):
         if key.lower() not in self.stripped_headers:
             super().handleHeader(key, value)
+
+
+class HTTPReverseProxyResource(ReverseProxyResource, object):
+    def getChild(self, path, request):
+        """
+        Ensure that implementation of C{proxyClientFactoryClass} is honored
+        down the resource chain.
+        """
+        return HTTPReverseProxyResource(
+            self.host,
+            self.port,
+            self.path + b"/" + urlquote(path, safe=b"@").encode("utf-8"),
+            self.reactor,
+        )
 
 
 class HTTPSReverseProxyResource(ReverseProxyResource, object):
@@ -35,10 +50,11 @@ class HTTPSReverseProxyResource(ReverseProxyResource, object):
         Ensure that implementation of C{proxyClientFactoryClass} is honored
         down the resource chain.
         """
-        child = super().getChild(path, request)
-
         return HTTPSReverseProxyResource(
-            child.host, child.port, child.path, child.reactor
+            self.host,
+            self.port,
+            self.path + b"/" + urlquote(path, safe=b"@").encode("utf-8"),
+            self.reactor,
         )
 
     def render(self, request):

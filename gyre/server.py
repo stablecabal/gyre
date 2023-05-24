@@ -1,5 +1,6 @@
 import argparse
 import binascii
+from dataclasses import dataclass
 import hashlib
 import logging
 import os
@@ -12,9 +13,11 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Literal
 import zipfile
 from concurrent import futures
 from fnmatch import fnmatch
+import urllib.parse
 
 import yaml
 
@@ -58,7 +61,7 @@ from gyre import cache, engines_yaml
 from gyre.constants import GB, IS_DEV, KB, MB, sd_cache_home
 from gyre.debug_recorder import DebugNullRecorder, DebugRecorder
 from gyre.http.grpc_gateway import GrpcGatewayRouter
-from gyre.http.reverse_proxy import HTTPSReverseProxyResource
+from gyre.http.reverse_proxy import HTTPReverseProxyResource, HTTPSReverseProxyResource
 from gyre.http.stability_rest_api import StabilityRESTAPIRouter
 from gyre.http.status_controller import StatusController
 from gyre.logging import LOG_LEVELS, LogImagesController, configure_logging
@@ -167,6 +170,34 @@ class GrpcServer(object):
         self._server.stop(grace)
 
 
+@dataclass
+class ProxySpec:
+    local_path: str
+    hostname: str
+    port: int | None
+    path: str
+    scheme: Literal["http", "https"] = "https"
+
+    @classmethod
+    def from_arg(cls, local_path, url):
+        if not url:
+            return None
+
+        url = url if "//" in url else "//" + url
+        url_details = urllib.parse.urlparse(url)
+
+        scheme = url_details.scheme or "https"
+        port = url_details.port or (80 if scheme == "http" else 443)
+
+        return ProxySpec(
+            local_path=local_path,
+            scheme=scheme,
+            hostname=url_details.hostname,
+            port=port,
+            path=url_details.path,
+        )
+
+
 class HttpServer(object):
     def __init__(self, args):
         host = "" if args.listen_to_all else "127.0.0.1"
@@ -182,7 +213,8 @@ class HttpServer(object):
         # Build the web handler
         self.controller = RoutingController(
             fileroot=args.http_file_root,
-            proxies=[x.split(":") for x in args.http_proxy],
+            proxyroot=ProxySpec.from_arg("", args.http_proxy_root),
+            proxies=[ProxySpec.from_arg(*x.split(":", 1)) for x in args.http_proxy],
             wsgiapp=wsgi_resource,
             access_token=args.access_token,
         )
@@ -306,7 +338,16 @@ class NeedBasicAuthResource(resource.Resource):
 
 
 class RoutingController(resource.Resource, CheckAuthHeaderMixin):
-    def __init__(self, fileroot, proxies, wsgiapp, access_token=None):
+    def _build_proxy(self, proxy):
+        cls = (
+            HTTPSReverseProxyResource
+            if proxy.scheme == "https"
+            else HTTPReverseProxyResource
+        )
+
+        return cls(proxy.hostname, proxy.port, proxy.path.encode("utf-8"))
+
+    def __init__(self, fileroot, proxyroot, proxies, wsgiapp, access_token=None):
         super().__init__()
 
         if not fileroot:
@@ -320,10 +361,15 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
                 )
 
         self.details = ServerDetails()
+        self.proxyroot = self._build_proxy(proxyroot) if proxyroot else None
         self.proxies = {
-            proxy[0].encode("utf-8"): HTTPSReverseProxyResource(proxy[1], 443, b"")
+            proxy.local_path.encode("utf-8"): self._build_proxy(proxy)
             for proxy in proxies
         }
+
+        for proxy in proxies:
+            print("Proxy: ", proxy)
+
         self.stability_rest_api = StabilityRESTAPIRouter()
         self.grpc_gateway = GrpcGatewayRouter()
         self.status_controller = StatusController()
@@ -391,6 +437,10 @@ class RoutingController(resource.Resource, CheckAuthHeaderMixin):
             acr_headers = request.getHeader("access-control-request-headers")
             if acr_headers and "x-grpc-web" in acr_headers:
                 return self.wsgi, 2
+
+        # If we have a root proxy, use it (this takes precedence over file root)
+        if self.proxyroot is not None:
+            return self.proxyroot, 0
 
         # If we're serving files, check to see if the request is for a served file
         if self.files is not None:
@@ -747,7 +797,13 @@ def main():
         "--http_proxy",
         action="append",
         default=environ_list("SD_HTTP_PROXY"),
-        help="Add a reverse proxy, with the format path:domain. Can be used to work around cross-origin issues with localhost for bundled clients.",
+        help="Add a reverse proxy, with the format path:url. Can be used to work around cross-origin issues with localhost for bundled clients.",
+    )
+    util_opts.add_argument(
+        "--http_proxy_root",
+        type=str,
+        default=os.environ.get("SD_HTTP_PROXY_ROOT", ""),
+        help="Add a reverse proxy, with the format url. If set will disable any http_file_root set.",
     )
 
     util_opts.add_argument(
