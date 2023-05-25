@@ -214,7 +214,10 @@ class HttpServer(object):
         self.controller = RoutingController(
             fileroot=args.http_file_root,
             proxyroot=ProxySpec.from_arg("", args.http_proxy_root),
-            proxies=[ProxySpec.from_arg(*x.split(":", 1)) for x in args.http_proxy],
+            proxies=[
+                ProxySpec.from_arg(*pathsep_split(x, 1, allow_both=True))
+                for x in args.http_proxy
+            ],
             wsgiapp=wsgi_resource,
             access_token=args.access_token,
         )
@@ -550,6 +553,11 @@ def parse_size(sizestr: str):
     return int(sizestr) * mult
 
 
+def pathsep_split(s: str, maxsplit=0, allow_both=False):
+    rx = "[;:]" if (os.pathsep == ":" or allow_both) else f"[{os.pathsep}]"
+    return re.split(rx, s, maxsplit=maxsplit)
+
+
 def main():
     start_time = time.time()
 
@@ -797,7 +805,7 @@ def main():
         "--http_proxy",
         action="append",
         default=environ_list("SD_HTTP_PROXY"),
-        help="Add a reverse proxy, with the format path:url. Can be used to work around cross-origin issues with localhost for bundled clients.",
+        help=f"Add a reverse proxy, with the format path{os.pathsep}url. Can be used to work around cross-origin issues with localhost for bundled clients.",
     )
     util_opts.add_argument(
         "--http_proxy_root",
@@ -1032,7 +1040,7 @@ def main():
     logger.debug(f"Whitelist {resource_provider.whitelist}")
 
     for pathspec in args.local_resource:
-        parts = pathspec.split(os.pathsep)
+        parts = pathsep_split(pathspec)
 
         restype, url_prefix = "*", ""
         if len(parts) == 3:
