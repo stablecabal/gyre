@@ -1265,7 +1265,7 @@ if __name__ == "__main__":
     if args.ti:
         for path in args.ti:
             parts = path.split(":")
-            if parts[0] == "https":
+            if parts[0] == "https" or parts[0] == "file":
                 path, tokens = parts[0] + ":" + parts[1], parts[2:]
             else:
                 path, tokens = parts[0], parts[1:]
