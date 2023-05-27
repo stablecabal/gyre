@@ -1,6 +1,7 @@
 import io
 import json
 import os
+from pathlib import Path
 import tempfile
 from urllib.parse import urlparse
 
@@ -139,7 +140,7 @@ class ResourceProvider:
         return byt[:4] == b"PK\x03\x04"
 
     def _deserialise(self, restype, fp, byt):
-        if format == "pt":
+        if self._is_torch_statefile(byt):
             fp.seek(0)
             metadata = {}
             tensors = torch.load(
@@ -165,11 +166,14 @@ class ResourceProvider:
             restype_match = candidate["restype"] in {"*", restype}
 
             if prefix_match and restype_match:
-                return (
+                candidate_path = (
                     candidate["path"]
                     + "/"
                     + "/".join(parts[len(candidate["prefix"]) :])
                 )
+
+                if Path(candidate_path).exists():
+                    return candidate_path
 
         raise ResourcePermissionError(f"No local path configured for {restype} {path}")
 

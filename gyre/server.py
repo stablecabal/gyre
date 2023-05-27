@@ -1052,13 +1052,21 @@ def main():
         else:
             raise ValueError(f"Resource path {pathspec} not correctly formatted")
 
-        if not os.path.isabs(path):
-            path = os.path.abspath(os.path.join(args.weight_root, path))
+        # A common callback to actually add the path for this prefix
+        def add_path(path):
+            logger.debug(
+                f"Adding local resources for type {restype}, file://{url_prefix} => {path}"
+            )
+            resource_provider.add_local_path(url_prefix, path, restype)
 
-        logger.debug(
-            f"Adding local resources for type {restype}, file://{url_prefix} => {path}"
-        )
-        resource_provider.add_local_path(url_prefix, path, restype)
+        # Make path absolute
+        if not os.path.isabs(path):
+            # For backwards compatibility, if path exists in weight_root, use it for preference
+            add_path(os.path.abspath(os.path.join(args.weight_root, path)))
+            # And the new, relative-from-workingdir
+            add_path(os.path.abspath(path))
+        else:
+            add_path(path)
 
     if xformers_mea_available():
         print("Xformers defaults to on")
@@ -1104,7 +1112,7 @@ def main():
     # Create engine manager
     manager = EngineManager(
         engines,
-        weight_root=args.weight_root,
+        weight_root=os.path.abspath(args.weight_root),
         refresh_models=refresh_models,
         refresh_on_error=args.refresh_on_error,
         mode=EngineMode(
