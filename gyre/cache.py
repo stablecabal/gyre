@@ -245,8 +245,15 @@ class TensorLRUCache_Disk(TensorLRUCache_LockBase):
         yield from (item[0] for item in items)
 
     def _evict(self):
+        skipped = 0
         for item in self._needs_evicting():
-            os.remove(item)
+            try:
+                os.remove(item)
+            except IOError:
+                skipped += 1
+
+        if skipped:
+            logger.info(f"Couldn't remove {skipped} item(s) from cache")
 
 
 class TensorLRUCache_Dual(TensorLRUCache_LockBase):
