@@ -95,7 +95,8 @@ class CloneToGPUHook(ModelHook):
 
 
 class GPUExclusionSet:
-    def __init__(self, max_activated=-1, mem_limit=-1):
+    def __init__(self, name: str | None = None, max_activated=-1, mem_limit=-1):
+        self.name = name
         self.tops: list[weakref.ref] = []
         self.activated: list[tuple[weakref.ref, int]] = []
         self.max_activated = max_activated
@@ -153,6 +154,8 @@ class GPUExclusionSet:
             total += othersize
 
         log_str = f"Activating {topref().__class__.__name__}"
+        if self.name:
+            log_str += f" on {self.name}"
         if cur_activated:
             log_str += f", removing {', '.join([x[0]().__class__.__name__ for x in cur_activated])}"
         logger.debug(log_str)

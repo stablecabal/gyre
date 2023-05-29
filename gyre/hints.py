@@ -1,6 +1,6 @@
 import logging
 
-from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
+from gyre.pipeline.model_utils import clone_model
 
 logger = logging.getLogger(__name__)
 

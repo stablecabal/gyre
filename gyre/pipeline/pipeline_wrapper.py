@@ -230,6 +230,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
 
         if self.mode.gpu_offload and self._meta.get("offload_capable", True):
             exclusion_set = GPUExclusionSet(
+                name=str(device).upper(),
                 max_activated=self.mode.model_max_limit,
                 mem_limit=self.mode.model_vram_limit,
             )
