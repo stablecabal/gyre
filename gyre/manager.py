@@ -578,6 +578,10 @@ class RepoFileSet:
         name, dtype, kind = self._parse_args(name, dtype, kind)
         self.files = self._find(name, dtype, kind, exclusive=True)
 
+    def without(self, name=_skip, dtype=_skip, kind=_skip):
+        name, dtype, kind = self._parse_args(name, dtype, kind)
+        return RepoFileSet(self._find(name, dtype, kind, exclusive=True))
+
     @staticmethod
     def safetensor_equivalents(names):
         res = set()
@@ -777,17 +781,20 @@ class EngineManager(object):
 
                 # If we have bin, pt or pth files, remove any safetensors that match ckpts
                 # to make future logic easier
+
                 if has["bin"] or has["pt"] or has["pth"]:
-                    model_files.remove(name=model_files.find(kind="ckpt"))
+                    test_files = model_files.without(name=model_files.find(kind="ckpt"))
+                else:
+                    test_files = model_files
 
                 # Pick the kind and specific (bare) names
                 kind = names = None
 
                 # 1st choice: bin (or even better, safetensors that match bin)
                 if has["bin"]:
-                    names = model_files.find(kind="bin")
+                    names = test_files.find(kind="bin")
                     equivalents = RepoFileSet.safetensor_equivalents(names)
-                    safetensors = model_files.find(kind="safetensors")
+                    safetensors = test_files.find(kind="safetensors")
 
                     if equivalents - safetensors:
                         logger.debug(
@@ -799,19 +806,19 @@ class EngineManager(object):
                         kind = "safetensors"
                 # 2nd choice: safetensors
                 elif has["safetensors"]:
-                    names = model_files.find(kind="safetensors")
+                    names = test_files.find(kind="safetensors")
                     kind = "safetensors"
                 # 3rd choice, ".pt" or ".pth"
                 elif has["pt"]:
-                    names = model_files.find(kind="pt")
+                    names = test_files.find(kind="pt")
                     kind = "pt"
                 elif has["pth"]:
-                    names = model_files.find(kind="pth")
+                    names = test_files.find(kind="pth")
                     kind = "pth"
                 # 4th choice: ckpt (or safetensors that match if possible)
                 elif has["ckpt"]:
-                    names = model_files.find(kind="ckpt")
-                    safetensors = model_files.find(kind="safetensors")
+                    names = test_files.find(kind="ckpt")
+                    safetensors = test_files.find(kind="safetensors")
 
                     if names - safetensors:
                         logger.debug(
