@@ -1095,6 +1095,39 @@ def main():
                 if fnmatch(engine_id, pattern):
                     engine["enabled"] = False
 
+    # Print all the enabled and disabled engines
+    for task in ("generate", "upscaler"):
+        for enabled in (True, False):
+            print()
+
+            if enabled:
+                print(f"Enabled {task} engines:")
+            else:
+                print(f"Configured but disabled {task} engines:")
+
+            print("------------------------", end="")
+
+            stem = None
+
+            for engine in sorted(engines, key=lambda engine: engine.get("id", "-")):
+                if (
+                    bool(engine_id := engine.get("id"))
+                    and engine.get("task", "generate") == task
+                    and engine.get("enabled", True) == enabled
+                ):
+                    if stem == engine_id.split("-")[0]:
+                        print(",", engine_id, end="")
+                    else:
+                        print()
+                        print(engine_id, end="")
+
+                    stem = engine_id.split("-")[0]
+
+            print()
+
+    # And pad one line
+    print()
+
     vram_overrides = {
         k: getattr(args, k)
         for k in (
