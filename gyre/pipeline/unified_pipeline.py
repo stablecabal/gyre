@@ -700,6 +700,7 @@ class UnifiedPipelineHint:
     model: t2i_adapter.T2iAdapter | controlnet.ControlNetModel
     image: torch.Tensor
     weight: float
+    is_inpaint = False
 
     @classmethod
     def for_model(
@@ -965,6 +966,7 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
     ):
         self.batch_total = batch_total
         self.uncond_warning_given = False
+        self.is_inpaint = "_inpaint" in model.config.get("_name_or_path")  # so gross
 
         if model.config.get("global_pool_conditions", False):
             # Always cfg_only and never soft_injection if global_pool_conditions
@@ -977,6 +979,9 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
                 mask = None
 
         super().__init__(model, image, mask, weight, soft_injection, cfg_only)
+
+        if self.is_inpaint and self.mask is None:
+            raise ValueError("Image passed to inpaint ControlNet must include mask")
 
     def _basic_process(self, r, mask, layer_weight):
         return r * self.weight * layer_weight * self.resized_mask(r, mask)
@@ -992,10 +997,15 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
     def __call__(
         self, latents, t, encoder_hidden_states: torch.Tensor, cfg_meta: CFGMeta = None
     ):
+        cnlatents = latents[:, 0:4]
 
         condition = self.image
-        cnlatents = latents[:, 0:4]
         mask = self.mask
+
+        if self.is_inpaint:
+            # Adjust image to "inpaint protocol" (-1 for area to be inpainted)
+            mask = (mask < 0.5).float()
+            condition = (condition * (1 - mask) - mask).to(condition)
 
         if self.cfg_only:
             if cfg_meta == "f":
@@ -1013,7 +1023,7 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
                 # No action for now
                 pass
 
-        if latents.shape[1] == 9:
+        if latents.shape[1] == 9 and not self.is_inpaint:
             mask = latents[:, [4]]
             cnlatents = cnlatents * mask
 
@@ -1908,6 +1918,9 @@ class UnifiedPipeline(DiffusionPipeline):
                     "Either use a K-Diffusion scheduler or don't use CLIP guidance."
                 )
 
+        # Strength defaults to 1
+        strength = 1.0 if strength is None else strength
+
         # Parse prompt and calculate batch size
         prompt = PromptBatch.from_alike(prompt)
         batch_size = len(prompt)
@@ -2031,6 +2044,7 @@ class UnifiedPipeline(DiffusionPipeline):
                                 batch_total=batch_total,
                             )
                         )
+
                     else:
                         if (
                             hint_type == "depth"
@@ -2045,6 +2059,11 @@ class UnifiedPipeline(DiffusionPipeline):
                             raise EnvironmentError(
                                 f"Pipeline doesn't know how to handle hint image of type {hint_type}"
                             )
+
+        # Find the first hint (if any) that is an inpaint hint
+        inpaint_hint = next(
+            (hint for hint in leaf_args["hints"] if hint.is_inpaint), None
+        )
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -2063,6 +2082,10 @@ class UnifiedPipeline(DiffusionPipeline):
                 mode_class = EnhancedInpaintMode
         elif image is not None:
             mode_class = Img2imgMode
+        elif inpaint_hint:
+            mode_class = EnhancedInpaintMode
+            image, mask_image = inpaint_hint.image, (1 - inpaint_hint.mask)
+            outmask_image = mask_image
         else:
             mode_class = Txt2imgMode
 
@@ -2492,7 +2515,7 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if image is not None and outmask_image is not None:
             outmask = torch.cat([outmask_image] * batch_total)
-            outmask = outmask[:, [0, 1, 2]]
+            outmask = outmask[:, [0]]
             outmask = outmask.to(result_image)
 
             source = torch.cat([image] * batch_total)

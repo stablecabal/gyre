@@ -211,8 +211,8 @@ class UNetWithT2I:
             self.style_dim1 = self.style_states.shape[1]
 
     def __call__(self, latents: XtTensor, t: ScheduleTimestep, **kwargs) -> EpsTensor:
-        is_f = kwargs["encoder_hidden_states"].shape[0] == self.standard_dim0 * 2
-        cfg_meta: CFGMeta = kwargs.get("cfg_meta", "f" if is_f else "g")
+        # is_f = kwargs["encoder_hidden_states"].shape[0] == self.standard_dim0 * 2
+        cfg_meta: CFGMeta = kwargs.get("cfg_meta")
 
         if self.standard_states is not None:
             kwargs["adapter_states"] = self.standard_states[cfg_meta]
