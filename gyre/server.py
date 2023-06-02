@@ -763,7 +763,7 @@ def main():
     logging_opts.add_argument(
         "--dep_log_level",
         type=str,
-        default=os.environ.get("SD_DEP_LOG_LEVEL", "DEBUG" if IS_DEV else "INFO"),
+        default=os.environ.get("SD_DEP_LOG_LEVEL", "WARNING" if IS_DEV else "ERROR"),
         choices=LOG_LEVELS.keys(),
         help="Logging level for dependancies",
     )

@@ -351,9 +351,11 @@ def configure_logging():
 
     # Override Transformers & Diffusers defaults
     diffusers_logging.disable_default_handler()
+    diffusers_logging.set_verbosity(diffusers_logging.NOTSET)
     diffusers_logging.enable_propagation()
 
     transformers_logging.disable_default_handler()
+    transformers_logging.set_verbosity(transformers_logging.NOTSET)
     transformers_logging.enable_propagation()
 
 
