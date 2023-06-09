@@ -2195,7 +2195,7 @@ class UnifiedPipeline(DiffusionPipeline):
 
             mode_tree.wrap(
                 get_natural_opts,
-                set_soft_injection,
+                None,  # TODO: allow enabling this: set_soft_injection,
                 HiresUnetWrapper,
                 generators=generators,
                 natural_size=[unet_sample_size, unet_sample_size],
