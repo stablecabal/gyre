@@ -814,6 +814,7 @@ class ParameterExtractor:
                         generation_pb2.HINT_BALANCED: "balanced",
                         generation_pb2.HINT_PRIORITISE_HINT: "hint",
                         generation_pb2.HINT_PRIORITISE_PROMPT: "prompt",
+                        generation_pb2.HINT_ADAPTIVE: "adaptive",
                     }
 
                     priority = priority_table[prompt.parameters.hint_priority]

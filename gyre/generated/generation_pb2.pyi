@@ -239,12 +239,14 @@ class _HintPriorityEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._E
     HINT_BALANCED: _HintPriority.ValueType  # 0
     HINT_PRIORITISE_PROMPT: _HintPriority.ValueType  # 1
     HINT_PRIORITISE_HINT: _HintPriority.ValueType  # 2
+    HINT_ADAPTIVE: _HintPriority.ValueType  # 3
 
 class HintPriority(_HintPriority, metaclass=_HintPriorityEnumTypeWrapper): ...
 
 HINT_BALANCED: HintPriority.ValueType  # 0
 HINT_PRIORITISE_PROMPT: HintPriority.ValueType  # 1
 HINT_PRIORITISE_HINT: HintPriority.ValueType  # 2
+HINT_ADAPTIVE: HintPriority.ValueType  # 3
 global___HintPriority = HintPriority
 
 class _DiffusionSampler:

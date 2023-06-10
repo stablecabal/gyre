@@ -1291,13 +1291,15 @@ if __name__ == "__main__":
             remove_bg = True
 
         priority = generation.HINT_BALANCED
-        if parts[-1] in {"balanced", "prompt", "hint"}:
+        if parts[-1] in {"balanced", "prompt", "hint", "adaptive"}:
             if parts[-1] == "balanced":
                 priority = generation.HINT_BALANCED
             elif parts[-1] == "prompt":
                 priority = generation.HINT_PRIORITISE_PROMPT
             elif parts[-1] == "hint":
                 priority = generation.HINT_PRIORITISE_HINT
+            elif parts[-1] == "adaptive":
+                priority = generation.HINT_ADAPTIVE
             parts = parts[:-1]
 
         try:

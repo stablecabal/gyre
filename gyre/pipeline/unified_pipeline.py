@@ -713,8 +713,8 @@ class UnifiedPipelineHint:
         cfg_only=False,
         clip_layer=None,
         batch_total=None,
+        _meta: dict = {},
     ):
-
         clip_model = models.pop("clip_model", None)
         feature_extractor = models.pop("feature_extractor", None)
         fuser = models.pop("fuser", None)
@@ -737,11 +737,12 @@ class UnifiedPipelineHint:
                 soft_injection,
                 cfg_only,
                 clip_layer,
+                _meta,
             )
         # Handle Controlnets
         elif isinstance(model, controlnet.ControlNetModel):
             return UnifiedPipelineHint_Controlnet(
-                model, image, mask, weight, soft_injection, cfg_only, batch_total
+                model, image, mask, weight, soft_injection, cfg_only, batch_total, _meta
             )
 
     def __init__(
@@ -749,10 +750,11 @@ class UnifiedPipelineHint:
         model,
         image,
         mask=None,
-        weight=1.0,
-        soft_injection=False,
-        cfg_only=False,
-        channels=3,
+        weight: float = 1.0,
+        soft_injection: bool = False,
+        cfg_only: bool = False,
+        channels: int = 3,
+        _meta: dict = {},
     ):
         if type(self) is UnifiedPipelineHint:
             raise RuntimeError(
@@ -783,6 +785,7 @@ class UnifiedPipelineHint:
         self.channels = channels
         self.soft_injection = soft_injection
         self.cfg_only = cfg_only
+        self._meta = _meta
 
         self.normalise(channels)
 
@@ -866,6 +869,7 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
         soft_injection,
         cfg_only,
         clip_layer,
+        _meta,
     ):
         channels = model.config.cin // 64 if "cin" in model.config else 3
 
@@ -881,7 +885,14 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
                 soft_injection = False
 
         super().__init__(
-            model, image, mask, weight, soft_injection, cfg_only, channels=channels
+            model,
+            image,
+            mask,
+            weight,
+            soft_injection,
+            cfg_only,
+            channels=channels,
+            _meta=_meta,
         )
 
         self.clip_model: CLIPModel = clip_model
@@ -962,7 +973,7 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
     model: controlnet.ControlNetModel
 
     def __init__(
-        self, model, image, mask, weight, soft_injection, cfg_only, batch_total
+        self, model, image, mask, weight, soft_injection, cfg_only, batch_total, _meta
     ):
         self.batch_total = batch_total
         self.uncond_warning_given = False
@@ -978,7 +989,9 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
                 )
                 mask = None
 
-        super().__init__(model, image, mask, weight, soft_injection, cfg_only)
+        super().__init__(
+            model, image, mask, weight, soft_injection, cfg_only, _meta=_meta
+        )
 
         if self.is_inpaint and self.mask is None:
             raise ValueError("Image passed to inpaint ControlNet must include mask")
@@ -2038,10 +2051,11 @@ class UnifiedPipeline(DiffusionPipeline):
                                 hint_tensor,
                                 mask=None,
                                 weight=weight,
-                                soft_injection=priority != "balanced",
+                                soft_injection=priority in {"prompt", "hint"},
                                 cfg_only=priority == "hint",
                                 clip_layer=clip_layer,
                                 batch_total=batch_total,
+                                _meta={"priority": priority},
                             )
                         )
 
@@ -2181,11 +2195,18 @@ class UnifiedPipeline(DiffusionPipeline):
                     ],
                 }
 
-            def set_soft_injection(child_opts):
+            def set_adaptive_soft_injection(child_opts):
                 return {
                     **child_opts,
                     "hints": [
-                        hint.extend(lambda image, mask, **_: {"soft_injection": True})
+                        hint.extend(
+                            lambda soft_injection, _meta, **_: {
+                                "soft_injection": (
+                                    soft_injection
+                                    or _meta.get("priority", "balanced") == "adaptive"
+                                )
+                            }
+                        )
                         for hint in child_opts["hints"]
                     ],
                 }
@@ -2195,7 +2216,7 @@ class UnifiedPipeline(DiffusionPipeline):
 
             mode_tree.wrap(
                 get_natural_opts,
-                None,  # TODO: allow enabling this: set_soft_injection,
+                set_adaptive_soft_injection,
                 HiresUnetWrapper,
                 generators=generators,
                 natural_size=[unet_sample_size, unet_sample_size],

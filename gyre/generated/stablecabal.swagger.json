@@ -1572,7 +1572,8 @@
       "enum": [
         "HINT_BALANCED",
         "HINT_PRIORITISE_PROMPT",
-        "HINT_PRIORITISE_HINT"
+        "HINT_PRIORITISE_HINT",
+        "HINT_ADAPTIVE"
       ],
       "default": "HINT_BALANCED"
     },

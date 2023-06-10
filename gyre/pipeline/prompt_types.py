@@ -116,7 +116,7 @@ class PromptBatch:
 PromptBatchLike = Prompt | str | list[Prompt] | list[str] | PromptBatch
 
 
-HintPriority = Literal["balanced", "prompt", "hint"]
+HintPriority = Literal["balanced", "prompt", "hint", "adaptive"]
 
 
 @dataclass
