@@ -7,6 +7,8 @@ import json
 import logging
 import math
 import os
+from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -574,6 +576,12 @@ class RepoFileSet:
         name, dtype, kind = self._parse_args(name, dtype, kind)
         return {getattr(f, attr) for f in self._find(name, dtype, kind)}
 
+    def find_sorted(self, key, attr="name", name=_skip, dtype=_skip, kind=_skip):
+        name, dtype, kind = self._parse_args(name, dtype, kind)
+        return [
+            getattr(f, attr) for f in sorted(self._find(name, dtype, kind), key=key)
+        ]
+
     def remove(self, name=_skip, dtype=_skip, kind=_skip):
         name, dtype, kind = self._parse_args(name, dtype, kind)
         self.files = self._find(name, dtype, kind, exclusive=True)
@@ -838,22 +846,24 @@ class EngineManager(object):
                         "spec.safe_only set, but couldn't find appropriate safetensors files"
                     )
 
-                if prefer_fp16:
-                    if names - model_files.find(name=names, dtype="fp16", kind=kind):
-                        has_fp16 = prefer_fp16 = False
+                def variant_sort(file):
+                    if prefer_fp16 and file.dtype == "fp16":
+                        return 2
+                    elif file.dtype is None:
+                        return 1
                     else:
-                        has_fp16 = True
-
-                logger.debug(
-                    f"Model chosen {kind}{', fp16' if has_fp16 else ''}, names: {names}"
-                )
+                        return 0
 
                 chosen = [
-                    model_files.find(
-                        "full", name=name, dtype="fp16" if has_fp16 else None, kind=kind
+                    model_files.find_sorted(
+                        variant_sort, "full", name=name, kind=kind
                     ).pop()
                     for name in names
                 ]
+
+                logger.debug(
+                    f"Model chosen {kind}, prefer_fp16 {prefer_fp16}, overrides {overrides}, files {chosen}"
+                )
 
                 ignore_patterns += [
                     f for f in model_files.find("full") if f not in chosen
