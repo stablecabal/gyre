@@ -437,19 +437,68 @@ class EngineSpec:
         return res
 
     @property
-    def model_is_empty(self) -> bool:
-        return self.model and self.model == "@empty"
+    def model_hf_id(self) -> str | None:
+        model = self._data.get("model")
+        prefix = "https://huggingface.co/"
+
+        if model and model[0] != "@" and model[0] != ".":
+            # Not really supported, but if someone accidentally puts a URL instead of a
+            # HuggingFace ID, make _some_ attempt to parse it
+            if model.startswith(prefix):
+                model = model[len(prefix) :]
+            # Docs aren't clear what characters are allowed in the namespace or ID, so
+            # we just allow "anthing except /"
+            if re.match(r"^[^/]+/[^/]+$", model):
+                return model
 
     @property
-    def model_is_reference(self) -> bool:
-        return self.model and self.model[0] == "@" and not self.model_is_empty
+    def model_civitai_ref(self) -> civitai.CivitaiModelReference | None:
+        model = self._data.get("model")
+        if model:
+            try:
+                return civitai.parse_url(model)
+            except Exception:
+                return None
+
+    @property
+    def model_url(self) -> str | None:
+        model = self._data.get("model")
+        if model and model.startswith("https://"):
+            return model
+
+    @property
+    def model_reference(self) -> list[str] | None:
+        model = self._data.get("model")
+        if model and model[0] == "@" and model != "@empty":
+            return model[1:].split("/")
+
+    @property
+    def model_is_empty(self) -> bool:
+        model = self._data.get("model")
+        return model == "@empty" if model else False
+
+    @property
+    def model_list(self) -> list[str | dict] | None:
+        model = self._data.get("model")
+        if isinstance(model, list):
+            return model
+
+    @property
+    def model(self) -> str | None:
+        logger.warn("EngineSpec.model is deprecated.")
+        return self._data.get("model")
 
     @property
     def local_model(self) -> str | None:
         path = self._data.get("local_model")
-        if not path:
-            path = self.model_id
-        return path
+        if path:
+            return path
+
+        path = self._data.get("model")
+        if path and path[0] != "@" and "://" not in path and not self.model_hf_id:
+            return path
+
+        return self.model_id
 
     @property
     def local_model_fp16(self) -> str | None:
@@ -683,20 +732,17 @@ class EngineManager(object):
             path = os.path.join(self._weight_root, path)
         # Normalise
         path = os.path.normpath(path)
-        # Throw error if result isn't a directory
-        if not os.path.isdir(path):
-            raise ValueError(f"Path '{path}' isn't a directory")
 
         return path
 
     def _get_hf_path(self, spec: EngineSpec, local_only=True):
         extra_kwargs = {}
 
-        model_path = spec.model
+        repo_id = spec.model_hf_id
 
-        # If no model_path is provided, don't try and download
-        if not model_path:
-            raise ValueError("No remote model name was provided")
+        # If no repo_id is provided, don't try and download
+        if not repo_id:
+            raise ValueError("No HuggingFace model ID was provided")
 
         # Support providing fixed revision
         revision = spec.revision
@@ -707,7 +753,6 @@ class EngineManager(object):
         # Handle various fp16 modes (local, never and prevent are all the same for this method)
         require_fp16 = self.mode.fp16 and spec.fp16 == "only"
         prefer_fp16 = self.mode.fp16 and spec.fp16 == "auto"
-        has_fp16 = None
 
         # In local_only mode it's very hard to determine if local weights are fp16 or not
         # It's not used anyway, so deprecate "only" mode
@@ -752,14 +797,14 @@ class EngineManager(object):
                 if (not revision) and prefer_fp16:
                     try:
                         repo_info = huggingface_hub.model_info(
-                            model_path, revision="fp16", **extra_kwargs
+                            repo_id, revision="fp16", **extra_kwargs
                         )
                         overrides["dtype"] = "fp16"
                     except huggingface_hub.utils.RevisionNotFoundError as e:
                         pass
 
                 if repo_info is None:
-                    repo_info = huggingface_hub.model_info(model_path, **extra_kwargs)
+                    repo_info = huggingface_hub.model_info(repo_id, **extra_kwargs)
 
                 # Read out the list of files, filtering by any ignore / allow
                 repo_files = list(
@@ -838,7 +883,7 @@ class EngineManager(object):
 
                 else:
                     raise EnvironmentError(
-                        "Repo {model_path} doesn't appear to contain any model files."
+                        "Repo {repo_id} doesn't appear to contain any model files."
                     )
 
                 if spec.safe_only and kind != "safetensors":
@@ -877,7 +922,7 @@ class EngineManager(object):
             if (not revision) and prefer_fp16:
                 try:
                     base = huggingface_hub.snapshot_download(
-                        model_path,
+                        repo_id,
                         repo_type="model",
                         local_files_only=local_only,
                         revision="fp16",
@@ -891,7 +936,7 @@ class EngineManager(object):
                     pass
 
             base = huggingface_hub.snapshot_download(
-                model_path,
+                repo_id,
                 repo_type="model",
                 local_files_only=local_only,
                 **extra_kwargs,
@@ -906,33 +951,36 @@ class EngineManager(object):
                 raise ValueError("Downloading from HuggingFace failed." + str(e))
 
     def _get_hf_forced_path(self, spec: EngineSpec):
-        model_path = spec.model
+        repo_id = spec.model_hf_id
 
-        # If no model_path is provided, don't try and download
-        if not model_path:
-            raise ValueError("No remote model name was provided")
+        # If no repo_id is provided, don't try and download
+        if not repo_id:
+            raise ValueError("No HuggingFace model ID was provided")
 
         try:
             repo_info = next(
                 (
                     repo
                     for repo in huggingface_hub.scan_cache_dir().repos
-                    if repo.repo_id == model_path
+                    if repo.repo_id == repo_id
                 )
             )
             hashes = [revision.commit_hash for revision in repo_info.revisions]
             huggingface_hub.scan_cache_dir().delete_revisions(*hashes).execute()
-        except:
+        except Exception:
             pass
 
         return self._get_hf_path(spec, local_only=False)
 
     def _get_civitai_path(self, spec: EngineSpec, local_only=True):
-        ref = civitai.parse_url(spec.model)
-        return civitai.get_model(ref, local_only=local_only)
+        ref = spec.model_civitai_ref
+        if ref:
+            return civitai.get_model(ref, local_only=local_only)
+        else:
+            raise ValueError("No Civitai model URL was provided")
 
     def _get_url_path(self, spec: EngineSpec, local_only=True):
-        urls = spec.model or spec.urls
+        urls = spec.model_url or spec.urls
 
         if not urls:
             raise ValueError("No URL was provided")
@@ -988,27 +1036,25 @@ class EngineManager(object):
         def add_candidate(callable, *args, **kwargs):
             candidates.append((callable, args, kwargs))
 
-        model_path = spec.model
-        matches_refresh = (
-            self._refresh_models
-            and model_path
-            and any(
-                (
-                    True
-                    for pattern in self._refresh_models
-                    if fnmatch(model_path, pattern)
-                )
-            )
-        )
-
-        if not model_path:
-            model_source = None
-        elif model_path.startswith("https://civitai.com"):
+        if spec.model_hf_id:
+            model_source = self._get_hf_path
+        elif spec.model_civitai_ref:
             model_source = self._get_civitai_path
-        elif model_path.startswith("https://"):
+        elif spec.model_url:
             model_source = self._get_url_path
         else:
-            model_source = self._get_hf_path
+            model_source = None
+
+        model_id = spec.model_id or spec.id
+
+        matches_refresh = (
+            self._refresh_models
+            and model_id
+            and model_source
+            and any(
+                (True for pattern in self._refresh_models if fnmatch(model_id, pattern))
+            )
+        )
 
         # 1st: If this model should explicitly be refreshed, try refreshing from URL...
         if model_source and matches_refresh:
@@ -1394,7 +1440,7 @@ class EngineManager(object):
         models: list[ModelSet] = []
 
         # Load the primary models. Currently only support 2
-        for model in spec.model:
+        for model in spec.model_list:
             if isinstance(model, str):
                 model = {"model": model}
 
@@ -1463,18 +1509,34 @@ class EngineManager(object):
         ignore_patterns=None,
         allow_patterns=None,
     ) -> ModelSet:
-        safetensor_paths = glob.glob("*.safetensors", root_dir=weight_path)
-        ckpt_paths = glob.glob("*.ckpt", root_dir=weight_path) + glob.glob(
-            "*.pt", root_dir=weight_path
-        )
+        safetensor_paths = []
+        ckpt_paths = []
 
-        safetensor_paths = list(
-            huggingface_hub.utils.filter_repo_objects(
-                safetensor_paths,
-                allow_patterns=allow_patterns,
-                ignore_patterns=ignore_patterns,
+        weight_path = Path(weight_path)
+        if weight_path.is_file():
+            if weight_path.suffix == ".safetensors":
+                safetensor_paths.append(weight_path)
+            elif weight_path.suffix in {".ckpt", ".pt"}:
+                ckpt_paths.append(weight_path)
+            else:
+                raise ValueError(
+                    f"Don't know how to handle {weight_path.name} as a ckpt file"
+                )
+        else:
+            safetensor_paths = set(weight_path.glob("*.safetensors"))
+            ckpt_paths = set(weight_path.glob("*.ckpt")) | set(weight_path.glob("*.pt"))
+
+        def filter_paths(paths):
+            return list(
+                huggingface_hub.utils.filter_repo_objects(
+                    (str(p) for p in paths),
+                    allow_patterns=allow_patterns,
+                    ignore_patterns=ignore_patterns,
+                )
             )
-        )
+
+        ckpt_paths = filter_paths(ckpt_paths)
+        safetensor_paths = filter_paths(safetensor_paths)
 
         if fp16 is None:
             fp16 = self.mode.fp16
@@ -1505,7 +1567,7 @@ class EngineManager(object):
 
         else:
             raise EnvironmentError(
-                f"Folder did not contain a .safetensors or .ckpt file."
+                f"Folder {weight_path} did not contain a .safetensors or .ckpt file."
             )
 
         with ckpt_utils.local_only(local_only):
@@ -1610,7 +1672,7 @@ class EngineManager(object):
         )
 
     def _load_from_reference(self, spec: EngineSpec) -> ModelSet:
-        modelid, *submodel = spec.model[1:].split("/")
+        modelid, *submodel = spec.model_reference
         if submodel:
             if len(submodel) > 1:
                 raise EnvironmentError(
@@ -1662,7 +1724,7 @@ class EngineManager(object):
             # Call the correct subroutine based on source to build the model
             if spec.model_is_empty:
                 model = ModelSet()
-            elif spec.model_is_reference:
+            elif spec.model_reference:
                 model = self._load_from_reference(spec)
             elif spec.type == "mix":
                 model = self._load_mixed_model(spec)
@@ -1886,6 +1948,10 @@ class EngineManager(object):
         if not os.path.isabs(outpath):
             outpath = os.path.join(self._weight_root, outpath)
 
+        if os.path.exists(outpath) and not os.path.isdir(outpath):
+            logger.warn("Couldn't save {_id} to {outpath} - exists and is not a folder")
+            return
+
         print(f"Saving {type} {_id} to {outpath}")
 
         # Load the model
@@ -1992,12 +2058,12 @@ class EngineManager(object):
     def _find_referenced_weightspecs(self, spec: EngineSpec):
         referenced = []
 
-        if spec.model_is_reference:
-            model_id, *_ = spec.model[1:].split("/")
+        if spec.model_reference:
+            model_id, *_ = spec.model_reference
             model_spec = self._find_spec(model_id=model_id)
             referenced += self._find_referenced_weightspecs(model_spec)
         elif spec.type == "mix":
-            mix_models = spec.model
+            mix_models = spec.model_list
             if spec.mix and spec.mix.get("base"):
                 mix_models += [spec.mix.get("base")]
 
