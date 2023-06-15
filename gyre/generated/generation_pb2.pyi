@@ -181,6 +181,68 @@ NOTHING: BackgroundRemovalMode.ValueType  # 3
 """Don't do anything, just remember it for later"""
 global___BackgroundRemovalMode = BackgroundRemovalMode
 
+class _MaskPredictBehaviour:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _MaskPredictBehaviourEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_MaskPredictBehaviour.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    MASK_AS_ALPHA: _MaskPredictBehaviour.ValueType  # 0
+    """Apply to alpha channel"""
+    MASK_OVER_SOLID: _MaskPredictBehaviour.ValueType  # 1
+    """Matte over a solid color"""
+    MASK_OVER_BLUR: _MaskPredictBehaviour.ValueType  # 2
+    """Matte over a blurred version of the input"""
+    MASK_DO_NOTHING: _MaskPredictBehaviour.ValueType  # 3
+    """Don't do anything, just remember it for later"""
+    MASK_USE: _MaskPredictBehaviour.ValueType  # 4
+    """Result is mask"""
+
+class MaskPredictBehaviour(_MaskPredictBehaviour, metaclass=_MaskPredictBehaviourEnumTypeWrapper): ...
+
+MASK_AS_ALPHA: MaskPredictBehaviour.ValueType  # 0
+"""Apply to alpha channel"""
+MASK_OVER_SOLID: MaskPredictBehaviour.ValueType  # 1
+"""Matte over a solid color"""
+MASK_OVER_BLUR: MaskPredictBehaviour.ValueType  # 2
+"""Matte over a blurred version of the input"""
+MASK_DO_NOTHING: MaskPredictBehaviour.ValueType  # 3
+"""Don't do anything, just remember it for later"""
+MASK_USE: MaskPredictBehaviour.ValueType  # 4
+"""Result is mask"""
+global___MaskPredictBehaviour = MaskPredictBehaviour
+
+class _MaskPredictMode:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _MaskPredictModeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_MaskPredictMode.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    PREDICT_MATTE: _MaskPredictMode.ValueType  # 0
+    """An "as accurate as possible" matte"""
+    PREDICT_MASK: _MaskPredictMode.ValueType  # 1
+    """An "as accurate as possible" binary mask"""
+    PREDICT_OVERMASK: _MaskPredictMode.ValueType  # 2
+    """A binary mask that covers at least the object, maybe a little more"""
+    PREDICT_UNDERMASK: _MaskPredictMode.ValueType  # 3
+    """A binary mask that covers at most the object, maybe a little less"""
+    PREDICT_TRIMAP: _MaskPredictMode.ValueType  # 4
+    """A trimap"""
+
+class MaskPredictMode(_MaskPredictMode, metaclass=_MaskPredictModeEnumTypeWrapper): ...
+
+PREDICT_MATTE: MaskPredictMode.ValueType  # 0
+"""An "as accurate as possible" matte"""
+PREDICT_MASK: MaskPredictMode.ValueType  # 1
+"""An "as accurate as possible" binary mask"""
+PREDICT_OVERMASK: MaskPredictMode.ValueType  # 2
+"""A binary mask that covers at least the object, maybe a little more"""
+PREDICT_UNDERMASK: MaskPredictMode.ValueType  # 3
+"""A binary mask that covers at most the object, maybe a little less"""
+PREDICT_TRIMAP: MaskPredictMode.ValueType  # 4
+"""A trimap"""
+global___MaskPredictMode = MaskPredictMode
+
 class _ArtifactStage:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -248,6 +310,21 @@ HINT_PRIORITISE_PROMPT: HintPriority.ValueType  # 1
 HINT_PRIORITISE_HINT: HintPriority.ValueType  # 2
 HINT_ADAPTIVE: HintPriority.ValueType  # 3
 global___HintPriority = HintPriority
+
+class _LOIPointLabel:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _LOIPointLabelEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_LOIPointLabel.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    POINT_BACKGROUND: _LOIPointLabel.ValueType  # 0
+    POINT_FOREGROUND: _LOIPointLabel.ValueType  # 1
+
+class LOIPointLabel(_LOIPointLabel, metaclass=_LOIPointLabelEnumTypeWrapper): ...
+
+POINT_BACKGROUND: LOIPointLabel.ValueType  # 0
+POINT_FOREGROUND: LOIPointLabel.ValueType  # 1
+global___LOIPointLabel = LOIPointLabel
 
 class _DiffusionSampler:
     ValueType = typing.NewType("ValueType", builtins.int)
@@ -902,6 +979,60 @@ class ImageAdjustment_Shuffle(google.protobuf.message.Message):
 global___ImageAdjustment_Shuffle = ImageAdjustment_Shuffle
 
 @typing_extensions.final
+class ImageAdjustment_MaskPredict(google.protobuf.message.Message):
+    """Predict a mask. Support for all these arguments (except behaviour) depends on the engine used"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    BEHAVIOUR_FIELD_NUMBER: builtins.int
+    MODE_FIELD_NUMBER: builtins.int
+    PROMPT_FIELD_NUMBER: builtins.int
+    ERODE_FIELD_NUMBER: builtins.int
+    DILATE_FIELD_NUMBER: builtins.int
+    behaviour: global___MaskPredictBehaviour.ValueType
+    mode: global___MaskPredictMode.ValueType
+    @property
+    def prompt(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___Prompt]: ...
+    erode: builtins.int
+    """How much to erode mask to generate undermask"""
+    dilate: builtins.int
+    """How much to dilate mask to generate overmask"""
+    def __init__(
+        self,
+        *,
+        behaviour: global___MaskPredictBehaviour.ValueType = ...,
+        mode: global___MaskPredictMode.ValueType = ...,
+        prompt: collections.abc.Iterable[global___Prompt] | None = ...,
+        erode: builtins.int | None = ...,
+        dilate: builtins.int | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_dilate", b"_dilate", "_erode", b"_erode", "dilate", b"dilate", "erode", b"erode"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_dilate", b"_dilate", "_erode", b"_erode", "behaviour", b"behaviour", "dilate", b"dilate", "erode", b"erode", "mode", b"mode", "prompt", b"prompt"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_dilate", b"_dilate"]) -> typing_extensions.Literal["dilate"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_erode", b"_erode"]) -> typing_extensions.Literal["erode"] | None: ...
+
+global___ImageAdjustment_MaskPredict = ImageAdjustment_MaskPredict
+
+@typing_extensions.final
+class ImageAdjustment_MaskReuse(google.protobuf.message.Message):
+    """Reuse the most recently predicted mask"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    BEHAVIOUR_FIELD_NUMBER: builtins.int
+    behaviour: global___MaskPredictBehaviour.ValueType
+    def __init__(
+        self,
+        *,
+        behaviour: global___MaskPredictBehaviour.ValueType = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["behaviour", b"behaviour"]) -> None: ...
+
+global___ImageAdjustment_MaskReuse = ImageAdjustment_MaskReuse
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -923,6 +1054,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     PALLETIZE_FIELD_NUMBER: builtins.int
     QUANTIZE_FIELD_NUMBER: builtins.int
     SHUFFLE_FIELD_NUMBER: builtins.int
+    MASK_PREDICT_FIELD_NUMBER: builtins.int
+    MASK_REUSE_FIELD_NUMBER: builtins.int
     ENGINE_ID_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
@@ -960,6 +1093,10 @@ class ImageAdjustment(google.protobuf.message.Message):
     def quantize(self) -> global___ImageAdjustment_Quantize: ...
     @property
     def shuffle(self) -> global___ImageAdjustment_Shuffle: ...
+    @property
+    def mask_predict(self) -> global___ImageAdjustment_MaskPredict: ...
+    @property
+    def mask_reuse(self) -> global___ImageAdjustment_MaskReuse: ...
     engine_id: builtins.str
     def __init__(
         self,
@@ -982,14 +1119,16 @@ class ImageAdjustment(google.protobuf.message.Message):
         palletize: global___ImageAdjustment_Palletize | None = ...,
         quantize: global___ImageAdjustment_Quantize | None = ...,
         shuffle: global___ImageAdjustment_Shuffle | None = ...,
+        mask_predict: global___ImageAdjustment_MaskPredict | None = ...,
+        mask_reuse: global___ImageAdjustment_MaskReuse | None = ...,
         engine_id: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "mask_predict", b"mask_predict", "mask_reuse", b"mask_reuse", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "mask_predict", b"mask_predict", "mask_reuse", b"mask_reuse", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_engine_id", b"_engine_id"]) -> typing_extensions.Literal["engine_id"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize", "quantize", "shuffle"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize", "quantize", "shuffle", "mask_predict", "mask_reuse"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 
@@ -1329,6 +1468,75 @@ class TokenOverride(google.protobuf.message.Message):
 global___TokenOverride = TokenOverride
 
 @typing_extensions.final
+class LOIPoint(google.protobuf.message.Message):
+    """Locations of Interest - a prompt type that indicates regions or points"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    X_FIELD_NUMBER: builtins.int
+    Y_FIELD_NUMBER: builtins.int
+    LABEL_FIELD_NUMBER: builtins.int
+    x: builtins.int
+    y: builtins.int
+    label: global___LOIPointLabel.ValueType
+    def __init__(
+        self,
+        *,
+        x: builtins.int = ...,
+        y: builtins.int = ...,
+        label: global___LOIPointLabel.ValueType | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_label", b"_label", "label", b"label"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_label", b"_label", "label", b"label", "x", b"x", "y", b"y"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_label", b"_label"]) -> typing_extensions.Literal["label"] | None: ...
+
+global___LOIPoint = LOIPoint
+
+@typing_extensions.final
+class LOIRectangle(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TOP_FIELD_NUMBER: builtins.int
+    LEFT_FIELD_NUMBER: builtins.int
+    BOTTOM_FIELD_NUMBER: builtins.int
+    RIGHT_FIELD_NUMBER: builtins.int
+    top: builtins.int
+    left: builtins.int
+    bottom: builtins.int
+    right: builtins.int
+    def __init__(
+        self,
+        *,
+        top: builtins.int = ...,
+        left: builtins.int = ...,
+        bottom: builtins.int = ...,
+        right: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["bottom", b"bottom", "left", b"left", "right", b"right", "top", b"top"]) -> None: ...
+
+global___LOIRectangle = LOIRectangle
+
+@typing_extensions.final
+class LocationsOfInterest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    POINTS_FIELD_NUMBER: builtins.int
+    RECTANGLES_FIELD_NUMBER: builtins.int
+    @property
+    def points(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___LOIPoint]: ...
+    @property
+    def rectangles(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___LOIRectangle]: ...
+    def __init__(
+        self,
+        *,
+        points: collections.abc.Iterable[global___LOIPoint] | None = ...,
+        rectangles: collections.abc.Iterable[global___LOIRectangle] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["points", b"points", "rectangles", b"rectangles"]) -> None: ...
+
+global___LocationsOfInterest = LocationsOfInterest
+
+@typing_extensions.final
 class PromptParameters(google.protobuf.message.Message):
     """A set of parameters for each individual Prompt."""
 
@@ -1394,6 +1602,7 @@ class Prompt(google.protobuf.message.Message):
     TEXT_FIELD_NUMBER: builtins.int
     TOKENS_FIELD_NUMBER: builtins.int
     ARTIFACT_FIELD_NUMBER: builtins.int
+    LOI_FIELD_NUMBER: builtins.int
     ECHO_BACK_FIELD_NUMBER: builtins.int
     @property
     def parameters(self) -> global___PromptParameters: ...
@@ -1402,6 +1611,8 @@ class Prompt(google.protobuf.message.Message):
     def tokens(self) -> global___Tokens: ...
     @property
     def artifact(self) -> global___Artifact: ...
+    @property
+    def loi(self) -> global___LocationsOfInterest: ...
     echo_back: builtins.bool
     def __init__(
         self,
@@ -1410,14 +1621,15 @@ class Prompt(google.protobuf.message.Message):
         text: builtins.str = ...,
         tokens: global___Tokens | None = ...,
         artifact: global___Artifact | None = ...,
+        loi: global___LocationsOfInterest | None = ...,
         echo_back: builtins.bool = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "echo_back", b"echo_back", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "loi", b"loi", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_parameters", b"_parameters", "artifact", b"artifact", "echo_back", b"echo_back", "loi", b"loi", "parameters", b"parameters", "prompt", b"prompt", "text", b"text", "tokens", b"tokens"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_parameters", b"_parameters"]) -> typing_extensions.Literal["parameters"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["prompt", b"prompt"]) -> typing_extensions.Literal["text", "tokens", "artifact"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["prompt", b"prompt"]) -> typing_extensions.Literal["text", "tokens", "artifact", "loi"] | None: ...
 
 global___Prompt = Prompt
 

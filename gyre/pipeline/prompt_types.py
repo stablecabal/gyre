@@ -126,3 +126,24 @@ class HintImage:
     weight: float = 1.0
     priority: HintPriority = "balanced"
     clip_layer: ClipLayer = None
+
+
+@dataclass
+class LOIPoint:
+    x: int
+    y: int
+    label: int
+
+
+@dataclass
+class LOIRectangle:
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+
+@dataclass
+class LocationsOfInterest:
+    points: list[LOIPoint]
+    rectangles: list[LOIRectangle]

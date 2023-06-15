@@ -14,6 +14,7 @@ SRC_MODULES = [
     "picklemagic",
     "BasicSR",
     "ZoeDepth",
+    "sam-hq",
 ]
 
 src_dir = os.path.dirname(__file__)

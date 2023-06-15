@@ -39,3 +39,6 @@
 [submodule "gyre/src/ZoeDepth"]
 	path = gyre/src/ZoeDepth
 	url = https://github.com/isl-org/ZoeDepth.git
+[submodule "gyre/src/sam-hq"]
+	path = gyre/src/sam-hq
+	url = https://github.com/SysCV/sam-hq.git

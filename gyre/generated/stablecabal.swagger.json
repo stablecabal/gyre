@@ -1649,6 +1649,12 @@
         "shuffle": {
           "$ref": "#/definitions/ImageAdjustment_Shuffle"
         },
+        "maskPredict": {
+          "$ref": "#/definitions/ImageAdjustment_MaskPredict"
+        },
+        "maskReuse": {
+          "$ref": "#/definitions/ImageAdjustment_MaskReuse"
+        },
         "engineId": {
           "type": "string"
         }
@@ -1787,6 +1793,43 @@
           "format": "float"
         }
       }
+    },
+    "ImageAdjustment_MaskPredict": {
+      "type": "object",
+      "properties": {
+        "behaviour": {
+          "$ref": "#/definitions/MaskPredictBehaviour"
+        },
+        "mode": {
+          "$ref": "#/definitions/MaskPredictMode"
+        },
+        "prompt": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Prompt"
+          }
+        },
+        "erode": {
+          "type": "string",
+          "format": "uint64",
+          "title": "How much to erode mask to generate undermask"
+        },
+        "dilate": {
+          "type": "string",
+          "format": "uint64",
+          "title": "How much to dilate mask to generate overmask"
+        }
+      },
+      "title": "Predict a mask. Support for all these arguments (except behaviour) depends on the engine used"
+    },
+    "ImageAdjustment_MaskReuse": {
+      "type": "object",
+      "properties": {
+        "behaviour": {
+          "$ref": "#/definitions/MaskPredictBehaviour"
+        }
+      },
+      "title": "Reuse the most recently predicted mask"
     },
     "ImageAdjustment_Normal": {
       "type": "object",
@@ -1935,6 +1978,68 @@
         }
       }
     },
+    "LOIPoint": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "y": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "label": {
+          "$ref": "#/definitions/LOIPointLabel"
+        }
+      }
+    },
+    "LOIPointLabel": {
+      "type": "string",
+      "enum": [
+        "POINT_BACKGROUND",
+        "POINT_FOREGROUND"
+      ],
+      "default": "POINT_BACKGROUND"
+    },
+    "LOIRectangle": {
+      "type": "object",
+      "properties": {
+        "top": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "left": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "bottom": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "right": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "LocationsOfInterest": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LOIPoint"
+          }
+        },
+        "rectangles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LOIRectangle"
+          }
+        }
+      }
+    },
     "Lora": {
       "type": "object",
       "properties": {
@@ -1960,6 +2065,30 @@
           "format": "float"
         }
       }
+    },
+    "MaskPredictBehaviour": {
+      "type": "string",
+      "enum": [
+        "MASK_AS_ALPHA",
+        "MASK_OVER_SOLID",
+        "MASK_OVER_BLUR",
+        "MASK_DO_NOTHING",
+        "MASK_USE"
+      ],
+      "default": "MASK_AS_ALPHA",
+      "title": "- MASK_AS_ALPHA: Apply to alpha channel\n - MASK_OVER_SOLID: Matte over a solid color\n - MASK_OVER_BLUR: Matte over a blurred version of the input\n - MASK_DO_NOTHING: Don't do anything, just remember it for later\n - MASK_USE: Result is mask"
+    },
+    "MaskPredictMode": {
+      "type": "string",
+      "enum": [
+        "PREDICT_MATTE",
+        "PREDICT_MASK",
+        "PREDICT_OVERMASK",
+        "PREDICT_UNDERMASK",
+        "PREDICT_TRIMAP"
+      ],
+      "default": "PREDICT_MATTE",
+      "title": "- PREDICT_MATTE: An \"as accurate as possible\" matte\n - PREDICT_MASK: An \"as accurate as possible\" binary mask\n - PREDICT_OVERMASK: A binary mask that covers at least the object, maybe a little more\n - PREDICT_UNDERMASK: A binary mask that covers at most the object, maybe a little less\n - PREDICT_TRIMAP: A trimap"
     },
     "MaskedAreaInit": {
       "type": "string",
@@ -2050,6 +2179,9 @@
         },
         "artifact": {
           "$ref": "#/definitions/Artifact"
+        },
+        "loi": {
+          "$ref": "#/definitions/LocationsOfInterest"
         },
         "echoBack": {
           "type": "boolean"

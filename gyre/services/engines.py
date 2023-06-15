@@ -19,6 +19,7 @@ TASK_GROUPS = {
         "segmentation",
         "pose",
         "background-removal",
+        "mask-predict",
     },
 }
 

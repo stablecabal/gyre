@@ -17,6 +17,7 @@ import generation_pb2_grpc
 import grpc
 import torch
 from accept_types import get_best_match
+from google.protobuf.message import Message as ProtobufMessage
 from google.protobuf import json_format as pb_json_format
 
 from gyre import constants, images
@@ -24,7 +25,15 @@ from gyre.cache import CacheLookupError
 from gyre.debug_recorder import DebugNullRecorder
 from gyre.logging import VisualRecord as vr
 from gyre.manager import EngineNotFoundError
-from gyre.pipeline.prompt_types import HintImage, HintPriority, Prompt, PromptFragment
+from gyre.pipeline.prompt_types import (
+    HintImage,
+    HintPriority,
+    LOIPoint,
+    LOIRectangle,
+    LocationsOfInterest,
+    Prompt,
+    PromptFragment,
+)
 from gyre.protobuf_safetensors import UserSafetensors, deserialize_safetensors
 from gyre.protobuf_tensors import deserialize_tensor
 from gyre.services.exception_to_grpc import exception_to_grpc
@@ -47,6 +56,15 @@ def buildDefaultMaskPostAdjustments():
 
 
 DEFAULT_POST_ADJUSTMENTS = buildDefaultMaskPostAdjustments()
+
+
+def message_to_dict(message):
+    retval = {}
+    for field, value in message.ListFields():
+        retval[field.name] = (
+            message_to_dict(value) if isinstance(value, ProtobufMessage) else value
+        )
+    return retval
 
 
 def image_to_artifact(
@@ -376,6 +394,69 @@ def apply_image_adjustment(
         elif which == "shuffle":
             tensor = images.shuffle(tensor)
 
+        elif which in {"mask_predict", "mask_reuse"}:
+            if which == "mask_predict":
+                behaviour = adjustment.mask_predict.behaviour
+
+                mode = adjustment.mask_predict.mode
+                output_type = (
+                    generation_pb2.MaskPredictMode.Name(mode)
+                    .lower()
+                    .replace("predict_", "")
+                )
+
+                kwargs = {}
+
+                for prompt in adjustment.mask_predict.prompt:
+                    if prompt.WhichOneof("prompt") == "text":
+                        kwargs["text"] = prompt.text
+                    elif prompt.WhichOneof("prompt") == "loi":
+                        kwargs["lois"] = LocationsOfInterest(
+                            [
+                                LOIPoint(**message_to_dict(point))
+                                for point in prompt.loi.points
+                            ],
+                            [
+                                LOIRectangle(**message_to_dict(rect))
+                                for rect in prompt.loi.rectangles
+                            ],
+                        )
+                    else:
+                        raise ValueError(
+                            f"Can't pass prompt of type {prompt.WhichOneof('prompt')} to mask predictor"
+                        )
+
+                if adjustment.mask_predict.HasField("erode"):
+                    kwargs["erode"] = adjustment.mask_predict.erode
+                if adjustment.mask_predict.HasField("dilate"):
+                    kwargs["dilate"] = adjustment.mask_predict.dilate
+
+                with manager.with_engine(engine_id, "mask-predict") as predictor:
+                    # Calculate the mask
+                    bgmask = predictor(tensor, output_type=output_type, **kwargs)
+
+            else:
+                behaviour = adjustment.mask_reuse.behaviour
+                if bgmask is None:
+                    raise ValueError("No mask memorised to reapply")
+
+            if behaviour == generation_pb2.MASK_DO_NOTHING:
+                pass
+            elif behaviour == generation_pb2.MASK_USE:
+                tensor = bgmask
+            else:
+                tensor = images.normalise_tensor(tensor, 3)
+                if behaviour == generation_pb2.MASK_AS_ALPHA:
+                    tensor = torch.cat([tensor, bgmask], dim=1)
+                elif behaviour == generation_pb2.MASK_OVER_BLUR:
+                    bg = images.infill(tensor, bgmask, 26)
+                    bg = images.gaussianblur(bg, 13)
+                    tensor = tensor * bgmask + bg * (1 - bgmask)
+                elif behaviour == generation_pb2.MASK_OVER_SOLID:
+                    tensor = tensor * bgmask
+                else:
+                    raise ValueError("Unknown background removal mode")
+
         else:
             raise ValueError(f"Unkown image adjustment {which}")
 
@@ -648,6 +729,23 @@ class ParameterExtractor:
 
     def negative_prompt(self):
         return self._prompt_by_weight(lambda weight: -weight)
+
+    def loi(self):
+        lois = []
+
+        for prompt in self._prompt_of_type("loi"):
+            points = []
+            rectangles = []
+
+            for point in prompt.loi.points:
+                points.append(LOIPoint(**message_to_dict(point)))
+
+            for rect in prompt.loi.rectangles:
+                rectangles.append(LOIRectangle(**message_to_dict(rect)))
+
+            lois.append(LocationsOfInterest(points=points, rectangles=rectangles))
+
+        return lois if lois else None
 
     def num_images_per_prompt(self):
         return self._image_parameter("samples")

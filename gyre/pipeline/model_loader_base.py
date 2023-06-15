@@ -1,4 +1,5 @@
 # To trigger binding of Uniformer backbone into mmseg
+import fnmatch
 import glob
 import json
 import os
@@ -27,8 +28,15 @@ class ModelLoaderBase:
     @classmethod
     def get_matching_path(cls, path, name, patterns, allow_patterns, ignore_patterns):
         paths = []
-        for pattern in patterns:
-            paths += glob.glob(pattern, root_dir=path)
+
+        if os.path.isfile(path):
+            for pattern in patterns:
+                if fnmatch.fnmatch(path, pattern):
+                    paths.append(path)
+                    break
+        else:
+            for pattern in patterns:
+                paths += glob.glob(pattern, root_dir=path)
 
         kwargs = {}
         if allow_patterns is not None:

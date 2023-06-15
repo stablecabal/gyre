@@ -1,0 +1,22 @@
+- model_id: "samhq-vit-h"
+  model: "lkeab/hq-sam"
+  allow_patterns: "sam_hq_vit_h.pth"
+  type: "module"
+  class: SamHQLoader/load
+  fp16: "prevent"
+
+- model_id: "vitmatte-b"
+  model: "halffried/gyre_vitmatte"
+  type: "module"
+  class: VitmatteLoader/load
+  fp16: "prevent"
+
+- id: "samhq"
+  task: "mask-predict"
+  enabled: True
+  default: True
+  class: "SamHQPipeline"
+  model: "@empty"
+  overrides:
+    vitmatte: "@vitmatte-b"
+    samhq: "@samhq-vit-h"
