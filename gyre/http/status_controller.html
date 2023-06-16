@@ -40,10 +40,12 @@
         }
 
         function LogLine(props) {
-            if (props.message) {
-                return html`<div>${props.message}</div>`;
+            if ("message" in props) {
+                const message = props.message || (props.edge ? "" : " ");
+                return html`<div>${message}</div>`;
             }
-            else {
+
+            if ("fragments" in props) {
                 const fragEls = props.fragments.map(frag =>
                     typeof (frag) == "string" ?
                         html`<span>${frag}</span>` :
@@ -52,6 +54,9 @@
 
                 return html`<div>${fragEls}</div>`;
             }
+
+            console.warn("Couldn't parse log line", props)
+            return html`<div></div>`;
         }
 
         const icons = {
@@ -70,7 +75,12 @@
                     <span class="material-symbols-outlined">${icon}</span>
                 </div>
                 <div class="log-lines">
-                    ${props.group.map((line, i) => html`<${LogLine} setImagePopupUrl=${props.setImagePopupUrl} key=${i} ...${line} />`)}
+                    ${props.group.map((line, i) => html`<${LogLine} 
+                        setImagePopupUrl=${props.setImagePopupUrl} 
+                        key=${i} 
+                        edge=${i == 0 || i == props.group.length - 1}
+                        ...${line} 
+                    />`)}
                 </div>
             </div>`;
         }
