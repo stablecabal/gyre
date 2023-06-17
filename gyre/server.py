@@ -799,7 +799,10 @@ def main():
     )
 
     util_opts.add_argument(
-        "--reload", action="store_true", help="Auto-reload on source change"
+        "--reload",
+        action="store_true",
+        default=IS_DEV,
+        help="Auto-reload on source change",
     )
     util_opts.add_argument(
         "--http_file_root",
