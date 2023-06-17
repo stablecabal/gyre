@@ -75,3 +75,4 @@ jobs:
             XFORMERS_REF=v0.0.18
             TRITON_REF=8650b4d
             DEEPSPEED_REF=tags/v0.7.6
+            FLYINGDOG_REF=${{ github.ref == 'refs/heads/test' && 'main' || '070cbff' }}
