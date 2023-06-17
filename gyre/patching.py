@@ -12,3 +12,19 @@ def patch_module_references(item, **patch):
 
     for k, v in patch.items():
         setattr(container_module, k, v)
+
+
+def patch_setrlimit():
+    import resource
+
+    original_setrlimit = resource.setrlimit
+
+    def wrapped_setrlimit(*args, **kwargs):
+        try:
+            return original_setrlimit(*args, **kwargs)
+        except Exception as e:
+            print("setrlimit failed")
+            print("Arguments: ", args, kwargs)
+            print("Exception: ", e)
+
+    resource.setrlimit = wrapped_setrlimit
