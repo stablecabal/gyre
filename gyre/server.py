@@ -41,6 +41,12 @@ from twisted.web.util import Redirect, redirectTo
 from twisted.web.wsgi import WSGIResource
 from wsgicors import CORS
 
+# Just log when setrlimit fails, rather than die with an exception
+# We need to do this patch pretty early on
+from gyre.patching import patch_setrlimit
+
+patch_setrlimit()
+
 # Google protoc compiler is dumb about imports (https://github.com/protocolbuffers/protobuf/issues/1491)
 from gyre.generated import inject_generated_path
 from gyre.src import inject_src_paths
