@@ -58,7 +58,7 @@ class ModelLoaderBase:
 
     @classmethod
     def load_config(cls, config_path):
-        if config_path.endswith(".yaml"):
+        if config_path.endswith(".yaml") or config_path.endswith(".yml"):
             config_str = open(config_path, "r").read()
             return yaml.load(config_str, Loader=SafeTupleLoader)
 
