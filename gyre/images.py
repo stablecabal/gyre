@@ -3,6 +3,7 @@
 # All images in are in BCHW unless specified in the variable name, as floating point 0..1
 # All functions will handle RGB or RGBA images
 
+import logging
 import math
 import struct
 import typing
@@ -23,6 +24,15 @@ from gyre.match_histograms import match_histograms as np_match_histograms
 
 from .resize_right import interp_methods
 from .resize_right import resize as resize_right
+
+logger = logging.getLogger(__name__)
+
+
+def vr(*args, **kwargs):
+    # This gets around circular reference by late-importing
+    from gyre.logging import VisualRecord as orig_vr
+
+    return orig_vr(*args, **kwargs)
 
 
 def fromPIL(image):
@@ -635,8 +645,69 @@ def information_in_alpha(tensor):
     return True
 
 
-def infill(tensor, mask, size, step=2):
+def infill(
+    image, mask, mode: Literal["shuffle", "extend"] = "shuffle", spread=8, scale=0.25
+):
+    """
+    mask - should be 0 keep, 1 replace
+    spread - Higher number means tighter grouping to the nearest item (infinity would be the same as extend)
+    """
+    small_image = resize(image, scale, sharpness=0)
+
+    *_, h, w = small_image.shape
+    x = torch.arange(w).to(image.device)
+    y = torch.arange(h).to(image.device)
+    y, x = torch.meshgrid(y, x)
+
+    source = small_image.permute(0, 2, 3, 1).reshape([h * w, 3])
+    pmask = 1 - quantize(resize(mask, scale)[0][0], [0.001])
+
+    result = torch.zeros_like(small_image)
+
+    with tqdm(total=h * w) as t:
+        # For every row and column...
+        for py in range(0, h):
+            for px in range(0, w):
+                t.update()
+
+                # ... build a distance map. A 0..1 tensor the same shape as small_image
+                # but each pixel is a value of how far it is from py,px (1 == close, 0 == far)
+
+                # Basic calculation
+                p = 1 / ((x - px).pow(2) + (y - py).pow(2))
+                # py,px is NaN (1/0) so fix it as 1
+                p[py][px] = 1
+                # 0 any pixels in "bad" mask
+                p = p * pmask
+                # Normalise range
+                pmax, pmin = p.max(), p.min()
+                p = (p - pmin) / (pmax - pmin)
+                # Spread range (move far pixels further towards 0)
+                p = p.pow(spread)
+
+                # Flatten out into a 1D tensor (same as source)
+                p1d = p.flatten()
+
+                if mode == "extend":
+                    # For extend, alway just pick the closest good pixel
+                    choice = source[torch.argmax(p1d).item()]
+                else:
+                    # For shuffle, use the 1..0 values as a weight in a random selection
+                    choice = source[torch.multinomial(p1d, 1).item()]
+
+                # Put the chosen color into the result
+                result[0, :, py, px] = choice
+
+    logger.debug(vr("Infill pre-overlay {result}", result=result))
+
+    return image * (1 - mask) + rescale(result, *image.shape[-2:], fit="strict") * mask
+
+
+def infill_fast(tensor, mask, size=None, steps=None, rotations=None):
     """mask should be 0 keep, 1 replace"""
+    size = size or max(tensor.shape[-2], tensor.shape[-1])
+    rotations = rotations or size // 2
+    steps = steps or rotations * 16
 
     # Pad tensor and mask, to avoid rotation on shift
     tensor = torch.nn.functional.pad(tensor, (size, size, size, size), mode="replicate")
@@ -651,14 +722,20 @@ def infill(tensor, mask, size, step=2):
     result = tensor * mask
     mask_accum = mask
 
-    for s in range(step, size, step):
-        for rx in (-s, 0, s):
-            for ry in (-s, 0, s):
-                shifted = tensor.roll(shifts=(ry, rx), dims=(-2, -1))
-                shifted_mask = mask.roll(shifts=(ry, rx), dims=(-2, -1))
+    total_a = rotations * math.tau
+    step_a = total_a / steps
+    step_r = size / steps
 
-                result = result + shifted * shifted_mask * (1 - mask_accum)
-                mask_accum = (mask_accum + shifted_mask).clamp(0, 1)
+    for s in range(steps):
+        r = step_r * s
+        a = step_a * s
+        rx, ry = int(r * math.cos(a)), int(r * math.sin(a))
+
+        shifted = tensor.roll(shifts=(ry, rx), dims=(-2, -1))
+        shifted_mask = mask.roll(shifts=(ry, rx), dims=(-2, -1))
+
+        result = result + shifted * shifted_mask * (1 - mask_accum)
+        mask_accum = (mask_accum + shifted_mask).clamp(0, 1)
 
     s = result.shape
     return result[:, :, size : s[-2] - size, size : s[-1] - size]
