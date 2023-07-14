@@ -26,6 +26,7 @@ from gyre.cache import (
     TensorLRUCache_Spillover,
 )
 from gyre.constants import GB, MB, sd_cache_home
+from gyre.pipeline import vae_approximator
 
 just_fix_windows_console()
 
@@ -182,6 +183,9 @@ class VisualRecordFormatter(string.Formatter):
             return "".join((str(x) for x in result))
 
 
+FIND_REAL_VAE = True
+
+
 class VisualRecord:
     def __init__(self, message, *args, **kwargs):
         self.message = self._translate_image(message)
@@ -189,6 +193,35 @@ class VisualRecord:
         self.kwargs = kwargs
 
     def _translate_image(self, arg):
+        if isinstance(arg, torch.Tensor) and arg.ndim == 4 and arg.shape[1] == 4:
+            # Test to see if we think this is a latent.
+            min = arg[:, 3].min()
+            std, mean = torch.std_mean(arg)
+
+            is_latent = min < -1 and mean.abs() < 0.1 and std.abs() > 0.2
+            if is_latent:
+                # We assume anything smaller than 256x256 is a latent
+                vae = None
+
+                if FIND_REAL_VAE:
+                    f = inspect.currentframe()
+                    while not vae and f and (f := f.f_back):
+                        fself = f.f_locals.get("self", None)
+                        if fself is not None:
+                            vae = getattr(fself, "vae", None)
+
+                if vae is not None:
+                    arg = 1 / 0.18215 * arg
+                    arg = arg.to(vae.device, vae.dtype)
+                    arg = vae.decode(arg).sample
+
+                else:
+                    vae = vae_approximator.VaeApproximator()
+                    arg = vae(arg)
+
+                arg = arg / 2 + 0.5
+                arg = arg.clamp(0, 1)
+
         try:
             tensor = images.fromAuto(arg)
         except RuntimeError:
