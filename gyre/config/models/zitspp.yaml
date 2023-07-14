@@ -1,0 +1,19 @@
+- model_id: "zitspp"
+  model: "halffried/gyre_zitspp"
+  type: "module"
+  class: ZitsPPLoader/load
+  fp16: "prevent"
+
+- model_id: "zitspp_wf"
+  model: "halffried/gyre_zitspp"
+  type: "module"
+  class: ZitsPPLoader/load_wf
+  fp16: "prevent"
+
+- id: "zitspp"
+  task: "inpaint"
+  enabled: True
+  class: "ZitsPPPipeline"
+  model: "@zitspp"
+  overrides:
+    wf: "@zitspp_wf"

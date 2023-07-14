@@ -77,6 +77,8 @@ DEFAULT_LIBRARIES = {
     "VitmatteLoader": "gyre.pipeline.matting.vitmatte_loader",
     "SamHQLoader": "gyre.pipeline.matting.samhq_loader",
     "SamHQPipeline": "gyre.pipeline.matting.samhq_pipeline",
+    "ZitsPPLoader": "gyre.pipeline.inpainting.zitspp_loader",
+    "ZitsPPPipeline": "gyre.pipeline.inpainting.zitspp_pipeline",
     "UpscalerLoader": "gyre.pipeline.upscalers.upscaler_loader",
     "UpscalerPipeline": "gyre.pipeline.upscalers.upscaler_pipeline",
 }
