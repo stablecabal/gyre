@@ -1534,9 +1534,10 @@ class EngineManager(object):
         def filter_paths(paths):
             return list(
                 huggingface_hub.utils.filter_repo_objects(
-                    (str(p) for p in paths),
+                    paths,
                     allow_patterns=allow_patterns,
                     ignore_patterns=ignore_patterns,
+                    key=lambda p: p.relative_to(weight_path),
                 )
             )
 
@@ -1558,9 +1559,7 @@ class EngineManager(object):
                     f"Folder contained {len(safetensor_paths)} .safetensors files, there must be at most one."
                 )
 
-            extra_kwargs["safetensors_path"] = os.path.join(
-                weight_path, safetensor_paths[0]
-            )
+            extra_kwargs["safetensors_path"] = str(safetensor_paths[0])
 
         elif ckpt_paths:
             if len(ckpt_paths) > 1:
@@ -1568,7 +1567,7 @@ class EngineManager(object):
                     f"Folder contained {len(ckpt_paths)} .ckpt files, there must be at most one."
                 )
 
-            extra_kwargs["checkpoint_path"] = os.path.join(weight_path, ckpt_paths[0])
+            extra_kwargs["checkpoint_path"] = str(ckpt_paths[0])
 
         else:
             raise EnvironmentError(
@@ -1909,7 +1908,7 @@ class EngineManager(object):
                 continue
 
             engineid = engine.id
-            if engine.default:
+            if engine.default or engine.task not in self._defaults:
                 self._defaults[engine.task] = engineid
 
             logger.info(f"  - Engine {engineid}...")
