@@ -65,12 +65,14 @@ ENV NODE_VERSION=16.18.0
 
 RUN mkdir -p $NVM_DIR
 
+WORKDIR /
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash \
     && . $NVM_DIR/nvm.sh \
     && nvm install $NODE_VERSION \
     && nvm alias default $NODE_VERSION \
     && nvm use default
 
+WORKDIR /
 RUN curl -L https://github.com/pufferffish/wireproxy/releases/download/v1.0.6/wireproxy_linux_amd64.tar.gz | tar xz
 
 
@@ -290,6 +292,8 @@ RUN mkdir -p /env/envs
 COPY --from=regularbase /env/envs /env/envs/
 RUN mkdir -p /nvm
 COPY --from=regularbase /nvm /nvm/
+
+COPY --from=regularbase /wireproxy /bin/
 
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
