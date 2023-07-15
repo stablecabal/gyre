@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import inspect
 import logging
 import math
@@ -64,12 +65,13 @@ from gyre.pipeline.prompt_types import (
     HintImage,
     HintPriority,
     ImageLike,
+    InpaintControl,
     MismatchedClipLayer,
     PromptBatch,
     PromptBatchLike,
     normalise_clip_layer,
 )
-from gyre.pipeline.randtools import TorchRandOverride, batched_randn
+from gyre.pipeline.randtools import TorchRandOverride, batched_rand, batched_randn
 from gyre.pipeline.text_embedding import BasicTextEmbedding
 from gyre.pipeline.text_embedding.lpw_text_embedding import LPWTextEmbedding
 from gyre.pipeline.text_embedding.text_encoder_alt_layer import TextEncoderAltLayer
@@ -265,20 +267,7 @@ class Img2imgMode(UnifiedMode):
         self.latents_dtype = latents_dtype
         self.batch_total = batch_total
 
-        self.image = self.preprocess_tensor(image)
-
-    def preprocess_tensor(self, tensor):
-        # Make sure it's BCHW not just CHW
-        if tensor.ndim == 3:
-            tensor = tensor[None, ...]
-        # Strip any alpha
-        tensor = tensor[:, [0, 1, 2]]
-        # Adjust to -1 .. 1
-        tensor = 2.0 * tensor - 1.0
-        # TODO: resize & crop if it doesn't match width & height
-
-        # Done
-        return tensor
+        self.image = images.normalise_tensor(image, 3)
 
     def _convertToLatents(self, image, mask=None):
         """
@@ -301,6 +290,8 @@ class Img2imgMode(UnifiedMode):
                 "Warning: mask passed to convertToLatents has more than one batch. "
                 "This is probably a mistake"
             )
+
+        image = image * 2 - 1
 
         image = image.to(device=self.device, dtype=self.pipeline.vae_dtype)
         if mask is not None:
@@ -397,7 +388,13 @@ class MaskProcessorMixin(object):
 
 class EnhancedInpaintMode(Img2imgMode, MaskProcessorMixin):
     def __init__(
-        self, mask_image, num_inference_steps, strength, latent_debugger, **kwargs
+        self,
+        mask_image,
+        num_inference_steps,
+        strength,
+        latent_debugger,
+        filler,
+        **kwargs,
     ):
         # Check strength
         if strength < 0 or strength > 2:
@@ -405,12 +402,9 @@ class EnhancedInpaintMode(Img2imgMode, MaskProcessorMixin):
                 f"The value of strength should in [0.0, 2.0] but is {strength}"
             )
 
-        # When strength > 1, we start allowing the protected area to change too. Remember that and then set strength
-        # to 1 for parent class
-        self.fill_with_shaped_noise = strength >= 1.0
-
-        self.shaped_noise_strength = min(2 - strength, 1)
-        self.mask_scale = 1
+        # Remember the filler for use later
+        self.filler = filler
+        self.filler_takes_latents = "latents" in inspect.signature(filler).parameters
 
         strength = min(strength, 1)
 
@@ -425,17 +419,17 @@ class EnhancedInpaintMode(Img2imgMode, MaskProcessorMixin):
         self.mask = self.mask.to(device=self.device, dtype=self.latents_dtype)
 
         # Remove any excluded pixels (0)
-        high_mask = self.round_mask_high(self.mask)
-        self.init_latents_orig = self._convertToLatents(self.image, high_mask)
+        self.high_mask = self.round_mask_high(self.mask)
+        self.init_latents_orig = self._convertToLatents(self.image, self.high_mask)
         # low_mask = self.round_mask_low(self.mask)
-        # blend_mask = self.mask * self.mask_scale
+        # blend_mask = self.mask
 
         self.latent_mask = self.mask_to_latent_mask(self.mask)
         self.latent_mask = torch.cat([self.latent_mask] * self.batch_total)
 
         self.latent_high_mask = self.round_mask_high(self.latent_mask)
         self.latent_low_mask = self.round_mask_low(self.latent_mask)
-        self.latent_blend_mask = self.latent_mask * self.mask_scale
+        self.latent_blend_mask = self.latent_mask
 
         self.latent_debugger = latent_debugger
 
@@ -463,156 +457,20 @@ class EnhancedInpaintMode(Img2imgMode, MaskProcessorMixin):
         norm_min = like.min() * cf
         return tensor * norm_range + norm_min
 
-    def _fillWithShapedNoise(self, init_latents, noise_mode=5):
-        """
-        noise_mode sets the noise distribution prior to convolution with the latent
-
-        0: normal, matched to latent, 1: cauchy, matched to latent, 2: log_normal,
-        3: standard normal (mean=0, std=1), 4: normal to scheduler SD
-        5: random shuffle (does not convolve afterwards)
-        """
-
-        # HERE ARE ALL THE THINGS THAT GIVE BETTER OR WORSE RESULTS DEPENDING ON THE IMAGE:
-        noise_mask_factor = 1  # (1) How much to reduce noise during mask transition
-        lmask_mode = 3  # 3 (high_mask) seems consistently good. Options are 0 = none, 1 = low mask, 2 = mask as passed, 3 = high mask
-        nmask_mode = 0  # 1 or 3 seem good, 3 gives good blends slightly more often
-        fft_norm_mode = "ortho"  # forward, backward or ortho. Doesn't seem to affect results too much
-
-        # 0 == to sampler requested std deviation, 1 == to original image distribution
-        match_mode = 2
-
-        def latent_mask_for_mode(mode):
-            if mode == 1:
-                return self.latent_low_mask
-            elif mode == 2:
-                return self.latent_mask
-            else:
-                return self.latent_high_mask
-
-        # Current theory: if we can match the noise to the image latents, we get a nice well scaled color blend between the two.
-        # The nmask mostly adjusts for incorrect scale. With correct scale, nmask hurts more than it helps
-
-        # noise_mode = 0 matches well with nmask_mode = 0
-        # nmask_mode = 1 or 3 matches well with noise_mode = 1 or 3
-
-        # Only consider the portion of the init image that aren't completely masked
-        masked_latents = init_latents
-
-        latent_mask = None
-
-        if lmask_mode > 0:
-            latent_mask = latent_mask_for_mode(lmask_mode)
-            masked_latents = masked_latents * latent_mask
-
-        batch_noise = []
-
-        for generator, split_latents in zip(self.generators, masked_latents.split(1)):
-            # Generate some noise
-            noise = torch.zeros_like(split_latents)
-            if noise_mode == 0 and noise_mode < 1:
-                noise = noise.normal_(
-                    generator=generator,
-                    mean=split_latents.mean(),
-                    std=split_latents.std(),
-                )
-            elif noise_mode == 1 and noise_mode < 2:
-                noise = noise.cauchy_(
-                    generator=generator,
-                    median=split_latents.median(),
-                    sigma=split_latents.std(),
-                )
-            elif noise_mode == 2:
-                noise = noise.log_normal_(generator=generator)
-                noise = noise - noise.mean()
-            elif noise_mode == 3:
-                noise = noise.normal_(generator=generator)
-            elif noise_mode == 4:
-                targetSD = self.scheduler.scheduler.init_noise_sigma
-                noise = noise.normal_(generator=generator, mean=0, std=targetSD)
-            elif noise_mode == 5:
-                assert latent_mask is not None
-                # Seed the numpy RNG from the batch generator, so it's consistent
-                npseed = torch.randint(
-                    low=0,
-                    high=torch.iinfo(torch.int32).max,
-                    size=[1],
-                    generator=generator,
-                    device=generator.device,
-                    dtype=torch.int32,
-                ).cpu()
-                npgen = np.random.default_rng(npseed.numpy())
-                # Fill each channel with random pixels selected from the good portion
-                # of the channel. I wish there was a way to do this in PyTorch :shrug:
-                channels = []
-                for channel in split_latents.split(1, dim=1):
-                    good_pixels = channel.masked_select(latent_mask[[0], [0]].ge(0.5))
-                    np_mixed = npgen.choice(good_pixels.cpu().numpy(), channel.shape)
-                    channels.append(
-                        torch.from_numpy(np_mixed).to(noise.device).to(noise.dtype)
-                    )
-
-                # In noise mode 5 we don't convolve. The pixel shuffled noise is already extremely similar to the original in tone.
-                # We allow the user to request some portion is uncolored noise to allow outpaints that differ greatly from original tone
-                # (with an increasing risk of image discontinuity)
-                noise = (
-                    noise.to(generator.device)
-                    .normal_(generator=generator)
-                    .to(noise.device)
-                )
-                noise = (
-                    noise * (1 - self.shaped_noise_strength)
-                    + torch.cat(channels, dim=1) * self.shaped_noise_strength
-                )
-
-                batch_noise.append(noise)
-                continue
-
-            elif noise_mode == 6:
-                noise = torch.ones_like(split_latents)
-
-            # Make the noise less of a component of the convolution compared to the latent in the unmasked portion
-            if nmask_mode > 0:
-                noise_mask = latent_mask_for_mode(nmask_mode)
-                noise = noise.mul(1 - (noise_mask * noise_mask_factor))
-
-            # Color the noise by the latent
-            noise_fft = torch.fft.fftn(noise.to(torch.float32), norm=fft_norm_mode)
-            latent_fft = torch.fft.fftn(
-                split_latents.to(torch.float32), norm=fft_norm_mode
-            )
-            convolve = noise_fft.mul(latent_fft)
-            noise = torch.fft.ifftn(convolve, norm=fft_norm_mode).real.to(
-                self.latents_dtype
-            )
-
-            # Stretch colored noise to match the image latent
-            if match_mode == 0:
-                noise = self._matchToSamplerSD(noise)
-            elif match_mode == 1:
-                noise = self._matchNorm(noise, split_latents, cf=1)
-            elif match_mode == 2:
-                noise = self._matchToSD(noise, 1)
-
-            batch_noise.append(noise)
-
-        noise = torch.cat(batch_noise, dim=0)
-
-        # And mix resulting noise into the black areas of the mask
-        return (init_latents * self.latent_mask) + (noise * (1 - self.latent_mask))
-
     def generateLatents(self):
-        # Build initial latents from image the same as for img2img
-        init_latents = self._buildInitialLatents()
-        # If strength was >=1, filled exposed areas in mask with new, shaped noise
-        if self.fill_with_shaped_noise:
-            init_latents = self._fillWithShapedNoise(init_latents)
+        image = self.image
 
-        self.latent_debugger.log("shapednoise", 0, init_latents)
+        # Fill if using a filler than can't fill latents
+        if not self.filler_takes_latents:
+            image = self.filler(image=image, mask=self.high_mask)
+        # Build initial latents from image the same as for img2img
+        init_latents = self._convertToLatents(image)
+        # Fill if using a filler than does take latents
+        if self.filler_takes_latents:
+            init_latents = self.filler(latents=init_latents, mask=self.latent_high_mask)
 
         # Add the initial noise
         init_latents = self._addInitialNoise(init_latents)
-
-        self.latent_debugger.log("initnoise", 0, init_latents)
 
         # And return
         return init_latents
@@ -661,9 +519,6 @@ class EnhancedRunwayInpaintMode(EnhancedInpaintMode):
 
         self.inpaint_mask_cache = {}
         self.masked_lantents_cache = {}
-
-    def _fillWithShapedNoise(self, init_latents):
-        return super()._fillWithShapedNoise(init_latents, noise_mode=5)
 
     def wrap_unet(self, unet: NoisePredictionUNet) -> NoisePredictionUNet:
         def wrapped_unet(latents: XtTensor, t) -> EpsTensor:
@@ -728,10 +583,10 @@ class UnifiedPipelineHint:
         if isinstance(model, t2i_adapter.T2iAdapter):
             return UnifiedPipelineHint_T2i(
                 model,
-                image,
                 clip_model,
                 feature_extractor,
                 fuser,
+                image,
                 mask,
                 weight,
                 soft_injection,
@@ -860,10 +715,10 @@ class UnifiedPipelineHint_T2i(UnifiedPipelineHint):
     def __init__(
         self,
         model,
-        image,
         clip_model,
         feature_extractor,
         fuser,
+        image,
         mask,
         weight,
         soft_injection,
@@ -1017,7 +872,7 @@ class UnifiedPipelineHint_Controlnet(UnifiedPipelineHint):
 
         if self.is_inpaint:
             # Adjust image to "inpaint protocol" (-1 for area to be inpainted)
-            mask = (mask < 0.5).float()
+            mask = (mask < 0.001).float()
             condition = (condition * (1 - mask) - mask).to(condition)
 
         if self.cfg_only:
@@ -1742,6 +1597,53 @@ class UnifiedPipeline(DiffusionPipeline):
         else:
             return self.text_encoder
 
+    def _fill_none(self, image=None, latents=None, mask=None):
+        return image if image is not None else latents
+
+    def _fill_auto(self, generators, strength=1.0, image=None, mask=None):
+        if strength < 1.0:
+            return image
+
+        result = self._fill_ai(image=image, mask=mask)
+
+        if strength > 1.0:
+            noise_weighting = strength - 1
+            noise = self._fill_noise(generators=generators, image=image, mask=mask)
+            result = result * (1 - noise_weighting) + noise * noise_weighting
+
+        return result
+
+    def _fill_noise(self, generators, image=None, latents=None, mask=None):
+        # Harden mask
+        mask = (mask > 0.001).to(image)
+        # Latents get normal noise, images get linear noise
+        randfunc = batched_rand if image is not None else batched_randn
+        source = image if image is not None else latents
+        assert source is not None
+        # Get noise and return
+        noise = randfunc(source.shape, generators, source.device, source.dtype)
+        return source * mask + noise * (1 - mask)
+
+    def _fill_ai(self, image=None, mask=None):
+        with self.subslot(task="inpaint") as inpainter:
+            mask = (mask > 0.001).to(image)
+            return inpainter(
+                image=image * mask + torch.ones_like(image) * 0.5 * (1 - mask),
+                mask=1 - mask,
+            )
+
+    def _fill_shuffle(self, image=None, latents=None, mask=None):
+        input = image if image is not None else latents
+        return images.infill(
+            input, 1 - mask, "shuffle", scale=1 if latents is not None else 0.25
+        )
+
+    def _fill_repeat(self, image=None, latents=None, mask=None):
+        if image is not None:
+            return images.infill_fast(image, 1 - mask)
+        else:
+            return images.infill(latents, 1 - mask, "extend", scale=1)
+
     @torch.no_grad()
     def __call__(
         self,
@@ -1753,6 +1655,7 @@ class UnifiedPipeline(DiffusionPipeline):
         outmask_image: ImageLike | None = None,
         depth_map: ImageLike | None = None,
         hint_images: list[HintImage] | None = None,
+        inpaint_control: InpaintControl | None = None,
         strength: float | None = None,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
@@ -1997,19 +1900,40 @@ class UnifiedPipeline(DiffusionPipeline):
         if outmask_image is not None and image is None:
             raise ValueError("Can't pass a outmask without an image")
 
+        if image is not None:
+            if isinstance(image, PILImage):
+                image = images.fromPIL(image)
+            image = images.normalise_tensor(image, 3)
+
+        if mask_image is not None:
+            if isinstance(mask_image, PILImage):
+                mask_image = images.fromPIL(mask_image)
+            mask_image = images.normalise_tensor(mask_image, 1)
+
+        if outmask_image is not None:
+            if isinstance(outmask_image, PILImage):
+                outmask_image = images.fromPIL(outmask_image)
+            outmask_image = images.normalise_tensor(outmask_image, 1)
+
+        if inpaint_control is None:
+            inpaint_control = InpaintControl()
+
+        filler = getattr(self, "_fill_" + inpaint_control.fill_mode)
+        filler_kwargs = {}
+
+        if "strength" in inspect.signature(filler).parameters:
+            filler_kwargs["strength"] = strength
+        if "generators" in inspect.signature(filler).parameters:
+            filler_kwargs["generators"] = generators
+
+        if filler_kwargs:
+            filler = functools.partial(filler, **filler_kwargs)
+
+        inpaint_mode = None
+        can_use_inpaint_unet = self.inpaint_unet is not None
+
         depth_map = None
-        can_use_depth_unet = False
-        if self.depth_unet is not None and mask_image is None:
-            can_use_depth_unet = True
-
-        if image is not None and isinstance(image, PILImage):
-            image = images.fromPIL(image)
-
-        if mask_image is not None and isinstance(mask_image, PILImage):
-            mask_image = images.fromPIL(mask_image)
-
-        if outmask_image is not None and isinstance(outmask_image, PILImage):
-            outmask_image = images.fromPIL(outmask_image)
+        can_use_depth_unet = self.depth_unet is not None
 
         leaf_args: dict[str, Any] = dict(
             hints=[],
@@ -2017,7 +1941,60 @@ class UnifiedPipeline(DiffusionPipeline):
             unet=self.unet,
         )
 
+        # Figure out the base inpaint mode
+
+        if mask_image is not None:
+            hint_type = inpaint_control.hint_type or "inpaint"
+
+            if hint_type == "inpaint" and can_use_inpaint_unet:
+                hint_type = "inpaint/unet"
+
+            if hint_type == "inpaint/unet":
+                if not can_use_inpaint_unet:
+                    raise ValueError(
+                        "Hint type of inpaint/unet, but an inpaint unet is not available"
+                    )
+
+                inpaint_mode = "unet"
+                can_use_inpaint_unet = can_use_depth_unet = False
+
+            else:
+                handler_models = None
+                if self.hintset_manager:
+                    handler_models = self.hintset_manager.for_type(hint_type, None)
+
+                if handler_models:
+                    weight, priority = inpaint_control.weight, inpaint_control.priority
+
+                    inpaint_mode = "hint"
+                    leaf_args["hints"].append(
+                        UnifiedPipelineHint.for_model(
+                            handler_models,
+                            image,
+                            mask=1 - mask_image,
+                            weight=weight,
+                            soft_injection=priority in {"prompt", "hint"},
+                            cfg_only=priority == "hint",
+                            batch_total=batch_total,
+                            _meta={"priority": priority},
+                        )
+                    )
+
+                # Final fallback, if no hint handler for inpaint and hint_type was not more explicit
+                elif hint_type == "inpaint":
+                    inpaint_mode = "legacy"
+
+                else:
+                    raise EnvironmentError(
+                        f"Pipeline doesn't know how to handle hint image of type {hint_type}"
+                    )
+
         if hint_images is not None:
+            # Peek into hint images to see if any explicitly require depth/unet
+            has_du_hint = any(
+                (hint_image.hint_type == "depth/unet" for hint_image in hint_images)
+            )
+
             for hint_image in hint_images:
                 hint_tensor = hint_image.image
                 hint_type = hint_image.hint_type
@@ -2028,8 +2005,15 @@ class UnifiedPipeline(DiffusionPipeline):
                 if isinstance(hint_tensor, PILImage):
                     hint_tensor = images.fromPIL(hint_tensor)
 
-                # If this model has a depth_unet, use it for preference
-                if hint_type == "depth" and can_use_depth_unet:
+                if hint_type == "depth" and can_use_depth_unet and not has_du_hint:
+                    hint_type = "depth/unet"
+
+                if hint_type == "depth/unet":
+                    if not can_use_depth_unet:
+                        raise ValueError(
+                            "Hint type of depth/unet, but a depth unet is not available"
+                        )
+
                     logger.debug("Using unet for depth")
 
                     depth_map = images.normalise_tensor(hint_tensor, 1)
@@ -2037,6 +2021,8 @@ class UnifiedPipeline(DiffusionPipeline):
 
                     leaf_args["depth_map"] = 2.0 * depth_map - 1.0
                     leaf_args["unet"] = self.depth_unet
+
+                    can_use_inpaint_unet = can_use_depth_unet = False
 
                 else:
                     handler_models = None
@@ -2074,11 +2060,6 @@ class UnifiedPipeline(DiffusionPipeline):
                                 f"Pipeline doesn't know how to handle hint image of type {hint_type}"
                             )
 
-        # Find the first hint (if any) that is an inpaint hint
-        inpaint_hint = next(
-            (hint for hint in leaf_args["hints"] if hint.is_inpaint), None
-        )
-
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
@@ -2088,18 +2069,13 @@ class UnifiedPipeline(DiffusionPipeline):
 
         mode_tree = ModeTreeRoot()
 
-        if mask_image is not None:
-            if self.inpaint_unet is not None:
-                mode_class = EnhancedRunwayInpaintMode
-                leaf_args["unet"] = self.inpaint_unet
-            else:
-                mode_class = EnhancedInpaintMode
+        if inpaint_mode == "unet":
+            mode_class = EnhancedRunwayInpaintMode
+            leaf_args["unet"] = self.inpaint_unet
+        elif inpaint_mode == "hint" or inpaint_mode == "legacy":
+            mode_class = EnhancedInpaintMode
         elif image is not None:
             mode_class = Img2imgMode
-        elif inpaint_hint:
-            mode_class = EnhancedInpaintMode
-            image, mask_image = inpaint_hint.image, (1 - inpaint_hint.mask)
-            outmask_image = mask_image
         else:
             mode_class = Txt2imgMode
 
@@ -2159,7 +2135,8 @@ class UnifiedPipeline(DiffusionPipeline):
 
                 def image_to_natural(
                     image: torch.Tensor | None,
-                    fill: Callable = torch.zeros,
+                    fill: Callable | None = None,
+                    fill_blend: float | None = None,
                     size: int = unet_pixel_size,
                 ):
                     return (
@@ -2170,6 +2147,7 @@ class UnifiedPipeline(DiffusionPipeline):
                             image,
                             oos_fraction=hires_oos_fraction,
                             fill=fill,
+                            fill_blend=fill_blend,
                         )
                     )
 
@@ -2186,7 +2164,7 @@ class UnifiedPipeline(DiffusionPipeline):
                         hint.extend(
                             lambda image, mask, **_: {
                                 "image": image_to_natural(image),
-                                "mask": image_to_natural(mask)
+                                "mask": image_to_natural(mask, torch.zeros)
                                 if mask is not None
                                 else mask,
                             }
@@ -2404,6 +2382,7 @@ class UnifiedPipeline(DiffusionPipeline):
             height=height,
             image=image,
             mask_image=mask_image,
+            filler=filler,
             depth_map=depth_map,
             latents_dtype=latents_dtype,
             batch_total=batch_total,
@@ -2536,11 +2515,9 @@ class UnifiedPipeline(DiffusionPipeline):
 
         if image is not None and outmask_image is not None:
             outmask = torch.cat([outmask_image] * batch_total)
-            outmask = outmask[:, [0]]
             outmask = outmask.to(result_image)
 
             source = torch.cat([image] * batch_total)
-            source = source[:, [0, 1, 2]]
             source = source.to(result_image)
 
             # We copy the result over the replacement are of the source to build a histogram reference

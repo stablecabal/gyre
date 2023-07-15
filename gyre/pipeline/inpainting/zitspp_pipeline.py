@@ -11,6 +11,7 @@ from .zitspp_postition_encoder import load_masked_position_encoding
 from .zitspp_nms import get_nms as get_np_nms  # This is a pure pytorch version
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 import cv2
 import numpy as np
@@ -180,27 +181,36 @@ class ZitsPPPipeline:
         mask = images.normalise_tensor(mask, 1)
 
         # Harden mask
-        # mask[mask >= 0.999] = 1
-        # mask[mask < 1] = 0
+        mask[mask >= 0.999] = 1
+        mask[mask < 1] = 0
 
-        # image = image * (1 - mask)
+        # Calculate 256x256 versions of image and mask
+        image_256 = images.rescale(image, 256, 256, "strict", sharpness=0)
+        mask_256 = images.rescale(mask, 256, 256, "strict", sharpness=0)
+        mask_256[mask_256 >= 0.001] = 1
+        mask_256[mask_256 < 1] = 0
 
+        # Perform line detection
         line_256 = self.lsm_hasp_inference(image, mask, mask_th=0.85)
 
+        # Convert to CV
         img = images.toCV(image)[0]
-        img = img[:, :, ::-1]  # ZitsPP works in RGB mode
+        img = img[:, :, ::-1].copy()  # ZitsPP works in RGB mode
+
+        img_256 = images.toCV(image_256)[0]
+        img_256 = img_256[:, :, ::-1].copy()  # ZitsPP works in RGB mode
+
         mask = images.toCV(mask)[0]
+        mask = (mask > 0).astype(np.uint8) * 255
+
+        mask_256 = images.toCV(mask_256)[0]
+        mask_256 = (mask_256 > 0).astype(np.uint8) * 255
 
         # resize/crop if needed
         imgh, imgw, _ = img.shape
-        img_256 = resize(img, 256, 256)
 
-        # load mask
-        mask = cv2.resize(mask, (imgw, imgh), interpolation=cv2.INTER_NEAREST)
-        mask = (mask > 127).astype(np.uint8) * 255
-
-        mask_256 = cv2.resize(mask, (256, 256), interpolation=cv2.INTER_AREA)
-        mask_256[mask_256 > 0] = 255
+        mask = mask[:, :, 0]
+        mask_256 = mask_256[:, :, 0]
 
         # load gradient
         img_gray = rgb2gray(img_256) * 255
@@ -220,7 +230,7 @@ class ZitsPPPipeline:
         )
 
         batch = dict()
-        batch["image"] = to_tensor(img.copy(), norm=True)
+        batch["image"] = to_tensor(img, norm=True)
         batch["img_256"] = to_tensor(img_256, norm=True)
         batch["mask"] = to_tensor(mask)
         batch["mask_256"] = to_tensor(mask_256)

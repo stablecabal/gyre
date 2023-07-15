@@ -147,3 +147,14 @@ class LOIRectangle:
 class LocationsOfInterest:
     points: list[LOIPoint]
     rectangles: list[LOIRectangle]
+
+
+InpaintFill = Literal["auto", "none", "shuffle", "repeat", "ai"]
+
+
+@dataclass
+class InpaintControl:
+    hint_type: str = ""
+    weight: float = 1.0
+    priority: HintPriority = "balanced"
+    fill_mode: InpaintFill = "auto"

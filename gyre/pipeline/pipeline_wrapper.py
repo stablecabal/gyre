@@ -11,7 +11,12 @@ from tqdm.auto import tqdm
 
 from gyre.pipeline import pipeline_meta
 from gyre.pipeline.model_utils import GPUExclusionSet, clone_model
-from gyre.pipeline.prompt_types import HintImage, ImageLike, PromptBatchLike
+from gyre.pipeline.prompt_types import (
+    HintImage,
+    ImageLike,
+    InpaintControl,
+    PromptBatchLike,
+)
 from gyre.pipeline.samplers import build_sampler_set
 from gyre.pipeline.unified_pipeline import SCHEDULER_NOISE_TYPE
 from gyre.pipeline.xformers_utils import xformers_mea_available
@@ -140,6 +145,8 @@ class PipelineWrapper:
                     exclusion_set=exclusion_set,
                 )
             )
+
+        self._pipeline.subslot = self.subslot
 
     def deactivate(self):
         if self._previous is None:
@@ -318,6 +325,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
         outmask_image: ImageLike | None = None,
         depth_map: ImageLike | None = None,
         hint_images: list[HintImage] | None = None,
+        inpaint_control: InpaintControl | None = None,
         # The strength of the img2img or inpaint process, if image is provided
         strength: float = None,
         # Lora
@@ -373,6 +381,7 @@ class DiffusionPipelineWrapper(PipelineWrapper):
             outmask_image=outmask_image,
             depth_map=depth_map,
             hint_images=hint_images,
+            inpaint_control=inpaint_control,
             strength=strength,
             lora=lora,
             token_embeddings=token_embeddings,

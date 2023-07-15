@@ -326,6 +326,29 @@ POINT_BACKGROUND: LOIPointLabel.ValueType  # 0
 POINT_FOREGROUND: LOIPointLabel.ValueType  # 1
 global___LOIPointLabel = LOIPointLabel
 
+class _InpaintFillMode:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _InpaintFillModeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_InpaintFillMode.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    INPAINT_FILL_AUTO: _InpaintFillMode.ValueType  # 0
+    INPAINT_FILL_NONE: _InpaintFillMode.ValueType  # 1
+    INPAINT_FILL_SHUFFLE: _InpaintFillMode.ValueType  # 2
+    INPAINT_FILL_REPEAT: _InpaintFillMode.ValueType  # 3
+    INPAINT_FILL_AI: _InpaintFillMode.ValueType  # 4
+    INPAINT_FILL_NOISE: _InpaintFillMode.ValueType  # 5
+
+class InpaintFillMode(_InpaintFillMode, metaclass=_InpaintFillModeEnumTypeWrapper): ...
+
+INPAINT_FILL_AUTO: InpaintFillMode.ValueType  # 0
+INPAINT_FILL_NONE: InpaintFillMode.ValueType  # 1
+INPAINT_FILL_SHUFFLE: InpaintFillMode.ValueType  # 2
+INPAINT_FILL_REPEAT: InpaintFillMode.ValueType  # 3
+INPAINT_FILL_AI: InpaintFillMode.ValueType  # 4
+INPAINT_FILL_NOISE: InpaintFillMode.ValueType  # 5
+global___InpaintFillMode = InpaintFillMode
+
 class _DiffusionSampler:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -1033,6 +1056,23 @@ class ImageAdjustment_MaskReuse(google.protobuf.message.Message):
 global___ImageAdjustment_MaskReuse = ImageAdjustment_MaskReuse
 
 @typing_extensions.final
+class ImageAdjustment_MaskSoftDilate(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SIGMA_FIELD_NUMBER: builtins.int
+    sigma: builtins.int
+    def __init__(
+        self,
+        *,
+        sigma: builtins.int | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_sigma", b"_sigma", "sigma", b"sigma"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_sigma", b"_sigma", "sigma", b"sigma"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_sigma", b"_sigma"]) -> typing_extensions.Literal["sigma"] | None: ...
+
+global___ImageAdjustment_MaskSoftDilate = ImageAdjustment_MaskSoftDilate
+
+@typing_extensions.final
 class ImageAdjustment(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -1056,6 +1096,7 @@ class ImageAdjustment(google.protobuf.message.Message):
     SHUFFLE_FIELD_NUMBER: builtins.int
     MASK_PREDICT_FIELD_NUMBER: builtins.int
     MASK_REUSE_FIELD_NUMBER: builtins.int
+    MASK_SOFT_DILATE_FIELD_NUMBER: builtins.int
     ENGINE_ID_FIELD_NUMBER: builtins.int
     @property
     def blur(self) -> global___ImageAdjustment_Gaussian: ...
@@ -1097,6 +1138,8 @@ class ImageAdjustment(google.protobuf.message.Message):
     def mask_predict(self) -> global___ImageAdjustment_MaskPredict: ...
     @property
     def mask_reuse(self) -> global___ImageAdjustment_MaskReuse: ...
+    @property
+    def mask_soft_dilate(self) -> global___ImageAdjustment_MaskSoftDilate: ...
     engine_id: builtins.str
     def __init__(
         self,
@@ -1121,14 +1164,15 @@ class ImageAdjustment(google.protobuf.message.Message):
         shuffle: global___ImageAdjustment_Shuffle | None = ...,
         mask_predict: global___ImageAdjustment_MaskPredict | None = ...,
         mask_reuse: global___ImageAdjustment_MaskReuse | None = ...,
+        mask_soft_dilate: global___ImageAdjustment_MaskSoftDilate | None = ...,
         engine_id: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "mask_predict", b"mask_predict", "mask_reuse", b"mask_reuse", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "mask_predict", b"mask_predict", "mask_reuse", b"mask_reuse", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "mask_predict", b"mask_predict", "mask_reuse", b"mask_reuse", "mask_soft_dilate", b"mask_soft_dilate", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_engine_id", b"_engine_id", "adjustment", b"adjustment", "autoscale", b"autoscale", "background_removal", b"background_removal", "blur", b"blur", "canny_edge", b"canny_edge", "channels", b"channels", "crop", b"crop", "depth", b"depth", "edge_detection", b"edge_detection", "engine_id", b"engine_id", "invert", b"invert", "keypose", b"keypose", "levels", b"levels", "mask_predict", b"mask_predict", "mask_reuse", b"mask_reuse", "mask_soft_dilate", b"mask_soft_dilate", "normal", b"normal", "openpose", b"openpose", "palletize", b"palletize", "quantize", b"quantize", "rescale", b"rescale", "segmentation", b"segmentation", "shuffle", b"shuffle"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_engine_id", b"_engine_id"]) -> typing_extensions.Literal["engine_id"] | None: ...
     @typing.overload
-    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize", "quantize", "shuffle", "mask_predict", "mask_reuse"] | None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["adjustment", b"adjustment"]) -> typing_extensions.Literal["blur", "invert", "levels", "channels", "rescale", "crop", "depth", "canny_edge", "edge_detection", "segmentation", "keypose", "openpose", "normal", "background_removal", "autoscale", "palletize", "quantize", "shuffle", "mask_predict", "mask_reuse", "mask_soft_dilate"] | None: ...
 
 global___ImageAdjustment = ImageAdjustment
 
@@ -1537,6 +1581,23 @@ class LocationsOfInterest(google.protobuf.message.Message):
 global___LocationsOfInterest = LocationsOfInterest
 
 @typing_extensions.final
+class InpaintParameters(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    FILL_MODE_FIELD_NUMBER: builtins.int
+    fill_mode: global___InpaintFillMode.ValueType
+    def __init__(
+        self,
+        *,
+        fill_mode: global___InpaintFillMode.ValueType | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_fill_mode", b"_fill_mode", "fill_mode", b"fill_mode"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_fill_mode", b"_fill_mode", "fill_mode", b"fill_mode"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_fill_mode", b"_fill_mode"]) -> typing_extensions.Literal["fill_mode"] | None: ...
+
+global___InpaintParameters = InpaintParameters
+
+@typing_extensions.final
 class PromptParameters(google.protobuf.message.Message):
     """A set of parameters for each individual Prompt."""
 
@@ -1548,6 +1609,7 @@ class PromptParameters(google.protobuf.message.Message):
     TOKEN_OVERRIDES_FIELD_NUMBER: builtins.int
     CLIP_LAYER_FIELD_NUMBER: builtins.int
     HINT_PRIORITY_FIELD_NUMBER: builtins.int
+    INPAINT_PARAMETERS_FIELD_NUMBER: builtins.int
     init: builtins.bool
     weight: builtins.float
     @property
@@ -1561,7 +1623,10 @@ class PromptParameters(google.protobuf.message.Message):
     0 _or_ 1 == final, 2 = penultimate, 3 = next
     """
     hint_priority: global___HintPriority.ValueType
-    """Soecify the application mode for hints"""
+    """Specify the application mode for hints"""
+    @property
+    def inpaint_parameters(self) -> global___InpaintParameters:
+        """Specify the inpaint controls for inpainting"""
     def __init__(
         self,
         *,
@@ -1571,15 +1636,18 @@ class PromptParameters(google.protobuf.message.Message):
         token_overrides: collections.abc.Iterable[global___TokenOverride] | None = ...,
         clip_layer: builtins.int | None = ...,
         hint_priority: global___HintPriority.ValueType | None = ...,
+        inpaint_parameters: global___InpaintParameters | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_hint_priority", b"_hint_priority", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "hint_priority", b"hint_priority", "init", b"init", "weight", b"weight"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_hint_priority", b"_hint_priority", "_init", b"_init", "_weight", b"_weight", "clip_layer", b"clip_layer", "hint_priority", b"hint_priority", "init", b"init", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_hint_priority", b"_hint_priority", "_init", b"_init", "_inpaint_parameters", b"_inpaint_parameters", "_weight", b"_weight", "clip_layer", b"clip_layer", "hint_priority", b"hint_priority", "init", b"init", "inpaint_parameters", b"inpaint_parameters", "weight", b"weight"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["_clip_layer", b"_clip_layer", "_hint_priority", b"_hint_priority", "_init", b"_init", "_inpaint_parameters", b"_inpaint_parameters", "_weight", b"_weight", "clip_layer", b"clip_layer", "hint_priority", b"hint_priority", "init", b"init", "inpaint_parameters", b"inpaint_parameters", "named_weights", b"named_weights", "token_overrides", b"token_overrides", "weight", b"weight"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_clip_layer", b"_clip_layer"]) -> typing_extensions.Literal["clip_layer"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_hint_priority", b"_hint_priority"]) -> typing_extensions.Literal["hint_priority"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_init", b"_init"]) -> typing_extensions.Literal["init"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing_extensions.Literal["_inpaint_parameters", b"_inpaint_parameters"]) -> typing_extensions.Literal["inpaint_parameters"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing_extensions.Literal["_weight", b"_weight"]) -> typing_extensions.Literal["weight"] | None: ...
 

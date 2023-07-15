@@ -2131,6 +2131,8 @@ class EngineManager(object):
         pipeline = slot.pipeline
 
         # Deactivate and remove it from the slot
+        slot.pipeline.subslot.deactivate()
+        slot.pipeline.subslot = None
         slot.pipeline.deactivate()
         slot.pipeline = None
 
@@ -2154,6 +2156,7 @@ class EngineManager(object):
 
         # Assign the pipeline to the slot and activate
         slot.pipeline = pipeline
+        slot.pipeline.subslot = SubSlot(self, slot)
         slot.pipeline.activate(slot.device)
 
         return pipeline
@@ -2204,6 +2207,7 @@ class EngineManager(object):
                 if not slot.pipeline:
                     existing = False
                     slot.pipeline = self._build_pipeline_for_engine(spec)
+                    slot.pipeline.subslot = SubSlot(self, slot)
                     slot.pipeline.activate(slot.device)
 
                 if self._ram_monitor:
@@ -2219,3 +2223,57 @@ class EngineManager(object):
             self._device_queue.put(slot)
 
         # All done
+
+
+class SubSlot:
+    def __init__(self, manager, slot):
+        self.manager = manager
+        self.superslot = slot
+        self.device = slot.device
+        self.pipeline = None
+
+    def deactivate(self):
+        if self.pipeline:
+            self.manager._return_pipeline_to_pool(self)
+
+    @contextmanager
+    def __call__(self, id=None, task=None):
+        # TODO: This is all duplicated from with_engine
+
+        if id is None:
+            id = self.manager._defaults[task if task else "generate"]
+
+        if id is None:
+            raise EngineNotFoundError("No engine ID provided and no default is set.")
+
+        # Get the engine spec
+        spec = self.manager._find_spec(id=id)
+        if not spec or not spec.enabled:
+            raise EngineNotFoundError(f"Engine ID {id} doesn't exist or isn't enabled.")
+
+        if task is not None and task != spec.task:
+            raise ValueError(f"Engine ID {id} is for task '{spec.task}' not '{task}'")
+
+        try:
+            # Get pipeline (create if all pipelines for the id are busy)
+
+            # If a pipeline is already active on this device slot, check if it's the right
+            # one. If not, deactivate it and clear it
+            if self.pipeline and self.pipeline.id != id:
+                self.manager._return_pipeline_to_pool(self)
+
+            # If there's no pipeline on this device slot yet, find it (creating it
+            # if all the existing pipelines are busy)
+            if not self.pipeline:
+                self.manager._get_pipeline_from_pool(self, id)
+
+                if not self.pipeline:
+                    self.pipeline = self.manager._build_pipeline_for_engine(spec)
+                    self.pipeline.with_subengine = SubSlot(self.manager, self)
+                    self.pipeline.subslot = SubSlot(self.manager, self)
+                    self.pipeline.activate(self.device)
+
+            # Do the work
+            yield self.pipeline
+        finally:
+            pass

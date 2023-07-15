@@ -28,6 +28,7 @@ from gyre.manager import EngineNotFoundError
 from gyre.pipeline.prompt_types import (
     HintImage,
     HintPriority,
+    InpaintControl,
     LOIPoint,
     LOIRectangle,
     LocationsOfInterest,
@@ -372,7 +373,7 @@ def apply_image_adjustment(
                 if mode == BRM.ALPHA:
                     tensor = torch.cat([tensor, bgmask], dim=1)
                 elif mode == BRM.BLUR:
-                    bg = images.infill(tensor, bgmask, 26)
+                    bg = images.infill_fast(tensor, bgmask, 26)
                     bg = images.gaussianblur(bg, 13)
                     tensor = tensor * bgmask + bg * (1 - bgmask)
                 elif mode == BRM.SOLID:
@@ -449,13 +450,21 @@ def apply_image_adjustment(
                 if behaviour == generation_pb2.MASK_AS_ALPHA:
                     tensor = torch.cat([tensor, bgmask], dim=1)
                 elif behaviour == generation_pb2.MASK_OVER_BLUR:
-                    bg = images.infill(tensor, bgmask, 26)
+                    bg = images.infill_fast(tensor, bgmask, 26)
                     bg = images.gaussianblur(bg, 13)
                     tensor = tensor * bgmask + bg * (1 - bgmask)
                 elif behaviour == generation_pb2.MASK_OVER_SOLID:
                     tensor = tensor * bgmask
                 else:
                     raise ValueError("Unknown background removal mode")
+
+        elif which == "mask_soft_dilate":
+            sigma = 32
+            if adjustment.mask_soft_dilate.HasField("sigma"):
+                sigma = adjustment.mask_soft_dilate.sigma
+
+            tensor = images.levels(tensor, 0, 0.001, 0, 1)
+            tensor = images.directionalblur(tensor, sigma, "up")
 
         else:
             raise ValueError(f"Unkown image adjustment {which}")
@@ -866,6 +875,55 @@ class ParameterExtractor:
                     self._image_from_artifact(prompt.artifact),
                 )
 
+    def _fill_mode_from_prompt(self, prompt, default="auto"):
+        if (
+            prompt.HasField("parameters")
+            and prompt.parameters.HasField("inpaint_parameters")
+            and prompt.parameters.inpaint_parameters.HasField("fill_mode")
+        ):
+            mode = prompt.parameters.inpaint_parameters.fill_mode
+            return (
+                generation_pb2.InpaintFillMode.Name(mode)
+                .lower()
+                .replace("inpaint_fill_", "")
+            )
+
+        return default
+
+    def _hint_parameters_from_prompt(self, prompt, default_hint_type=None):
+        hint_type = prompt.artifact.hint_image_type or default_hint_type
+        weight = 1.0
+        priority = "balanced"
+
+        if prompt.HasField("parameters"):
+            if prompt.parameters.HasField("weight"):
+                weight = prompt.parameters.weight
+
+            if prompt.parameters.HasField("hint_priority"):
+                priority_table: dict[Any, HintPriority] = {
+                    generation_pb2.HINT_BALANCED: "balanced",
+                    generation_pb2.HINT_PRIORITISE_HINT: "hint",
+                    generation_pb2.HINT_PRIORITISE_PROMPT: "prompt",
+                    generation_pb2.HINT_ADAPTIVE: "adaptive",
+                }
+
+                priority = priority_table[prompt.parameters.hint_priority]
+
+        return SN(weight=weight, hint_type=hint_type, priority=priority)
+
+    def inpaint_control(self):
+        for prompt in self._prompt_of_type("artifact"):
+            if prompt.artifact.type == generation_pb2.ARTIFACT_IMAGE:
+                fill_mode = self._fill_mode_from_prompt(prompt)
+                hint_params = self._hint_parameters_from_prompt(prompt, "inpaint")
+
+                return InpaintControl(
+                    fill_mode=fill_mode,
+                    hint_type=hint_params.hint_type,
+                    weight=hint_params.weight,
+                    priority=hint_params.priority,
+                )
+
     def mask_image(self):
         for prompt in self._prompt_of_type("artifact"):
             if prompt.artifact.type == generation_pb2.ARTIFACT_MASK:
@@ -888,42 +946,26 @@ class ParameterExtractor:
                 generation_pb2.ARTIFACT_HINT_IMAGE,
                 generation_pb2.ARTIFACT_DEPTH,
             }:
-                # Calculate weight
-                weight = 1.0
-                if prompt.HasField("parameters"):
-                    if prompt.parameters.HasField("weight"):
-                        weight = prompt.parameters.weight
+                if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
+                    default_type = "depth"
+                else:
+                    default_type = ""
+
+                # Get the hint parameters
+                hint_params = self._hint_parameters_from_prompt(prompt, default_type)
 
                 # Build the actual image
-                hint_image = self._add_to_echo(
-                    prompt,
-                    self._image_from_artifact(prompt.artifact),
-                )
+                hint_image = self._image_from_artifact(prompt.artifact)
 
-                # Find the hint type (to handle deprecated ARTIFACT_DEPTH type)
-                if prompt.artifact.type == generation_pb2.ARTIFACT_DEPTH:
-                    hint_type = "depth"
-                else:
-                    hint_type = prompt.artifact.hint_image_type
-
-                priority = "balanced"
-                if prompt.parameters.HasField("hint_priority"):
-                    priority_table: dict[Any, HintPriority] = {
-                        generation_pb2.HINT_BALANCED: "balanced",
-                        generation_pb2.HINT_PRIORITISE_HINT: "hint",
-                        generation_pb2.HINT_PRIORITISE_PROMPT: "prompt",
-                        generation_pb2.HINT_ADAPTIVE: "adaptive",
-                    }
-
-                    priority = priority_table[prompt.parameters.hint_priority]
+                self._add_to_echo(prompt, hint_image)
 
                 # And append the details
                 hint_images.append(
                     HintImage(
                         image=hint_image,
-                        hint_type=hint_type,
-                        weight=weight,
-                        priority=priority,
+                        hint_type=hint_params.hint_type,
+                        weight=hint_params.weight,
+                        priority=hint_params.priority,
                         clip_layer=self._clip_layer_from_prompt(prompt),
                     )
                 )

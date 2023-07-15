@@ -1655,6 +1655,9 @@
         "maskReuse": {
           "$ref": "#/definitions/ImageAdjustment_MaskReuse"
         },
+        "maskSoftDilate": {
+          "$ref": "#/definitions/ImageAdjustment_MaskSoftDilate"
+        },
         "engineId": {
           "type": "string"
         }
@@ -1831,6 +1834,15 @@
       },
       "title": "Reuse the most recently predicted mask"
     },
+    "ImageAdjustment_MaskSoftDilate": {
+      "type": "object",
+      "properties": {
+        "sigma": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
     "ImageAdjustment_Normal": {
       "type": "object",
       "properties": {
@@ -1975,6 +1987,26 @@
         },
         "tilingY": {
           "type": "boolean"
+        }
+      }
+    },
+    "InpaintFillMode": {
+      "type": "string",
+      "enum": [
+        "INPAINT_FILL_AUTO",
+        "INPAINT_FILL_NONE",
+        "INPAINT_FILL_SHUFFLE",
+        "INPAINT_FILL_REPEAT",
+        "INPAINT_FILL_AI",
+        "INPAINT_FILL_NOISE"
+      ],
+      "default": "INPAINT_FILL_AUTO"
+    },
+    "InpaintParameters": {
+      "type": "object",
+      "properties": {
+        "fillMode": {
+          "$ref": "#/definitions/InpaintFillMode"
         }
       }
     },
@@ -2221,7 +2253,11 @@
         },
         "hintPriority": {
           "$ref": "#/definitions/HintPriority",
-          "title": "Soecify the application mode for hints"
+          "title": "Specify the application mode for hints"
+        },
+        "inpaintParameters": {
+          "$ref": "#/definitions/InpaintParameters",
+          "title": "Specify the inpaint controls for inpainting"
         }
       },
       "description": "A set of parameters for each individual Prompt."

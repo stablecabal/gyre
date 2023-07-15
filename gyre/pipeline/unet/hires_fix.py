@@ -2,8 +2,10 @@ from typing import cast
 
 import torch
 import torchvision.transforms as T
+import logging
 
-from gyre import resize_right
+from gyre import resize_right, images
+from gyre.logging import VisualRecord as vr
 from gyre.pipeline.easing import Easing
 from gyre.pipeline.randtools import batched_rand
 from gyre.pipeline.unet.types import (
@@ -13,6 +15,9 @@ from gyre.pipeline.unet.types import (
     PX0Tensor,
     XtTensor,
 )
+
+logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+
 
 # Indexes into a shape for the height and width dimensions
 # Negative indexed to work for any number of dimensions
@@ -46,13 +51,7 @@ def scale_into(latents, scale, target=None, target_shape=None, mode="lanczos"):
     if mode == "nearest":
         latents = resize_nearest(latents, scale)
     else:
-        latents = resize_right.resize(
-            latents,
-            scale_factors=scale,
-            interp_method=resize_right.interp_methods.lanczos2,
-            pad_mode="replicate",
-            antialiasing=False,
-        )
+        latents = images.resize(latents, scale, sharpness=-1, clamp=False)
 
     if target is not None and target_shape is not None:
         raise ValueError("Only provide one of target or target_shape")
@@ -194,12 +193,25 @@ class HiresUnetWrapper(GenericSchedulerUNet):
         hi_merged = torch.where(randmap >= p, lo_upscaled, hi)
 
         # Expand lo back to full tensor size by wrapping with 0
-        lo_expanded = torch.zeros_like(hi_merged)
+        lo_expanded = torch.ones_like(hi_merged) * lo_merged.mean(
+            dim=[2, 3], keepdim=True
+        )
         lo_expanded[:, :, offseth : offseth + th, offsetw : offsetw + tw] = lo_merged
 
         self.latent_debugger.log(
             "hires", int(u * 1000), torch.cat([lo_expanded, hi_merged], dim=3)[0:1]
         )
+
+        if False:
+            logger.debug(
+                vr(
+                    "{hi} {lo} {hi_merged} {lo_expanded}",
+                    hi=hi,
+                    lo=lo,
+                    lo_expanded=lo_expanded,
+                    hi_merged=hi_merged,
+                )
+            )
 
         res = torch.concat([lo_expanded, hi_merged])
         return cast(type(hi), res)
@@ -210,11 +222,40 @@ class HiresUnetWrapper(GenericSchedulerUNet):
         natural_size: int,
         image: torch.Tensor,
         oos_fraction: float,
-        fill=torch.zeros,
+        fill=None,
+        fill_blend=None,
     ):
+        target = None
         target_shape = [natural_size, natural_size]
         scale_factor = down_scale_factor(image.shape, target_shape, oos_fraction)
-        return scale_into(image, scale_factor, target_shape=target_shape)
+
+        fill_base = None
+        if fill is not None:
+            fill_base = fill([*image.shape[:-2], natural_size, natural_size])
+
+        if fill is not None and fill_blend is None:
+            target, target_shape = fill_base, None
+
+        result = scale_into(
+            image, scale_factor, target=target, target_shape=target_shape
+        ).clamp(0, 1)
+
+        if fill_blend is not None:
+            assert fill_base is not None
+
+            print(image.shape, scale_factor, natural_size)
+
+            blend_map = torch.zeros([*image.shape[:-2], natural_size, natural_size])
+            scale_into(torch.ones_like(image), scale_factor, target=blend_map)
+            blend_map = images.directionalblur(blend_map, fill_blend, "up")
+
+            blend_map = blend_map.to(result)
+            fill_base = fill_base.to(result)
+
+            orig = result
+            result = result * blend_map + fill_base * (1 - blend_map)
+
+        return result
 
     @classmethod
     def merge_initial_latents(cls, left, right):

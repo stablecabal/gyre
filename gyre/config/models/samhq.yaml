@@ -14,7 +14,6 @@
 - id: "samhq"
   task: "mask-predict"
   enabled: True
-  default: True
   class: "SamHQPipeline"
   model: "@empty"
   overrides:
