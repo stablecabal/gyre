@@ -15,7 +15,10 @@ def patch_module_references(item, **patch):
 
 
 def patch_setrlimit():
-    import resource
+    try:
+        import resource
+    except ModuleNotFoundError:
+        return
 
     original_setrlimit = resource.setrlimit
 
