@@ -51,7 +51,7 @@ class Wireproxy:
                 else:
                     self.logger.info(line)
 
-                if "Received handshake response" in line:
+                if "Received handshake response" in line and not self.up:
                     self.up = True
                     self.logger.info("Wireproxy connection made")
 
@@ -122,7 +122,7 @@ class Wireproxy:
         )
 
     def stop(self, grace=10):
-        if not self.proc:
+        if not self.proc or not self.proc.pid:
             return
 
         self.proc.signalProcess("TERM")
