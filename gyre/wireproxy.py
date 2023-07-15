@@ -28,7 +28,7 @@ class Wireproxy:
     class Protocol(protocol.ProcessProtocol):
         def __init__(self, cfgpath):
             self.logger = logging.getLogger(__name__)
-            # self.logger.setLevel(logging.INFO)
+            self.logger.setLevel(logging.INFO)
 
             self.cfgpath = cfgpath
             self.up = False
