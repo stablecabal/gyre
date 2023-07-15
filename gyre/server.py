@@ -78,6 +78,7 @@ from gyre.services.dashboard import DashboardServiceServicer
 from gyre.services.engines import EnginesServiceServicer
 from gyre.services.generate import GenerationServiceServicer
 from gyre.sonora.wsgi import grpcWSGI
+from gyre.wireproxy import Wireproxy
 
 
 class DartGRPCCompatibility(object):
@@ -609,6 +610,26 @@ def main():
         action="store_true",
         help="Expose HTTP to public internet over localtunnel.me. If you don't specify an access token, setting this option will add one for you.",
     )
+    networking_opts.add_argument(
+        "--wireproxy_ip",
+        default=os.environ.get("SD_WIREPROXY_IP", None),
+        help="Set this server's wireproxy client IP. Wireproxy can expose this server on a wireguard VPN network",
+    )
+    networking_opts.add_argument(
+        "--wireproxy_key",
+        default=os.environ.get("SD_WIREPROXY_KEY", None),
+        help="Set this server's wireproxy private key. Wireproxy can expose this server on a wireguard VPN network",
+    )
+    networking_opts.add_argument(
+        "--wireproxy_endpoint",
+        default=os.environ.get("SD_WIREPROXY_ENDPOINT", None),
+        help="Set the wireguard endpoint. Wireproxy can expose this server on a wireguard VPN network",
+    )
+    networking_opts.add_argument(
+        "--wireproxy_endpoint_key",
+        default=os.environ.get("SD_WIREPROXY_ENDPOINT_KEY", None),
+        help="Set the wireguard endpoint public key. Wireproxy can expose this server on a wireguard VPN network",
+    )
 
     generation_opts.add_argument(
         "--enginecfg",
@@ -911,6 +932,7 @@ def main():
     grpc = None
     http = None
     localtunnel = None
+    wireproxy = None
 
     # Cleanly shutdown on SIGINT
 
@@ -920,6 +942,8 @@ def main():
             ram_monitor.stop()
         if localtunnel:
             localtunnel.stop()
+        if wireproxy:
+            wireproxy.stop()
         if http is not None:
             http.stop()
         if grpc is not None:
@@ -977,6 +1001,36 @@ def main():
     if args.localtunnel:
         localtunnel = LocaltunnelServer(args)
         localtunnel.start()
+
+    wireproxy_args = {
+        "ip": args.wireproxy_ip,
+        "key": args.wireproxy_key,
+        "endpoint": args.wireproxy_endpoint,
+        "endpointkey": args.wireproxy_endpoint_key,
+    }
+
+    wireproxy_defaults = {
+        "endpoint": "cloud.gyre.ai:51820",
+        "endpointkey": "z5mxpnP0V9nVMSJNaeuo3TAMUq49EAzGmGdlMF2ieBc=",
+    }
+
+    if any((v for k, v in wireproxy_args.items() if not k == "enpoint")):
+        # Use default endpoint if one not provided
+        if not wireproxy_args["endpoint"]:
+            wireproxy_args["endpoint"] = wireproxy_defaults["endpoint"]
+        if not wireproxy_args["endpointkey"]:
+            if wireproxy_args["endpoint"] == wireproxy_defaults["endpoint"]:
+                wireproxy_args["endpointkey"] = wireproxy_defaults["endpointkey"]
+
+        # Check all args provided
+        if not all((v for v in wireproxy_args.values())):
+            raise ValueError("Must provide all wireproxy arguments if any are provided")
+
+        # Start proxy
+        wireproxy = Wireproxy(
+            **wireproxy_args, ports={5000: args.http_port, 50051: args.grpc_port}
+        )
+        wireproxy.start()
 
     # Handle enginecfg arg being passed as a URL
     unprocessed_cfg = args.enginecfg

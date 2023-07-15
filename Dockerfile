@@ -71,6 +71,8 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | b
     && nvm alias default $NODE_VERSION \
     && nvm use default
 
+RUN curl -L https://github.com/pufferffish/wireproxy/releases/download/v1.0.6/wireproxy_linux_amd64.tar.gz | tar xz
+
 
 # ----- Build bitsandbytes -----
 
@@ -184,6 +186,8 @@ RUN mkdir -p /env/envs
 COPY --from=regularbase /env/envs /env/envs/
 RUN mkdir -p /nvm
 COPY --from=regularbase /nvm /nvm/
+
+COPY --from=regularbase /wireproxy /bin/
 
 # Setup NVM & Node for Localtunnel
 ENV NVM_DIR=/nvm
