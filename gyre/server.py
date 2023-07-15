@@ -876,6 +876,12 @@ def main():
         ),
         help="Enable or disable tracking & warning when torch.rand* is used nondeterministically",
     )
+    debug_opts.add_argument(
+        "--aggressively_release",
+        action=argparse.BooleanOptionalAction,
+        default=environ_bool("SD_AGGRESSIVELY_RELEASE"),
+        help="Aggressively release pipelines from GPU as soon as possible",
+    )
 
     args = parser.parse_args()
 
@@ -1226,6 +1232,7 @@ def main():
         ),
         nsfw_behaviour=args.nsfw_behaviour,
         ram_monitor=ram_monitor,
+        aggressively_release=args.aggressively_release,
     )
 
     http.status_controller.set_manager(manager)

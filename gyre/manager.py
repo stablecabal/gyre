@@ -1,3 +1,4 @@
+import gc
 import glob
 import hashlib
 import importlib
@@ -667,6 +668,7 @@ class EngineManager(object):
         nsfw_behaviour="block",
         batchMode=BatchMode(),
         ram_monitor=None,
+        aggressively_release=False,
     ):
         self.engines = [
             EngineSpec(spec) for spec in engines if EngineSpec.is_engine_spec(spec)
@@ -698,6 +700,7 @@ class EngineManager(object):
         self._token = os.environ.get("HF_API_TOKEN", True)
 
         self._ram_monitor = ram_monitor
+        self._aggressively_release = aggressively_release
 
         # A queue that holds all available slots, so threads can take a slot off the pile
         self._device_queue = MonitoringQueue()
@@ -2219,6 +2222,15 @@ class EngineManager(object):
             # Do the work
             yield slot.pipeline
         finally:
+            # As a debugging option, try to avoid memory leaks by agressively
+            # releasing GPU as soon as we're done
+            if self._aggressively_release:
+                self._return_pipeline_to_pool(slot)
+                gc.collect()
+                if self._ram_monitor:
+                    print(f"Aggressively released pipeline {id}")
+                    self._ram_monitor.print()
+
             # Release device handle
             self._device_queue.put(slot)
 
