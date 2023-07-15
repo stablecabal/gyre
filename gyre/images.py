@@ -331,7 +331,9 @@ def get_dim(tensor) -> tuple[int, int]:
     return tensor.shape[-2:]
 
 
-def resize(tensor, factors: float | tuple[float] | tuple[float, float], sharpness=1):
+def resize(
+    tensor, factors: float | tuple[float] | tuple[float, float], sharpness=1, clamp=True
+):
     if not isinstance(factors, typing.Iterable):
         factors = (factors, factors)
     elif len(factors) == 1:
@@ -341,13 +343,18 @@ def resize(tensor, factors: float | tuple[float] | tuple[float, float], sharpnes
     # and sharpness == 2 (no antialiasing)
 
     if sharpness > 0:
-        return resize_right(
+        tensor = resize_right(
             tensor,
             factors,
             interp_method=interp_methods.lanczos3,
             antialiasing=sharpness == 1,
             pad_mode="reflect",
-        ).clamp(0, 1)
+        )
+
+        if clamp:
+            tensor = tensor.clamp(0, 1)
+
+        return tensor
 
     # Handle sharpness = 0 (lanzcos3 for up, area for downscale)
 
@@ -363,15 +370,18 @@ def resize(tensor, factors: float | tuple[float] | tuple[float, float], sharpnes
             interp_method=interp_methods.lanczos3,
             antialiasing=False,
             pad_mode="reflect",
-        ).clamp(0, 1)
+        )
 
     if down_factors != (1, 1):
         tensor = kornia.geometry.transform.rescale(
             tensor,
             down_factors,
-            "area",
+            "area" if sharpness == 0 else "nearest",
             antialias=False,
-        ).clamp(0, 1)
+        )
+
+    if clamp:
+        tensor = tensor.clamp(0, 1)
 
     return tensor
 
@@ -654,12 +664,12 @@ def infill(
     """
     small_image = resize(image, scale, sharpness=0)
 
-    *_, h, w = small_image.shape
+    *_, c, h, w = small_image.shape
     x = torch.arange(w).to(image.device)
     y = torch.arange(h).to(image.device)
     y, x = torch.meshgrid(y, x)
 
-    source = small_image.permute(0, 2, 3, 1).reshape([h * w, 3])
+    source = small_image.permute(0, 2, 3, 1).reshape([h * w, c])
     pmask = 1 - quantize(resize(mask, scale)[0][0], [0.001])
 
     result = torch.zeros_like(small_image)
