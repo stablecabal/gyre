@@ -30,7 +30,11 @@
     "03151dc340c76bf76f3b4d13b8d5570af3c86013"
   ],
   "models/samhq.yaml": [
+    "58f56ea49e3586fefb10f53d8cb6514e70a94226",
     "ac1a471b1a02df1348179d632af0b2712781ccf7"
+  ],
+  "models/zitspp.yaml": [
+    "3cc064d2adf04992f096027e82b00beeeddfcfdb"
   ],
   "models/controlnet-11.yaml": [
     "faef1febf033908abb4bc0f6026a549d8666ef1a",
