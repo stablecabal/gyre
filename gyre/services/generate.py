@@ -1289,6 +1289,10 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 yield answer
                 ctr += 1
 
+            if stop_event.is_set():
+                print("Stopping")
+                break
+
         if self._ram_monitor:
             self._ram_monitor.print()
 
@@ -1324,9 +1328,6 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                 request, api_variant, stop_event, recorder
             ):
                 yield answer
-
-                if stop_event.is_set():
-                    break
 
     @exception_to_grpc(
         {
@@ -1404,8 +1405,9 @@ class GenerationServiceServicer(generation_pb2_grpc.GenerationServiceServicer):
                                 store = input_artifacts.setdefault(handler.target, [])
                                 store.append(artifact)
 
-                        if stop_event.is_set():
-                            break
+                    # Regardless of chain, if we don't have a connection any more, we abort.
+                    if stop_event.is_set():
+                        return
 
     def _try_deleting_context(self, key):
         """
