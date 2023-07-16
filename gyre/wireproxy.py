@@ -20,7 +20,7 @@ PersistentKeepalive = 10
 PORT_TEMPLATE = """
 [TCPServerTunnel]
 ListenPort = {external_port}
-Target = localhost:{internal_port}
+Target = 127.0.0.1:{internal_port}
 """
 
 
@@ -112,7 +112,6 @@ class Wireproxy:
             )
 
         cfgpath = self._write_cfg()
-        print(cfgpath)
 
         self.proc = reactor.spawnProcess(
             Wireproxy.Protocol(cfgpath),
