@@ -177,12 +177,23 @@ class ZitsPPPipeline:
 
     @torch.no_grad()
     def __call__(self, image, mask, obj_removal=False):
-        image = images.normalise_tensor(image, 3)
+        image = orig_image = images.normalise_tensor(image, 3)
         mask = images.normalise_tensor(mask, 1)
 
         # Harden mask
         mask[mask >= 0.999] = 1
         mask[mask < 1] = 0
+
+        # Pad out to 512x512 minimum
+        ypad, xpad = (512 - x if x < 512 else 0 for x in image.shape[-2:])
+        tpad, lpad = ypad // 2, xpad // 2
+        bpad, rpad = ypad - tpad, xpad - lpad
+        pad = (lpad, rpad, tpad, bpad)
+
+        if any(pad):
+            image = torch.nn.functional.pad(image, pad, mode="constant", value=0.5)
+            mask = torch.nn.functional.pad(mask, pad, mode="constant", value=1)
+            logger.debug(vr("Padded {image} {mask}", image=image, mask=mask))
 
         # Calculate 256x256 versions of image and mask
         image_256 = images.rescale(image, 256, 256, "strict", sharpness=0)
@@ -312,6 +323,11 @@ class ZitsPPPipeline:
 
         gen_ema_img = torch.clamp(gen_ema_img, -1, 1)
         gen_ema_img = (gen_ema_img + 1) / 2
+
+        if any(pad):
+            gen_ema_img = torchvision.transforms.functional.crop(
+                gen_ema_img, tpad, lpad, *orig_image.shape[-2:]
+            )
 
         logger.debug(
             vr(
